@@ -1,10 +1,10 @@
 import {
-    JsonController,
-    Post,
-    Body,
-    HttpCode,
-    BadRequestError,
-    UnauthorizedError
+  JsonController,
+  Post,
+  Body,
+  HttpCode,
+  UnauthorizedError,
+  Res
 } from "routing-controllers";
 import { StatusCodes } from "http-status-codes";
 import bcrypt from "bcryptjs";
@@ -12,6 +12,10 @@ import jwt from "jsonwebtoken";
 
 import { AppDataSource } from "../../data-source";
 import { AdminUser } from "../../entity/AdminUser";
+import { UserToken } from "../../entity/UserToken";
+
+import { LoginDto } from "../../dto/admin/Auth.dto";
+import handleErrorResponse from "../../utils/commonFunction";
 
 @JsonController("/auth")
 export class AuthController {
@@ -27,17 +31,7 @@ export class AuthController {
      *       content:
      *         application/json:
      *           schema:
-     *             type: object
-     *             required:
-     *               - phoneNumber
-     *               - pin
-     *             properties:
-     *               phoneNumber:
-     *                 type: string
-     *                 example: "9876543210"
-     *               pin:
-     *                 type: string
-     *                 example: "1234"
+     *             $ref: '#/components/schemas/LoginDto'
      *     responses:
      *       200:
      *         description: Login successful
@@ -48,52 +42,71 @@ export class AuthController {
      */
     @Post("/login")
     @HttpCode(StatusCodes.OK)
-    async login(@Body() body: any) {
+    async login(@Body() body: LoginDto, @Res() res: any) {
+      try {
         const { phoneNumber, pin } = body;
 
-        // 🔴 Validate input
-        if (!phoneNumber || !pin) {
-            throw new BadRequestError("Phone number and PIN are required");
-        }
-
-        // 🔍 Find user
         const userRepo = AppDataSource.getMongoRepository(AdminUser);
         const user = await userRepo.findOne({
-            where: { phoneNumber }
+          where: { phoneNumber }
         });
 
         if (!user) {
-            throw new UnauthorizedError("User not found!");
+          throw new UnauthorizedError("Invalid credentials");
         }
 
-        // 🔐 Compare PIN
         const isMatch = await bcrypt.compare(pin, user.pin);
         if (!isMatch) {
-            throw new UnauthorizedError("Invalid credentials");
+          throw new UnauthorizedError("Invalid credentials");
         }
 
-        // 🎟️ Generate JWT
-        const token = jwt.sign(
+        // Check if token already exists in user_tokens collection
+        const tokenRepo = AppDataSource.getMongoRepository(UserToken);
+        const existingToken = await tokenRepo.findOne({
+          where: { userId: user.id }
+        });
+
+        let finalToken: string;
+
+        if (existingToken) {
+          finalToken = existingToken.token;
+        } else {
+          // Generate new token if not exists
+          finalToken = jwt.sign(
             {
-                userId: user.id,
-                phoneNumber: user.phoneNumber,
-                role: user.roleId
+              userId: user.id.toString(),
+              roleId: user.roleId.toString()
             },
             process.env.JWT_SECRET as string,
             {
-                expiresIn: "1d"
+              expiresIn: "1d"
             }
-        );
+          );
 
-        // ✅ Response
-        return {
-            message: "Login successful",
-            token,
-            user: {
-                // id: user.,
-                phoneNumber: user.phoneNumber,
-                name: user.name
-            }
-        };
+          const userToken = new UserToken();
+          userToken.userId = user.id;
+          userToken.token = finalToken;
+          await tokenRepo.save(userToken);
+        }
+
+        // Update last login info
+        user.lastLoginAt = new Date();
+        // @ts-ignore
+        user.lastLoginIp = res.req.ip;
+        await userRepo.save(user);
+
+        return res.status(StatusCodes.OK).json({
+          message: "Login successful",
+          accessToken: finalToken,
+          user: {
+            id: user.id.toString(),
+            phoneNumber: user.phoneNumber,
+            name: user.name,
+            roleId: user.roleId.toString()
+          }
+        });
+      } catch (error: any) {
+        return handleErrorResponse(error, res);
+      }
     }
 }

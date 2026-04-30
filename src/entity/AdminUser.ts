@@ -14,62 +14,65 @@ import { ObjectId } from "mongodb";
 export class AdminUser {
 
   @ObjectIdColumn()
-  id!: ObjectId;
+    id!: ObjectId;
 
   // 🔹 Basic Info
   @Column()
-  name!: string;
+    name!: string;
 
   @Column()
-  userId!: string;
+    userId!: string;
 
   @Column({ nullable: true })
-  email?: string;
+    email?: string;
 
   @Column()
-  phoneNumber!: string;
+    phoneNumber!: string;
 
   @Column()
-  pin!: string; // 🔐 hashed
+    pin!: string; // 🔐 hashed
+
+  @Column({ nullable: true })
+    companyName?: string;
 
   // 🔹 Role
   @Column()
-  roleId!: ObjectId;
+    roleId!: ObjectId;
 
   // 🔹 Profile Image
   @Column("simple-json", { nullable: true })
-  profileImage?: {
+    profileImage?: {
     url?: string;
     fileName?: string;
   };
 
   // 🔹 Status
   @Column({ default: true })
-  isActive!: boolean;
+    isActive!: boolean;
 
   @Column({ default: false })
-  isDeleted!: boolean;
+    isDeleted!: boolean;
 
   // 🔹 Login / Tracking
   @Column({ nullable: true })
-  lastLoginAt?: Date;
+    lastLoginAt?: Date;
 
   @Column({ nullable: true })
-  lastLoginIp?: string;
+    lastLoginIp?: string;
 
   @Column({ nullable: true })
-  device?: string;
+    device?: string;
 
   // 🔹 Audit
   @Column({ nullable: true })
-  createdBy?: ObjectId;
+    createdBy?: ObjectId;
 
   @Column({ nullable: true })
-  updatedBy?: ObjectId;
+    updatedBy?: ObjectId;
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }

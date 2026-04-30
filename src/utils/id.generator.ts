@@ -1,27 +1,21 @@
+import { AppDataSource } from "../data-source";
+import { AdminUser } from "../entity/AdminUser";
 
-// import { AppDataSource } from "../data-source";
-// import { AdminUser } from "../entity/AdminUser";
-// import { Project } from "../entity/Project";
-// import { Vacancy } from "../entity/Vacancy";
-// import { Candidate } from "../entity/Candidate";
-// import { Interview } from "../entity/Interview";
-// import { Offer } from "../entity/Offer";
+export async function generateAdminUserId(): Promise<string> {
+  try {
+    const lastAdminUser = await AppDataSource.getMongoRepository(AdminUser).findOne({
+      where: {},
+      order: { createdAt: "DESC" as any }
+    });
 
-// export async function generateAdminUserId(): Promise<string> {
-//     try {
-//         const lastAdminUser = await AppDataSource.getMongoRepository(AdminUser).findOne({
-//             where: {},
-//             order: { createdAt: "DESC" as any }
-//         });
-
-//         const lastId = lastAdminUser?.userId?.replace('US', '') || '000';
-//         const numeric = parseInt(lastId) || 0;
-//         const newId = `US${(numeric + 1).toString().padStart(3, '0')}`;
-//         return newId;
-//     } catch (err) {
-//         throw err;
-//     }
-// }
+    const lastId = lastAdminUser?.userId?.replace("US", "") || "000";
+    const numeric = parseInt(lastId) || 0;
+    const newId = `US${(numeric + 1).toString().padStart(3, "0")}`;
+    return newId;
+  } catch (err) {
+    throw err;
+  }
+}
 
 // export async function generateVacancyRequestNumber(): Promise<string> {
 //     try {

@@ -4,15 +4,13 @@ import { ObjectId } from "mongodb";
 @Entity("user_tokens")
 export class UserToken {
 
-    @Column() companyId!: ObjectId;
+    @Column({ nullable: true }) 
+    companyId?: ObjectId;
     @ObjectIdColumn()
       _id!: ObjectId;
 
     @Column()
       userId!: ObjectId;
-
-    @Column()
-      userType!: "ADMIN" | "ADMIN_USER" | "MEMBER";
 
     @Column()
       token!: string;
