@@ -4,7 +4,7 @@
   "description": "Lean backend setup",
   "type": "commonjs",
   "scripts": {
-    "start": "pm2 start ecosystem.config.js",
+    "start": "node dist/index.js",
     "dev": "npm run lint && nodemon --watch src --ext ts --exec ts-node src/index.ts",
     "build": "tsc",
     "test": "jest --passWithNoTests",
@@ -12,6 +12,7 @@
     "lint:fix": "eslint src --ext .ts,.js --fix"
   },
   "dependencies": {
+    "axios": "^1.15.2",
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.0",
