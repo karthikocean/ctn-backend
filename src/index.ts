@@ -25,10 +25,10 @@ AppDataSource.initialize()
 
     app.use(
       cors({
-        origin: process.env.ALLOWED_ORIGINS?.split(",") || [],
+        origin: "*",  // ✅ Allow all domains
         methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
         allowedHeaders: ["Origin", "Content-Type", "Authorization"],
-        credentials: true
+        credentials: false  // ⚠️ Must be false when origin is "*"
       })
     );
 
