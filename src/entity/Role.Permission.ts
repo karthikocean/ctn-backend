@@ -14,22 +14,25 @@ import { ObjectId } from "mongodb";
 export class Role {
 
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   // @Column()
   //   companyId!: ObjectId;
 
   @Column()
-  name!: string;
+    name!: string;
 
   @Column()
-  code!: string;
+    code!: string;
+
+  @Column({ nullable: true })
+    description?: string;
 
   @Column({ default: true })
-  isActive!: boolean;
+    isActive!: boolean;
 
   @Column({ default: false })
-  isDeleted!: boolean;
+    isDeleted!: boolean;
 
   // @Column({ default: false })
   // showForAdmin!: boolean;
@@ -42,20 +45,20 @@ export class Role {
    * Supports dynamic actions
    */
   @Column("json")
-  permissions!: {
+    permissions!: {
     moduleId: ObjectId;
     actions: string[]; // ["view", "create", "edit", "delete"]
   }[];
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 
   @Column({ nullable: true })
-  createdBy?: ObjectId;
+    createdBy?: ObjectId;
 
   @Column({ nullable: true })
-  updatedBy?: ObjectId;
+    updatedBy?: ObjectId;
 }

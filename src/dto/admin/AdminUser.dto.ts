@@ -1,88 +1,132 @@
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     CreateAdminUserDto:
+ *       type: object
+ *       required:
+ *         - name
+ *         - email
+ *         - companyName
+ *         - phoneNumber
+ *         - pin
+ *         - roleId
+ *       properties:
+ *         name:
+ *           type: string
+ *         email:
+ *           type: string
+ *         companyName:
+ *           type: string
+ *         phoneNumber:
+ *           type: string
+ *         pin:
+ *           type: string
+ *         roleId:
+ *           type: string
+ *         isActive:
+ *           type: number
+ *     UpdateAdminUserDto:
+ *       type: object
+ *       properties:
+ *         name:
+ *           type: string
+ *         email:
+ *           type: string
+ *         companyName:
+ *           type: string
+ *         phoneNumber:
+ *           type: string
+ *         pin:
+ *           type: string
+ *         roleId:
+ *           type: string
+ *         isActive:
+ *           type: number
+ */
 import {
   IsEmail,
   IsString,
   IsNotEmpty,
   IsOptional,
   IsMongoId,
-  Length,
   IsPhoneNumber
 } from "class-validator";
 import { Type } from "class-transformer";
 
 export class CreateAdminUserDto {
-    @IsString()
-    @IsNotEmpty()
-      name!: string;
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
 
-    @IsOptional()
-      profileImage?: {
-        fileName?: string;
-        path?: string;
-        originalName?: string;
-    } = {
-          fileName: "",
-          path: "",
-          originalName: ""
-        };
+  @IsOptional()
+  profileImage?: {
+    fileName?: string;
+    path?: string;
+    originalName?: string;
+  } = {
+      fileName: "",
+      path: "",
+      originalName: ""
+    };
 
-    @IsEmail()
-      email!: string;
+  @IsEmail()
+  email!: string;
 
-    @IsString()
-      companyName!: string;
+  @IsPhoneNumber("IN")
+  @IsNotEmpty()
+  phoneNumber!: string;
 
-    @IsPhoneNumber("IN")
-    @IsNotEmpty()
-      phoneNumber!: string;
+  // @Length(4)
+  // @IsString()
+  // @IsNotEmpty()
+  //   pin!: string;
 
-    @Length(4)
-    @IsString()
-      pin!: string;
+  @IsMongoId()
+  roleId!: string;
 
-    @IsMongoId()
-      roleId!: string;
-
-    @IsOptional()
-    @Type(() => Number)
-      isActive?: number;
+  @IsOptional()
+  @Type(() => Number)
+  isActive?: number;
 
 }
+
 export class UpdateAdminUserDto {
-    @IsOptional()
-    @IsString()
-      name?: string;
+  @IsOptional()
+  @IsString()
+  name?: string;
 
-    @IsOptional()
-      profileImage?: {
-        fileName?: string;
-        path?: string;
-        originalName?: string;
-    } = {
-          fileName: "",
-          path: "",
-          originalName: ""
-        };
+  @IsOptional()
+  profileImage?: {
+    fileName?: string;
+    path?: string;
+    originalName?: string;
+  } = {
+      fileName: "",
+      path: "",
+      originalName: ""
+    };
 
-    @IsOptional()
-    @IsEmail()
-      email?: string;
+  @IsOptional()
+  @IsEmail()
+  email?: string;
 
-    @IsOptional()
-    @IsString()
-      companyName?: string;
+  @IsOptional()
+  @IsString()
+  companyName?: string;
 
-    @IsOptional()
-    @IsString()
-      phoneNumber?: string;
+  @IsOptional()
+  @IsString()
+  phoneNumber?: string;
 
-    @IsOptional()
-      pin?: string;
+  @IsOptional()
+  pin?: string;
 
-    @IsOptional()
-    @IsMongoId()
-      roleId?: string;
+  @IsOptional()
+  @IsMongoId()
+  roleId?: string;
 
-    @IsOptional()
-    @Type(() => Number)
-      isActive?: number;
+  @IsOptional()
+  @Type(() => Number)
+  isActive?: number;
 }

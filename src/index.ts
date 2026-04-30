@@ -59,6 +59,11 @@ AppDataSource.initialize()
           ? __dirname + "/middlewares/**/*.js"
           : __dirname + "/middlewares/**/*.ts"
       ],
+      interceptors: [
+        isProd
+          ? __dirname + "/middlewares/ResponseInterceptor.js"
+          : __dirname + "/middlewares/ResponseInterceptor.ts"
+      ],
       defaultErrorHandler: false,
       validation: true,
       classTransformer: true
