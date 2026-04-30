@@ -45,8 +45,7 @@ AppDataSource.initialize()
     // ✅ Swagger route
     app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-    const isProd = process.env.NODE_ENV === "prod";
-
+    const isProd = process.env.NODE_ENV === "production";
     useExpressServer(app, {
       routePrefix: "/api",
       controllers: [
