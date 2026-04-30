@@ -1,21 +1,15 @@
 import { DataSource } from "typeorm";
 import dotenv from "dotenv";
 
-dotenv.config({ quiet: true });
+dotenv.config();
 
-const isProd = process.env.NODE_ENV === "prod";
+const ext = __filename.endsWith(".ts") ? "ts" : "js";
 
 export const AppDataSource = new DataSource({
   type: "mongodb",
   url: process.env.MONGO_URI || "",
   synchronize: false,
-  logging: !isProd,
+  logging: process.env.NODE_ENV !== "production",
 
-  entities: [
-    isProd
-      ? __dirname + "/entity/**/*.js"
-      : "src/entity/**/*.ts"
-  ],
-
-  // useUnifiedTopology: true,
+  entities: [`${__dirname}/entity/**/*.${ext}`],
 });
