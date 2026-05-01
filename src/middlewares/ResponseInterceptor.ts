@@ -14,7 +14,7 @@ export class ResponseInterceptor implements InterceptorInterface {
 
     // Handle primitive types early
     if (typeof obj !== "object") return obj;
-    
+
     // Handle Date
     if (obj instanceof Date) return obj;
 
@@ -42,7 +42,7 @@ export class ResponseInterceptor implements InterceptorInterface {
       // Avoid traversing internal properties (often prefixed with _)
       // Except for _id which is specifically what we want
       if (key.startsWith("_") && key !== "_id") continue;
-      
+
       try {
         newObj[key] = this.transform(obj[key], visited);
       } catch (e) {

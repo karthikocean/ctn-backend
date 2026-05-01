@@ -57,25 +57,25 @@ import { Type } from "class-transformer";
 export class CreateAdminUserDto {
   @IsString()
   @IsNotEmpty()
-  name!: string;
+    name!: string;
 
   @IsOptional()
-  profileImage?: {
+    profileImage?: {
     fileName?: string;
     path?: string;
     originalName?: string;
   } = {
-      fileName: "",
-      path: "",
-      originalName: ""
-    };
+        fileName: "",
+        path: "",
+        originalName: ""
+      };
 
   @IsEmail()
-  email!: string;
+    email!: string;
 
   @IsPhoneNumber("IN")
   @IsNotEmpty()
-  phoneNumber!: string;
+    phoneNumber!: string;
 
   // @Length(4)
   // @IsString()
@@ -83,50 +83,50 @@ export class CreateAdminUserDto {
   //   pin!: string;
 
   @IsMongoId()
-  roleId!: string;
+    roleId!: string;
 
   @IsOptional()
   @Type(() => Number)
-  isActive?: number;
+    isActive?: number;
 
 }
 
 export class UpdateAdminUserDto {
   @IsOptional()
   @IsString()
-  name?: string;
+    name?: string;
 
   @IsOptional()
-  profileImage?: {
+    profileImage?: {
     fileName?: string;
     path?: string;
     originalName?: string;
   } = {
-      fileName: "",
-      path: "",
-      originalName: ""
-    };
+        fileName: "",
+        path: "",
+        originalName: ""
+      };
 
   @IsOptional()
   @IsEmail()
-  email?: string;
+    email?: string;
 
   @IsOptional()
   @IsString()
-  companyName?: string;
+    companyName?: string;
 
   @IsOptional()
   @IsString()
-  phoneNumber?: string;
+    phoneNumber?: string;
 
   @IsOptional()
-  pin?: string;
+    pin?: string;
 
   @IsOptional()
   @IsMongoId()
-  roleId?: string;
+    roleId?: string;
 
   @IsOptional()
   @Type(() => Number)
-  isActive?: number;
+    isActive?: number;
 }
