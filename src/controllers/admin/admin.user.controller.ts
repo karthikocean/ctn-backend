@@ -111,16 +111,16 @@ export class AdminUserController {
      *         description: User not found
      */
     @Get("/:id")
-    async getOne(@Param("id") id: string) {
-      if (!ObjectId.isValid(id)) {
-        throw new BadRequestError("Invalid ID format");
-      }
-      const user = await this.adminUserRepo.findOne({
-        where: { _id: new ObjectId(id), isDeleted: false }
-      });
-      if (!user) throw new NotFoundError("Admin user not found");
-      return user;
+  async getOne(@Param("id") id: string) {
+    if (!ObjectId.isValid(id)) {
+      throw new BadRequestError("Invalid ID format");
     }
+    const user = await this.adminUserRepo.findOne({
+      where: { _id: new ObjectId(id), isDeleted: false }
+    });
+    if (!user) throw new NotFoundError("Admin user not found");
+    return user;
+  }
 
     /**
      * @swagger
