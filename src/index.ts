@@ -15,6 +15,8 @@ import { swaggerSpec } from "./config/swagger";
 import { seedAdmin } from "./seed/seedAdmin";
 import { createServer } from "http";
 import { initSocket } from "./utils/socket";
+import cron from "node-cron";
+import axios from "axios";
 
 AppDataSource.initialize()
   .then(async () => {
@@ -58,7 +60,12 @@ AppDataSource.initialize()
       classTransformer: true
     });
 
+    app.get("/api/health", (req, res) => {
+      res.status(200).send("Server is alive");
+    });
+
     app.get("/", (_req, res) => {
+
       res.status(200).json({
         status: "ok",
         timestamp: new Date().toISOString(),
@@ -86,7 +93,19 @@ AppDataSource.initialize()
     httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📄 Swagger: http://localhost:${PORT}/api-docs`);
+
+      // ✅ Cron job to call the production URL every 5 minutes to keep it alive
+      cron.schedule("*/5 * * * *", async () => {
+        try {
+          const url = "https://ctn-backend.onrender.com/api/health";
+          const response = await axios.get(url);
+          console.log(`🕒 Cron Health Check: ${response.data} at ${new Date().toLocaleString()}`);
+        } catch (error: any) {
+          console.error(`❌ Cron Health Check Failed: ${error.message}`);
+        }
+      });
     });
+
   })
   .catch((error) => {
     console.error("❌ DB Error:", error);
