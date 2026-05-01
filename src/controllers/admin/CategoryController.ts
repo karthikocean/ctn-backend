@@ -128,10 +128,10 @@ export class CategoryController {
         .flatMap(c => [c.parentCategory, c.referralParent])
         .filter((id): id is ObjectId => !!id);
 
-      const parents = allCategoryIds.length > 0 
+      const parents = allCategoryIds.length > 0
         ? await this.categoryRepo.find({ where: { _id: { $in: allCategoryIds } } as any })
         : [];
-      
+
       const parentMap = new Map(parents.map(p => [p._id.toString(), { _id: p._id, name: p.name }]));
 
       // ✅ Get counts for Sub and Referral categories

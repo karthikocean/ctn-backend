@@ -141,35 +141,35 @@ export class AuthController {
   @Post("/change-pin")
   @UseBefore(AuthMiddleware)
   @HttpCode(StatusCodes.OK)
-  async changePin(@Body() body: ChangePinDto, @Res() res: any) {
-    try {
-      const { oldPin, newPin } = body;
-      const userId = (res.req as any).user.userId;
+    async changePin(@Body() body: ChangePinDto, @Res() res: any) {
+      try {
+        const { oldPin, newPin } = body;
+        const userId = (res.req as any).user.userId;
 
-      const userRepo = AppDataSource.getMongoRepository(AdminUser);
-      const user = await userRepo.findOne({
-        where: { _id: new ObjectId(userId) }
-      });
+        const userRepo = AppDataSource.getMongoRepository(AdminUser);
+        const user = await userRepo.findOne({
+          where: { _id: new ObjectId(userId) }
+        });
 
-      if (!user) {
-        throw new UnauthorizedError("User not found");
+        if (!user) {
+          throw new UnauthorizedError("User not found");
+        }
+
+        const isMatch = await bcrypt.compare(oldPin, user.pin);
+        if (!isMatch) {
+          throw new BadRequestError("Invalid old PIN");
+        }
+
+        user.pin = await bcrypt.hash(newPin, 10);
+        await userRepo.save(user);
+
+        return res.status(StatusCodes.OK).json({
+          message: "PIN changed successfully"
+        });
+      } catch (error: any) {
+        return handleErrorResponse(error, res);
       }
-
-      const isMatch = await bcrypt.compare(oldPin, user.pin);
-      if (!isMatch) {
-        throw new BadRequestError("Invalid old PIN");
-      }
-
-      user.pin = await bcrypt.hash(newPin, 10);
-      await userRepo.save(user);
-
-      return res.status(StatusCodes.OK).json({
-        message: "PIN changed successfully"
-      });
-    } catch (error: any) {
-      return handleErrorResponse(error, res);
     }
-  }
 
   /**
    * @swagger

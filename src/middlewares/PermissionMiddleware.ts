@@ -36,9 +36,9 @@ export const canAccess = (feature: string, action: any) => {
       next();
     } catch (error: any) {
       console.error(`Permission Middleware Error [${feature}:${action}]:`, error.message);
-      return res.status(500).json({ 
-        message: "Authentication error", 
-        error: error.message 
+      return res.status(500).json({
+        message: "Authentication error",
+        error: error.message
       });
     }
   };
