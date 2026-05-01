@@ -13,6 +13,8 @@ import fileUpload from "express-fileupload";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
 import { seedAdmin } from "./seed/seedAdmin";
+import { createServer } from "http";
+import { initSocket } from "./utils/socket";
 
 AppDataSource.initialize()
   .then(async () => {
@@ -45,24 +47,12 @@ AppDataSource.initialize()
     // ✅ Swagger route
     app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-    const isProd = process.env.NODE_ENV === "production";
+    const ext = __filename.endsWith(".ts") ? "ts" : "js";
     useExpressServer(app, {
       routePrefix: "/api",
-      controllers: [
-        isProd
-          ? __dirname + "/controllers/**/*.js"
-          : __dirname + "/controllers/**/*.ts"
-      ],
-      middlewares: [
-        isProd
-          ? __dirname + "/middlewares/**/*.js"
-          : __dirname + "/middlewares/**/*.ts"
-      ],
-      interceptors: [
-        isProd
-          ? __dirname + "/middlewares/ResponseInterceptor.js"
-          : __dirname + "/middlewares/ResponseInterceptor.ts"
-      ],
+      controllers: [__dirname + `/controllers/**/*.${ext}`],
+      middlewares: [__dirname + `/middlewares/**/*.${ext}`],
+      interceptors: [__dirname + `/middlewares/ResponseInterceptor.${ext}`],
       defaultErrorHandler: false,
       validation: true,
       classTransformer: true
@@ -80,7 +70,7 @@ AppDataSource.initialize()
 
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       console.error(err);
-      const isProd = process.env.NODE_ENV === "prod";
+      const isProd = process.env.NODE_ENV === "production";
 
       res.status(err.httpCode || 500).json({
         message: isProd ? "An unexpected error occurred." : err.message,
@@ -90,7 +80,10 @@ AppDataSource.initialize()
 
     const PORT = process.env.PORT || 4000;
 
-    app.listen(PORT, () => {
+    const httpServer = createServer(app);
+    initSocket(httpServer);
+
+    httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📄 Swagger: http://localhost:${PORT}/api-docs`);
     });

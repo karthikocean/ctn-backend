@@ -10,8 +10,10 @@ import {
   BadRequestError,
   HttpCode,
   QueryParam,
-  Res
+  Res,
+  UseBefore
 } from "routing-controllers";
+import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { AppDataSource } from "../../data-source";
 import { Role } from "../../entity/Role.Permission";
 import { AdminUser } from "../../entity/AdminUser";
@@ -20,6 +22,8 @@ import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
+import { emitToUsers } from "../../utils/socket";
+import { canAccess } from "../../middlewares/PermissionMiddleware";
 
 @JsonController("/roles")
 export class RoleController {
@@ -51,6 +55,7 @@ export class RoleController {
    *         description: Paginated list of roles
    */
   @Get("/")
+  @UseBefore(AuthMiddleware, canAccess("roles_permissions", "view"))
   async getAll(
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
@@ -113,6 +118,7 @@ export class RoleController {
    *         description: Role not found
    */
   @Get("/:id")
+  @UseBefore(AuthMiddleware, canAccess("roles_permissions", "view"))
   async getOne(@Param("id") id: string) {
     if (!ObjectId.isValid(id)) {
       throw new BadRequestError("Invalid ID format");
@@ -143,6 +149,7 @@ export class RoleController {
    *         description: Role name or code already exists
    */
   @Post("/")
+  @UseBefore(AuthMiddleware, canAccess("roles_permissions", "add"))
   @HttpCode(StatusCodes.CREATED)
   async create(@Body() roleData: CreateRoleDto, @Res() res: any) {
     try {
@@ -170,7 +177,7 @@ export class RoleController {
 
       // Map permissions to use ObjectId for moduleId
       newRole.permissions = roleData.permissions.map(p => ({
-        moduleId: new ObjectId(p.moduleId),
+        moduleId: p.moduleId,
         actions: p.actions
       }));
 
@@ -206,6 +213,7 @@ export class RoleController {
    *         description: Role not found
    */
   @Patch("/:id")
+  @UseBefore(AuthMiddleware, canAccess("roles_permissions", "edit"))
   async update(@Param("id") id: string, @Body() roleData: UpdateRoleDto, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) {
@@ -225,12 +233,25 @@ export class RoleController {
 
       if (roleData.permissions) {
         role.permissions = roleData.permissions.map(p => ({
-          moduleId: new ObjectId(p.moduleId),
+          moduleId: p.moduleId,
           actions: p.actions
         }));
       }
 
       const updatedRole = await this.roleRepo.save(role);
+
+      // ✅ Notify users with this role about permission updates
+      const userRepo = AppDataSource.getMongoRepository(AdminUser);
+      const affectedUsers = await userRepo.find({
+        where: { roleId: role._id, isDeleted: false }
+      });
+
+      const userIds = affectedUsers.map(u => u.id.toString());
+      emitToUsers(userIds, "permissionsUpdated", {
+        roleId: role._id.toString(),
+        permissions: role.permissions
+      });
+
       return res.status(StatusCodes.OK).json(updatedRole);
     } catch (error) {
       return handleErrorResponse(error, res);
@@ -256,6 +277,7 @@ export class RoleController {
    *         description: Role not found
    */
   @Delete("/:id")
+  @UseBefore(AuthMiddleware, canAccess("roles_permissions", "delete"))
   async delete(@Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) {

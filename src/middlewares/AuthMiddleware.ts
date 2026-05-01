@@ -4,7 +4,6 @@ import {
 } from "routing-controllers";
 import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
-import { JWT_SECRET } from "../config/jwt";
 import { AppDataSource } from "../data-source";
 import { AdminUser } from "../entity/AdminUser";
 import { ObjectId } from "mongodb";
@@ -13,11 +12,11 @@ import { Role } from "../entity/Role.Permission";
 import { handleErrorResponse } from "../utils";
 
 export interface AuthPayload {
-    userId: string;
-    companyId: string;
-    role?: string | Role;
-    roleId?: string;
-    userType?: "ADMIN" | "ADMIN_USER" | "MEMBER";
+  userId: string;
+  companyId: string;
+  role?: string | Role;
+  roleId?: string;
+  userType?: "ADMIN" | "ADMIN_USER" | "MEMBER";
 }
 
 export class AuthMiddleware implements ExpressMiddlewareInterface {
@@ -38,26 +37,28 @@ export class AuthMiddleware implements ExpressMiddlewareInterface {
       if (!token) {
         throw new UnauthorizedError("Token missing");
       }
-      const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+      const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload;
+      const decodedId = decoded.id || decoded.userId;
 
-      if (!decoded || typeof decoded !== "object" || !decoded.id) {
+      if (!decoded || typeof decoded !== "object" || !decodedId) {
+        console.error("Auth Error: Missing ID in payload", decoded);
         throw new Error("Invalid token payload");
       }
 
       // Check if user is still active in database
-      const userId = decoded.id;
+      const userId = decodedId;
       let user: any = null;
 
       user = await AppDataSource.getMongoRepository(AdminUser).findOneBy({
         _id: new ObjectId(userId),
-        isDelete: 0
+        isDeleted: false
       });
 
       if (!user) {
         throw new UnauthorizedError("User not found or account deleted");
       }
 
-      if (user.isActive !== 1) {
+      if (!user.isActive) {
         throw new UnauthorizedError("Account is inactive. Please contact admin.");
       }
 
@@ -66,7 +67,7 @@ export class AuthMiddleware implements ExpressMiddlewareInterface {
       if (user.roleId) {
         role = await AppDataSource.getMongoRepository(Role).findOneBy({
           _id: new ObjectId(user.roleId),
-          isDelete: 0
+          isDeleted: false
         });
       }
 
@@ -81,7 +82,8 @@ export class AuthMiddleware implements ExpressMiddlewareInterface {
 
       (req as any).user = {
         ...decoded,
-        userId: decoded.id,
+        userId: decodedId,
+        id: decodedId,
         companyId: user.companyId?.toString() || decoded.companyId,
         roleId: user.roleId?.toString() || decoded.roleId,
         role: role // attach full role object with permissions

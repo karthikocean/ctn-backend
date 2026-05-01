@@ -39,13 +39,13 @@ export async function seedAdmin() {
 
   // ✅ ROLE
   let adminRole = await roleRepo.findOne({
-    where: { code: "ADMIN" }
+    where: { code: "SUPER_ADMIN" }
   });
 
   if (!adminRole) {
     adminRole = roleRepo.create({
       name: "Super Admin",
-      code: "ADMIN",
+      code: "SUPER_ADMIN",
       isActive: true,
       isDeleted: false,
       permissions: fullPermissions
@@ -68,7 +68,7 @@ export async function seedAdmin() {
       phoneNumber: "9999999999",
       pin: hashedPin,
 
-      userId: "ADMIN001",
+      userId: "USR001",
 
       roleId: adminRole._id, // ✅ FIXED
 
