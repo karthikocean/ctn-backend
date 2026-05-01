@@ -43,6 +43,13 @@
  *           type: string
  *         isActive:
  *           type: number
+ *     UpdateAdminUserStatusDto:
+ *       type: object
+ *       required:
+ *         - isActive
+ *       properties:
+ *         isActive:
+ *           type: number
  */
 import {
   IsEmail,
@@ -130,3 +137,10 @@ export class UpdateAdminUserDto {
   @Type(() => Number)
     isActive?: number;
 }
+
+export class UpdateAdminUserStatusDto {
+  @IsNotEmpty()
+  @Type(() => Number)
+    isActive!: number;
+}
+

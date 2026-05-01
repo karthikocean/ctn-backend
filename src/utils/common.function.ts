@@ -1,34 +1,29 @@
-import { ObjectId } from "mongodb";
 import { Role } from "../entity/Role.Permission";
 
 export function hasPermission(
   role: Role | undefined,
-  moduleId: string | ObjectId,
+  moduleId: string,
   action: "view" | "add" | "edit" | "delete" | "approve"
 ): boolean {
   if (!role?.permissions?.length) return false;
 
-  const moduleObjectId =
-        typeof moduleId === "string" ? new ObjectId(moduleId) : moduleId;
-
   const permission = role.permissions.find(
-    p => p.moduleId.toString() === moduleObjectId.toString()
+    p => String(p.moduleId).toLowerCase() === String(moduleId).toLowerCase()
   );
 
   // Treat 'approve' as 'edit' for now (approval is a form of edit)
-  // Future: add 'approve' action to Role permissions schema
-  const checkAction = action === "approve" ? "edit" : action;
+  const checkAction = action === "approve" ? "edit" : action.toLowerCase();
 
-  return Boolean(permission?.actions?.includes(checkAction));
+  return Boolean(permission?.actions?.map(a => a.toLowerCase()).includes(checkAction));
 }
-function calculateYearsBetween(start: Date, end: Date): number {
+
+export function calculateYearsBetween(start: Date, end: Date): number {
   const startDate = new Date(start);
   const endDate = new Date(end);
 
   let years = endDate.getFullYear() - startDate.getFullYear();
 
-  const anniversary =
-    new Date(startDate);
+  const anniversary = new Date(startDate);
   anniversary.setFullYear(startDate.getFullYear() + years);
 
   if (endDate < anniversary) {
@@ -37,4 +32,3 @@ function calculateYearsBetween(start: Date, end: Date): number {
 
   return Math.max(years, 1);
 }
-export { calculateYearsBetween };

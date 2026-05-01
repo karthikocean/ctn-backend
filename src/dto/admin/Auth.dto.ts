@@ -14,6 +14,18 @@
  *         pin:
  *           type: string
  *           example: "1234"
+ *     ChangePinDto:
+ *       type: object
+ *       required:
+ *         - oldPin
+ *         - newPin
+ *       properties:
+ *         oldPin:
+ *           type: string
+ *           example: "1234"
+ *         newPin:
+ *           type: string
+ *           example: "5678"
  */
 import { IsString, IsNotEmpty, IsPhoneNumber, Length } from "class-validator";
 
@@ -26,4 +38,16 @@ export class LoginDto {
     @IsString()
     @IsNotEmpty()
       pin!: string;
+}
+
+export class ChangePinDto {
+    @Length(4, 4)
+    @IsString()
+    @IsNotEmpty()
+      oldPin!: string;
+
+    @Length(4, 4)
+    @IsString()
+    @IsNotEmpty()
+      newPin!: string;
 }

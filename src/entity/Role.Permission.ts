@@ -46,7 +46,7 @@ export class Role {
    */
   @Column("json")
     permissions!: {
-    moduleId: ObjectId;
+    moduleId: String;
     actions: string[]; // ["view", "create", "edit", "delete"]
   }[];
 

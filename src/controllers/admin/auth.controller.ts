@@ -4,8 +4,10 @@ import {
   Body,
   HttpCode,
   UnauthorizedError,
+  BadRequestError,
   Res
 } from "routing-controllers";
+import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -14,8 +16,10 @@ import { AppDataSource } from "../../data-source";
 import { AdminUser } from "../../entity/AdminUser";
 import { UserToken } from "../../entity/UserToken";
 
-import { LoginDto } from "../../dto/admin/Auth.dto";
+import { LoginDto, ChangePinDto } from "../../dto/admin/Auth.dto";
 import handleErrorResponse from "../../utils/commonFunction";
+import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
+import { UseBefore } from "routing-controllers";
 
 @JsonController("/auth")
 export class AuthController {
@@ -74,7 +78,7 @@ export class AuthController {
         // Generate new token if not exists
         finalToken = jwt.sign(
           {
-            userId: user.id.toString(),
+            id: user.id.toString(),
             roleId: user.roleId.toString()
           },
             process.env.JWT_SECRET as string,
@@ -102,8 +106,102 @@ export class AuthController {
           id: user.id.toString(),
           phoneNumber: user.phoneNumber,
           name: user.name,
-          roleId: user.roleId.toString()
+          email: user.email,
+          roleId: user.roleId.toString(),
+          isActive: user.isActive
         }
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/auth/change-pin:
+   *   post:
+   *     summary: Change admin user PIN
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/ChangePinDto'
+   *     responses:
+   *       200:
+   *         description: PIN changed successfully
+   *       400:
+   *         description: Invalid old PIN
+   *       401:
+   *         description: Unauthorized
+   */
+  @Post("/change-pin")
+  @UseBefore(AuthMiddleware)
+  @HttpCode(StatusCodes.OK)
+  async changePin(@Body() body: ChangePinDto, @Res() res: any) {
+    try {
+      const { oldPin, newPin } = body;
+      const userId = (res.req as any).user.userId;
+
+      const userRepo = AppDataSource.getMongoRepository(AdminUser);
+      const user = await userRepo.findOne({
+        where: { _id: new ObjectId(userId) }
+      });
+
+      if (!user) {
+        throw new UnauthorizedError("User not found");
+      }
+
+      const isMatch = await bcrypt.compare(oldPin, user.pin);
+      if (!isMatch) {
+        throw new BadRequestError("Invalid old PIN");
+      }
+
+      user.pin = await bcrypt.hash(newPin, 10);
+      await userRepo.save(user);
+
+      return res.status(StatusCodes.OK).json({
+        message: "PIN changed successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/auth/logout:
+   *   post:
+   *     summary: Logout and invalidate session
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Logout successful
+   *       401:
+   *         description: Unauthorized
+   */
+  @Post("/logout")
+  @UseBefore(AuthMiddleware)
+  @HttpCode(StatusCodes.OK)
+  async logout(@Res() res: any) {
+    try {
+      const authHeader = res.req.headers.authorization;
+      const token = authHeader.split(" ")[1];
+      const userId = (res.req as any).user.userId;
+
+      const tokenRepo = AppDataSource.getMongoRepository(UserToken);
+      await tokenRepo.deleteMany({
+        userId: new ObjectId(userId),
+        token: token
+      });
+
+      return res.status(StatusCodes.OK).json({
+        message: "Logout successful"
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

@@ -4,38 +4,42 @@ import { ObjectId } from "mongodb";
 import { Role } from "../entity/Role.Permission";
 
 export const canAccess = (feature: string, action: any) => {
-  return async (req: { user: { roleId: any; role: Role; }; }, res: { status: (arg0: number) => { (): any; new(): any; json: { (arg0: { message: string; error?: any; }): any; new(): any; }; }; }, next: () => void) => {
+  return async (req: any, res: any, next: () => void) => {
     try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Unauthorized: No user session found" });
+      }
 
-      // req.user.roleId is set by AuthMiddleware from JWT
+      // req.user.roleId is set by AuthMiddleware from JWT or database
       const roleId = req.user.roleId || req.user.role?._id;
 
       if (!roleId) {
-        return res.status(403).json({ message: "Role not found in token" });
+        return res.status(403).json({ message: "Permission denied: Role not found" });
       }
 
       // Fetch full role with permissions from database
       const role = await AppDataSource.getMongoRepository(Role).findOneBy({
         _id: new ObjectId(roleId),
-        isDelete: 0
+        isDeleted: false
       });
 
       if (!role) {
-        return res.status(403).json({ message: "Role not found or inactive" });
+        return res.status(403).json({ message: "Permission denied: Role is inactive or removed" });
       }
 
       if (!hasPermission(role, feature, action) && role.name !== "Super Admin") {
-        return res.status(403).json({ message: "Permission denied" });
+        return res.status(403).json({ message: "Permission denied: Insufficient permissions" });
       }
 
       // Attach role to req for downstream use
       req.user.role = role;
       next();
     } catch (error: any) {
-      if (error.code === "CastError") {
-        return res.status(400).json({ message: "Invalid role ID" });
-      }
-      return res.status(500).json({ message: "Authentication error", error: error.message });
+      console.error(`Permission Middleware Error [${feature}:${action}]:`, error.message);
+      return res.status(500).json({ 
+        message: "Authentication error", 
+        error: error.message 
+      });
     }
   };
 };
