@@ -1,10 +1,10 @@
-import { 
-  IsString, 
-  IsNotEmpty, 
-  IsEnum, 
-  IsOptional, 
-  IsMongoId, 
-  ValidateIf 
+import {
+  IsString,
+  IsNotEmpty,
+  IsEnum,
+  IsOptional,
+  IsMongoId,
+  ValidateIf
 } from "class-validator";
 import { CategoryType, CategoryStatus } from "../../entity/Category";
 
