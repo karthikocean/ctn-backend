@@ -16,21 +16,19 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Member, MemberStatus } from "../../entity/Member";
 import { Category } from "../../entity/Category";
-import { CreateMemberDto, UpdateProfileDto } from "../../dto/mobile/Member.dto";
+import { CreateMemberDto, UpdateProfileDto, SetPinDto } from "../../dto/mobile/Member.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
-import imageService from "../../utils/upload";
-import path from "path";
 @JsonController("/members")
 export class MobileMemberController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
     /**
      * @swagger
-     * /mobile/members/register:
+     * /mobile-api/members/register:
      *   post:
      *     summary: Register a new member
      *     tags: [Mobile Member]
@@ -52,34 +50,6 @@ export class MobileMemberController {
       member.isDeleted = false;
       member.status = MemberStatus.ACTIVE; // Or PENDING if you have an approval flow
 
-      // Handle File Uploads
-      if (req.files) {
-        if (req.files.profilePhoto) {
-          const file = req.files.profilePhoto;
-          const fileName = `profile-${Date.now()}${path.extname(file.name)}`;
-          await imageService.fileUpload(file, "members/profile", fileName);
-          member.profilePhoto = `members/profile/${fileName}`;
-        }
-
-        const handleMultipleFiles = async (field: string, folder: string) => {
-          if (req.files[field]) {
-            const files = Array.isArray(req.files[field]) ? req.files[field] : [req.files[field]];
-            const paths: string[] = [];
-            for (const file of files) {
-              const fileName = `${field}-${Date.now()}-${Math.random().toString(36).substring(7)}${path.extname(file.name)}`;
-              await imageService.fileUpload(file, `members/${folder}`, fileName);
-              paths.push(`members/${folder}/${fileName}`);
-            }
-            return paths;
-          }
-          return [];
-        };
-
-        member.workImages = await handleMultipleFiles("workImages", "work-images");
-        member.certifications = await handleMultipleFiles("certifications", "certifications");
-        member.businessDocuments = await handleMultipleFiles("businessDocuments", "documents");
-      }
-
       const saved = await this.memberRepo.save(member);
       return res.status(StatusCodes.CREATED).json({
         success: true,
@@ -93,7 +63,51 @@ export class MobileMemberController {
 
     /**
      * @swagger
-     * /mobile/members/profile:
+     * /mobile-api/members/set-pin:
+     *   post:
+     *     summary: Set or update member security pin
+     *     tags: [Mobile Member]
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             properties:
+     *               mobileNumber:
+     *                 type: string
+     *                 example: "9876543210"
+     *               pin:
+     *                 type: string
+     *                 example: "123456"
+     *     responses:
+     *       200:
+     *         description: PIN updated successfully
+     */
+    @Post("/set-pin")
+    @HttpCode(StatusCodes.OK)
+    async setPin(@Body() data: SetPinDto, @Res() res: any) {
+      try {
+        const { mobileNumber, pin } = data;
+        const member = await this.memberRepo.findOneBy({ mobileNumber, isDeleted: false });
+
+        if (!member) throw new NotFoundError("Member not found");
+
+        member.pin = pin;
+        await this.memberRepo.save(member);
+
+        return res.status(StatusCodes.OK).json({
+          success: true,
+          message: "PIN updated successfully"
+        });
+      } catch (error: any) {
+        return handleErrorResponse(error, res);
+      }
+    }
+
+    /**
+     * @swagger
+     * /mobile-api/members/profile:
      *   get:
      *     summary: Get own profile details
      *     tags: [Mobile Member]
@@ -120,7 +134,7 @@ export class MobileMemberController {
 
     /**
      * @swagger
-     * /mobile/members/profile:
+     * /mobile-api/members/profile:
      *   put:
      *     summary: Update own profile
      *     tags: [Mobile Member]
@@ -135,14 +149,6 @@ export class MobileMemberController {
 
         Object.assign(member, data);
 
-        // Handle Profile Photo Upload
-        if (req.files && req.files.profilePhoto) {
-          const file = req.files.profilePhoto;
-          const fileName = `profile-${Date.now()}${path.extname(file.name)}`;
-          await imageService.fileUpload(file, "members/profile", fileName, member.profilePhoto?.split("/").pop());
-          member.profilePhoto = `members/profile/${fileName}`;
-        }
-
         const saved = await this.memberRepo.save(member);
         return res.status(StatusCodes.OK).json({
           success: true,
@@ -156,7 +162,7 @@ export class MobileMemberController {
 
     /**
      * @swagger
-     * /mobile/members:
+     * /mobile-api/members:
      *   get:
      *     summary: Get member directory
      *     tags: [Mobile Member]
@@ -225,7 +231,7 @@ export class MobileMemberController {
 
     /**
      * @swagger
-     * /mobile/members/{id}:
+     * /mobile-api/members/{id}:
      *   get:
      *     summary: Get details of another member
      *     tags: [Mobile Member]
