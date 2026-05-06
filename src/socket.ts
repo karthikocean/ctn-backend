@@ -3,7 +3,6 @@ import { Server as HttpServer } from "http";
 import jwt from "jsonwebtoken";
 
 let io: SocketServer;
-
 export const initSocket = (server: HttpServer) => {
   io = new SocketServer(server, {
     cors: {
