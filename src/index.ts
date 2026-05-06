@@ -43,7 +43,6 @@ AppDataSource.initialize()
         useTempFiles: false
       })
     );
-
     app.use("/public", express.static("public"));
 
     // ✅ Swagger route
@@ -59,7 +58,6 @@ AppDataSource.initialize()
       validation: true,
       classTransformer: true
     });
-
     app.get("/api/health", (req, res) => {
       res.status(200).send("Server is alive");
     });
