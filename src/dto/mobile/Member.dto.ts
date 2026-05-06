@@ -6,6 +6,8 @@ import {
   IsNumber,
   IsArray,
   IsUrl,
+  Length,
+  IsNotEmpty
 } from "class-validator";
 import { CompanySize } from "../../entity/Member";
 
@@ -15,6 +17,11 @@ export class CreateMemberDto {
 
   @IsString()
     mobileNumber!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Length(6, 6)
+    pin!: string;
 
   @IsEmail()
   @IsOptional()
@@ -80,6 +87,25 @@ export class CreateMemberDto {
   @IsUrl()
   @IsOptional()
     youtubeLink?: string;
+
+  @IsString()
+  @IsOptional()
+    profilePhoto?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+    workImages?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+    certifications?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+    businessDocuments?: string[];
 }
 
 export class UpdateProfileDto {
@@ -90,6 +116,11 @@ export class UpdateProfileDto {
   @IsEmail()
   @IsOptional()
     email?: string;
+
+  @IsString()
+  @IsOptional()
+  @Length(6, 6)
+    pin?: string;
 
   @IsString()
   @IsOptional()
@@ -139,4 +170,34 @@ export class UpdateProfileDto {
   @IsUrl()
   @IsOptional()
     youtubeLink?: string;
+
+  @IsString()
+  @IsOptional()
+    profilePhoto?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+    workImages?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+    certifications?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+    businessDocuments?: string[];
+}
+
+export class SetPinDto {
+  @IsString()
+  @IsNotEmpty()
+    mobileNumber!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Length(6, 6)
+    pin!: string;
 }

@@ -43,7 +43,7 @@ AppDataSource.initialize()
         useTempFiles: false
       })
     );
-    app.use("/public", express.static("public"));
+    app.use(express.static("public"));
 
     // ✅ Swagger route
     app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
@@ -52,6 +52,15 @@ AppDataSource.initialize()
     useExpressServer(app, {
       routePrefix: "/api",
       controllers: [__dirname + `/controllers/**/*.${ext}`],
+      middlewares: [__dirname + `/middlewares/**/*.${ext}`],
+      interceptors: [__dirname + `/middlewares/ResponseInterceptor.${ext}`],
+      defaultErrorHandler: false,
+      validation: true,
+      classTransformer: true
+    });
+    useExpressServer(app, {
+      routePrefix: "/mobile-api",
+      controllers: [__dirname + `/controllers/mobile/*.${ext}`],
       middlewares: [__dirname + `/middlewares/**/*.${ext}`],
       interceptors: [__dirname + `/middlewares/ResponseInterceptor.${ext}`],
       defaultErrorHandler: false,
