@@ -2,14 +2,11 @@ import {
   IsString,
   IsEmail,
   IsOptional,
-  IsEnum,
   IsNumber,
   IsArray,
-  IsUrl,
   Length,
   IsNotEmpty
 } from "class-validator";
-import { CompanySize } from "../../entity/Member";
 
 export class CreateMemberDto {
   @IsString()
@@ -17,11 +14,6 @@ export class CreateMemberDto {
 
   @IsString()
     mobileNumber!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @Length(6, 6)
-    pin!: string;
 
   @IsEmail()
   @IsOptional()
@@ -47,9 +39,9 @@ export class CreateMemberDto {
   @IsOptional()
     yearsOfExperience?: number;
 
-  @IsEnum(CompanySize)
+  @IsString()
   @IsOptional()
-    companySize?: CompanySize;
+    companySize?: string;
 
   @IsString()
   @IsOptional()
@@ -72,19 +64,19 @@ export class CreateMemberDto {
   @IsOptional()
     targetAudience?: string;
 
-  @IsUrl()
+  @IsString()
   @IsOptional()
     websiteUrl?: string;
 
-  @IsUrl()
+  @IsString()
   @IsOptional()
     linkedinProfile?: string;
 
-  @IsUrl()
+  @IsString()
   @IsOptional()
     instagramFacebook?: string;
 
-  @IsUrl()
+  @IsString()
   @IsOptional()
     youtubeLink?: string;
 
@@ -119,7 +111,7 @@ export class UpdateProfileDto {
 
   @IsString()
   @IsOptional()
-  @Length(6, 6)
+  @Length(4, 4)
     pin?: string;
 
   @IsString()
@@ -130,9 +122,9 @@ export class UpdateProfileDto {
   @IsOptional()
     yearsOfExperience?: number;
 
-  @IsEnum(CompanySize)
+  @IsString()
   @IsOptional()
-    companySize?: CompanySize;
+    companySize?: string;
 
   @IsString()
   @IsOptional()
@@ -155,19 +147,19 @@ export class UpdateProfileDto {
   @IsOptional()
     targetAudience?: string;
 
-  @IsUrl()
+  @IsString()
   @IsOptional()
     websiteUrl?: string;
 
-  @IsUrl()
+  @IsString()
   @IsOptional()
     linkedinProfile?: string;
 
-  @IsUrl()
+  @IsString()
   @IsOptional()
     instagramFacebook?: string;
 
-  @IsUrl()
+  @IsString()
   @IsOptional()
     youtubeLink?: string;
 
@@ -194,10 +186,10 @@ export class UpdateProfileDto {
 export class SetPinDto {
   @IsString()
   @IsNotEmpty()
-    mobileNumber!: string;
+    userId!: string;
 
   @IsString()
   @IsNotEmpty()
-  @Length(6, 6)
+  @Length(4, 4)
     pin!: string;
 }
