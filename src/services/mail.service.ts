@@ -1,0 +1,128 @@
+import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+export class MailService {
+  private static transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || "",
+    port: parseInt(process.env.SMTP_PORT || "587"),
+    secure: process.env.SMTP_SECURE === "true", // true for 465, false for other ports
+    auth: {
+      user: process.env.SMTP_USER || "",
+      pass: process.env.SMTP_PASS || "",
+    },
+    tls: {
+      rejectUnauthorized: false
+    }
+  });
+
+  /**
+     * Send a generic email
+     */
+  static async sendEmail(to: string | string[], subject: string, html: string) {
+    try {
+      const info = await this.transporter.sendMail({
+        from: `"${process.env.SMTP_FROM_NAME || "Trusted Network"}" <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER}>`,
+        to: Array.isArray(to) ? to.join(",") : to,
+        subject: subject,
+        html: html,
+      });
+      console.log("Email sent: %s", info.messageId);
+      return info;
+    } catch (error) {
+      console.error("Error sending email:", error);
+      throw error;
+    }
+  }
+
+  /**
+     * Send Interview Schedule email to Candidate
+     */
+  static async sendInterviewCandidateEmail(candidateData: {
+    name: string;
+    email: string;
+    interviewId: string;
+    vacancy: string;
+    date: string;
+    time: string;
+    platform: string;
+    location?: string;
+    duration: number;
+  }) {
+    const subject = `Interview Scheduled: ${candidateData.vacancy}`;
+    const html = `
+            <h3>Dear ${candidateData.name},</h3>
+            <p>Your interview for the position of <strong>${candidateData.vacancy}</strong> has been scheduled.</p>
+            <p><strong>Interview Details:</strong></p>
+            <ul>
+                <li><strong>Interview ID:</strong> ${candidateData.interviewId}</li>
+                <li><strong>Date:</strong> ${candidateData.date}</li>
+                <li><strong>Time:</strong> ${candidateData.time} (${candidateData.duration} minutes)</li>
+                <li><strong>Platform:</strong> ${candidateData.platform}</li>
+                ${candidateData.location ? `<li><strong>Link/Location:</strong> ${candidateData.location}</li>` : ""}
+            </ul>
+            <p>Please be available on time. Best of luck!</p>
+            <p>Regards,<br>HR Recruitment Team</p>
+        `;
+    return this.sendEmail(candidateData.email, subject, html);
+  }
+
+  /**
+     * Send Interview Schedule email to Interviewers
+     */
+  static async sendInterviewInterviewerEmail(email: string, data: {
+    interviewerName: string;
+    candidateName: string;
+    vacancy: string;
+    date: string;
+    time: string;
+    platform: string;
+    location?: string;
+  }) {
+    const subject = `New Interview Assignment: ${data.candidateName} for ${data.vacancy}`;
+    const html = `
+            <h3>Dear ${data.interviewerName},</h3>
+            <p>You have been assigned as a panel member for the following interview:</p>
+            <p><strong>Candidate:</strong> ${data.candidateName}</p>
+            <p><strong>Position:</strong> ${data.vacancy}</p>
+            <p><strong>Date:</strong> ${data.date}</p>
+            <p><strong>Time:</strong> ${data.time}</p>
+            <p><strong>Platform:</strong> ${data.platform}</p>
+            ${data.location ? `<li><strong>Link/Location:</strong> ${data.location}</li>` : ""}
+            <p>Regards,<br>HR Recruitment Team</p>
+        `;
+    return this.sendEmail(email, subject, html);
+  }
+
+  /**
+     * Send Email Verification OTP
+     */
+  static async sendVerificationOTP(email: string, otp: string) {
+    const subject = "Verify Your Email - Trusted Network";
+    const html = `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; padding: 20px; border-radius: 10px; border: 1px solid #e0e0e0;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="color: #14532D; margin: 0;">Trusted Network</h1>
+        </div>
+        <div style="background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+          <h2 style="color: #333; margin-top: 0;">Email Verification</h2>
+          <p style="color: #666; font-size: 16px; line-height: 1.5;">Hello,</p>
+          <p style="color: #666; font-size: 16px; line-height: 1.5;">Thank you for joining <strong>Trusted Network</strong>. Please use the following 6-digit verification code to complete your registration:</p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <div style="display: inline-block; background-color: #14532D; color: #ffffff; font-size: 32px; font-weight: bold; letter-spacing: 10px; padding: 15px 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(20, 83, 45, 0.2);">
+              ${otp}
+            </div>
+          </div>
+          
+          <p style="color: #666; font-size: 14px; line-height: 1.5; text-align: center;">This code will expire in 10 minutes. If you did not request this, please ignore this email.</p>
+        </div>
+        <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
+          <p>&copy; 2026 Trusted Network. All rights reserved.</p>
+        </div>
+      </div>
+    `;
+    return this.sendEmail(email, subject, html);
+  }
+}
