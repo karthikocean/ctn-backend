@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, Length, IsEnum } from "class-validator";
+import { IsString, IsNotEmpty, Length, IsEnum, IsOptional } from "class-validator";
 
 /**
  * @swagger
@@ -49,52 +49,56 @@ import { IsString, IsNotEmpty, Length, IsEnum } from "class-validator";
  */
 
 export class MobileLoginDto {
-    @IsNotEmpty()
-    @IsString()
-      identifier!: string; // email or phone
+  @IsNotEmpty()
+  @IsString()
+    identifier!: string; // email or phone
 
-    @Length(4, 4)
-    @IsString()
-    @IsNotEmpty()
-      pin!: string;
+  @Length(4, 4)
+  @IsString()
+  @IsNotEmpty()
+    pin!: string;
 }
 
 export class MobileSendOtpDto {
-    @IsNotEmpty()
-    @IsString()
-      identifier!: string;
+  @IsNotEmpty()
+  @IsString()
+    identifier!: string;
 
-    @IsEnum(["email", "phone"])
-    @IsNotEmpty()
-      type!: "email" | "phone";
+  @IsEnum(["email", "phone"])
+  @IsNotEmpty()
+    type!: "email" | "phone";
 }
 
 export class MobileVerifyOtpLoginDto {
-    @IsNotEmpty()
-    @IsString()
-      identifier!: string;
+  @IsNotEmpty()
+  @IsString()
+    identifier!: string;
 
-    @IsEnum(["email", "phone"])
-    @IsNotEmpty()
-      type!: "email" | "phone";
+  @IsEnum(["email", "phone"])
+  @IsNotEmpty()
+    type!: "email" | "phone";
 
-    @IsNotEmpty()
-    @IsString()
-    @Length(4, 4)
-      otp!: string;
+  @IsNotEmpty()
+  @IsString()
+  @Length(4, 4)
+    otp!: string;
+
+  @IsString()
+  @IsOptional()
+    fcmToken?: string;
 }
 
 export class ResetPinDto {
-    @IsNotEmpty()
-    @IsString()
-      identifier!: string;
+  @IsNotEmpty()
+  @IsString()
+    identifier!: string;
 
-    @IsEnum(["email", "phone"])
-    @IsNotEmpty()
-      type!: "email" | "phone";
+  @IsEnum(["email", "phone"])
+  @IsNotEmpty()
+    type!: "email" | "phone";
 
-    @IsNotEmpty()
-    @IsString()
-    @Length(4, 4)
-      newPin!: string;
+  @IsNotEmpty()
+  @IsString()
+  @Length(4, 4)
+    newPin!: string;
 }
