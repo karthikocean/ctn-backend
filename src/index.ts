@@ -49,18 +49,32 @@ AppDataSource.initialize()
     app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
     const ext = __filename.endsWith(".ts") ? "ts" : "js";
+    // ✅ Admin APIs
     useExpressServer(app, {
-      routePrefix: "/api",
-      controllers: [__dirname + `/controllers/**/*.${ext}`],
+      routePrefix: "/api/admin",
+      controllers: [__dirname + `/controllers/admin/*.${ext}`],
       middlewares: [__dirname + `/middlewares/**/*.${ext}`],
       interceptors: [__dirname + `/middlewares/ResponseInterceptor.${ext}`],
       defaultErrorHandler: false,
       validation: true,
       classTransformer: true
     });
+
+    // ✅ Mobile APIs
     useExpressServer(app, {
       routePrefix: "/mobile-api",
       controllers: [__dirname + `/controllers/mobile/*.${ext}`],
+      middlewares: [__dirname + `/middlewares/**/*.${ext}`],
+      interceptors: [__dirname + `/middlewares/ResponseInterceptor.${ext}`],
+      defaultErrorHandler: false,
+      validation: true,
+      classTransformer: true
+    });
+
+    // ✅ Common / General APIs
+    useExpressServer(app, {
+      routePrefix: "/api",
+      controllers: [__dirname + `/controllers/*.${ext}`],
       middlewares: [__dirname + `/middlewares/**/*.${ext}`],
       interceptors: [__dirname + `/middlewares/ResponseInterceptor.${ext}`],
       defaultErrorHandler: false,

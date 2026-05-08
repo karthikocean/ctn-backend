@@ -1,8 +1,8 @@
 import fs from "fs";
 import path from "path";
-const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/jpg"];
-const ALLOWED_EXTENSIONS = [".png", ".jpg", ".jpeg"];
-const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
+const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/jpg", "video/mp4", "video/webm", "video/quicktime"];
+const ALLOWED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".mp4", ".webm", ".mov"];
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB for videos
 
 class ImageService {
 

@@ -31,7 +31,7 @@ export class RoleController {
 
   /**
    * @swagger
-   * /api/roles:
+   * /api/admin/roles:
    *   get:
    *     summary: List all roles with pagination
    *     tags: [Role]
@@ -101,7 +101,7 @@ export class RoleController {
 
   /**
    * @swagger
-   * /api/roles/{id}:
+   * /api/admin/roles/{id}:
    *   get:
    *     summary: Get role by ID
    *     tags: [Role]
@@ -132,7 +132,7 @@ export class RoleController {
 
   /**
    * @swagger
-   * /api/roles:
+   * /api/admin/roles:
    *   post:
    *     summary: Create a new role
    *     tags: [Role]
@@ -190,7 +190,7 @@ export class RoleController {
 
   /**
    * @swagger
-   * /api/roles/{id}:
+   * /api/admin/roles/{id}:
    *   patch:
    *     summary: Update an existing role
    *     tags: [Role]
@@ -260,7 +260,7 @@ export class RoleController {
 
   /**
    * @swagger
-   * /api/roles/{id}:
+   * /api/admin/roles/{id}:
    *   delete:
    *     summary: Delete a role (Soft delete)
    *     tags: [Role]
