@@ -14,14 +14,6 @@ export enum MemberStatus {
   BLOCKED = "blocked"
 }
 
-export enum CompanySize {
-  SIZE_1_10 = "1-10",
-  SIZE_11_50 = "11-50",
-  SIZE_51_100 = "51-100",
-  SIZE_101_500 = "101-500",
-  SIZE_500_PLUS = "500+"
-}
-
 @Entity("members")
 @Index(["mobileNumber"], { unique: true })
 @Index(["email"], { unique: true, sparse: true })
@@ -75,12 +67,8 @@ export class Member {
   @Column({ nullable: true })
     yearsOfExperience?: number;
 
-  @Column({
-    type: "enum",
-    enum: CompanySize,
-    nullable: true
-  })
-    companySize?: CompanySize;
+  @Column({ nullable: true })
+    companySize?: string;
 
   // =========================================
   // LOCATION DETAILS
