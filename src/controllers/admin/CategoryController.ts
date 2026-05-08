@@ -101,6 +101,7 @@ export class CategoryController {
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
     @QueryParam("search") search: string,
+    @QueryParam("referralParent") referralParent: string,
     @QueryParam("type") type: string,
     @Res() res: any
   ) {
@@ -113,7 +114,17 @@ export class CategoryController {
         where.name = { $regex: search, $options: "i" };
       }
       if (type) {
-        where.type = type;
+        if (type === CategoryType.REFERRAL) {
+          where.type = CategoryType.SUB;
+          where.referralParent = null;
+        } else {
+          where.type = type;
+        }
+      }
+
+      if (referralParent) {
+        where.referralParent = { $exists: referralParent === "true" };
+        where.type = CategoryType.SUB;
       }
 
       const [categories, total] = await this.categoryRepo.findAndCount({

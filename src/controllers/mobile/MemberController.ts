@@ -22,12 +22,16 @@ import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import jwt from "jsonwebtoken";
 import handleErrorResponse from "../../utils/commonFunction";
-import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
+import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
+import bcrypt from "bcryptjs";
 import { UserToken } from "../../entity/UserToken";
+import { Connection } from "../../entity/Connection";
+
 @JsonController("/members")
 export class MobileMemberController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
+  private connectionRepo = AppDataSource.getMongoRepository(Connection);
   /**
    * @swagger
    * /mobile-api/members/register:
@@ -129,7 +133,7 @@ export class MobileMemberController {
 
       if (!member) throw new NotFoundError("Member not found");
 
-      member.pin = pin;
+      member.pin = await bcrypt.hash(pin, 10);
       await this.memberRepo.save(member);
 
       // Generate or reuse Token
@@ -199,7 +203,8 @@ export class MobileMemberController {
 
       if (!member) throw new NotFoundError("Member not found");
 
-      if (member.pin !== pin) {
+      const isMatch = await bcrypt.compare(pin, member.pin);
+      if (!isMatch) {
         throw new BadRequestError("Invalid PIN");
       }
 
@@ -252,7 +257,7 @@ export class MobileMemberController {
    *     tags: [Mobile Member]
    */
   @Get("/profile")
-  @UseBefore(AuthMiddleware)
+  @UseBefore(MobileAuthMiddleware)
   async getProfile(@Req() req: any, @Res() res: any) {
     try {
       const userId = req.user.userId;
@@ -279,7 +284,7 @@ export class MobileMemberController {
    *     tags: [Mobile Member]
    */
   @Put("/profile")
-  @UseBefore(AuthMiddleware)
+  @UseBefore(MobileAuthMiddleware)
   async updateProfile(@Req() req: any, @Body() data: UpdateProfileDto, @Res() res: any) {
     try {
       const userId = req.user.userId;
@@ -288,11 +293,115 @@ export class MobileMemberController {
 
       Object.assign(member, data);
 
+      if (data.businessCategory) member.businessCategory = new ObjectId(data.businessCategory);
+      if (data.subCategory) member.subCategory = new ObjectId(data.subCategory);
+
       const saved = await this.memberRepo.save(member);
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Profile updated successfully",
         data: saved
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/members/suggestions:
+   *   get:
+   *     summary: Get member suggestions based on category referral mapping
+   *     tags: [Mobile Member]
+   *     parameters:
+   *       - in: query
+   *         name: categoryId
+   *         required: true
+   *         schema:
+   *           type: string
+   */
+  @Get("/suggestions")
+  @UseBefore(MobileAuthMiddleware)
+  async getSuggestions(@Req() req: any, @Res() res: any) {
+    try {
+      const userId = req.user.userId;
+      const member: any = await this.memberRepo.findOneBy({ _id: new ObjectId(userId), isDeleted: false });
+      if (!member) throw new NotFoundError("Profile not found");
+      const categoryId = member.subCategory;
+      if (!ObjectId.isValid(categoryId)) throw new BadRequestError("Invalid Category ID");
+
+      // 1. Find the source category to get its referralParent
+      const sourceCategory = await this.categoryRepo.findOneBy({ _id: new ObjectId(categoryId) });
+      if (!sourceCategory) throw new NotFoundError("Category not found");
+
+      const refParentId = sourceCategory.referralParent;
+      if (!refParentId) {
+        return res.status(StatusCodes.OK).json({
+          success: true,
+          data: [],
+          message: "No referral mappings found for this category"
+        });
+      }
+
+      // 2. Find all categories that share the same referralParent (siblings)
+      const relatedCategories = await this.categoryRepo.find({
+        where: { referralParent: refParentId, isDeleted: false }
+      });
+
+      const relatedCategoryIds = relatedCategories.map(c => c._id);
+
+      // Also include the referralParent itself in the filter
+      relatedCategoryIds.push(refParentId);
+
+      // 3. Find members with whom the current user already has a connection
+      const existingConnections = await this.connectionRepo.find({
+        where: {
+          $or: [
+            { senderId: new ObjectId(userId) },
+            { receiverId: new ObjectId(userId) }
+          ]
+        } as any
+      });
+
+      const connectedMemberIds = existingConnections.map(c =>
+        c.senderId.toString() === userId ? c.receiverId : c.senderId
+      );
+
+      // 4. Find members belonging to any of these related categories (excluding self and connected members)
+      const members = await this.memberRepo.find({
+        where: {
+          _id: { $nin: [new ObjectId(userId), ...connectedMemberIds] },
+          $or: [
+            { businessCategory: { $in: relatedCategoryIds } },
+            { subCategory: { $in: relatedCategoryIds } }
+          ],
+          isDeleted: false,
+          status: MemberStatus.ACTIVE
+        } as any,
+        take: 15,
+        order: { createdAt: "DESC" }
+      });
+
+      // 4. Populate category names for the response
+      const allCategoryIds = [...new Set(members.flatMap(m => [m.businessCategory, m.subCategory]).filter((id): id is ObjectId => !!id))];
+      const categories = allCategoryIds.length > 0
+        ? await this.categoryRepo.find({ where: { _id: { $in: allCategoryIds } } as any })
+        : [];
+      const catMap = new Map(categories.map(c => [c._id.toString(), c.name]));
+
+      const data = members.map(m => ({
+        _id: m._id,
+        name: m.fullName,
+        profile: m.profilePhoto,
+        businessName: m.businessName,
+        city: m.city,
+        category: m.businessCategory ? { _id: m.businessCategory, name: catMap.get(m.businessCategory.toString()) } : null,
+        sub_category: m.subCategory ? { _id: m.subCategory, name: catMap.get(m.subCategory.toString()) } : null,
+      }));
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
