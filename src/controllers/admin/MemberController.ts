@@ -21,6 +21,7 @@ import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
+import bcrypt from "bcryptjs";
 
 @JsonController("/members")
 export class AdminMemberController {
@@ -59,7 +60,7 @@ export class AdminMemberController {
 
       member.isDeleted = false;
       member.status = MemberStatus.ACTIVE;
-      member.pin = "1234"; // Default PIN for members registered by Admin
+      member.pin = await bcrypt.hash("1234", 10); // Default PIN hashed for members registered by Admin
 
       const saved = await this.memberRepo.save(member);
       return res.status(StatusCodes.CREATED).json({

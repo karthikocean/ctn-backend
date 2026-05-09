@@ -102,6 +102,7 @@ export class CategoryController {
     @QueryParam("limit") limit: number,
     @QueryParam("search") search: string,
     @QueryParam("referralParent") referralParent: string,
+    @QueryParam("parentCategory") parentCategory: string,
     @QueryParam("type") type: string,
     @Res() res: any
   ) {
@@ -112,6 +113,9 @@ export class CategoryController {
       const where: any = { isDeleted: false };
       if (search) {
         where.name = { $regex: search, $options: "i" };
+      }
+      if (parentCategory && ObjectId.isValid(parentCategory)) {
+        where.parentCategory = new ObjectId(parentCategory);
       }
       if (type) {
         if (type === CategoryType.REFERRAL) {
