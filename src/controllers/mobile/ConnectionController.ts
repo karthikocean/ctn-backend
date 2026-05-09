@@ -70,13 +70,12 @@ export class MobileConnectionController {
       const receiver = await this.memberRepo.findOneBy({ _id: new ObjectId(receiverId), isDeleted: false });
       if (!receiver) throw new NotFoundError("Receiver not found");
 
-      // Check if already connected or request pending
+      // Check if already connected or request pending (only in THIS direction)
       const existing = await this.connectionRepo.findOne({
         where: {
-          $or: [
-            { senderId: new ObjectId(senderId), receiverId: new ObjectId(receiverId) },
-            { senderId: new ObjectId(receiverId), receiverId: new ObjectId(senderId) }
-          ]
+          senderId: new ObjectId(senderId),
+          receiverId: new ObjectId(receiverId),
+          status: { $ne: ConnectionStatus.CANCELLED }
         } as any
       });
 
@@ -221,6 +220,126 @@ export class MobileConnectionController {
 
   /**
    * @swagger
+   * /mobile-api/connections/relationship-list:
+   *   get:
+   *     summary: Get followers, following or mutual members
+   *     tags: [Mobile Connection]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: type
+   *         required: true
+   *         schema:
+   *           type: string
+   *           enum: [FOLLOWERS, FOLLOWING, MUTUAL]
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   */
+  @Get("/relationship-list")
+  async getRelationshipList(
+    @Req() req: any,
+    @QueryParam("type") type: "FOLLOWERS" | "FOLLOWING" | "MUTUAL",
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @Res() res: any
+  ) {
+    const userId = req.user.userId;
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+
+    try {
+      let targetMemberIds: ObjectId[] = [];
+      let total = 0;
+
+      if (type === "FOLLOWING") {
+        const [followings, count] = await this.connectionRepo.findAndCount({
+          where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED },
+          skip: page * limit,
+          take: limit
+        });
+        targetMemberIds = followings.map(f => f.receiverId);
+        total = count;
+      } 
+      else if (type === "FOLLOWERS") {
+        const [followers, count] = await this.connectionRepo.findAndCount({
+          where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED },
+          skip: page * limit,
+          take: limit
+        });
+        targetMemberIds = followers.map(f => f.senderId);
+        total = count;
+      } 
+      else if (type === "MUTUAL") {
+        // Mutual: Both followings and followers exist
+        const followings = await this.connectionRepo.find({
+          where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        });
+        const followingIds = new Set(followings.map(f => f.receiverId.toString()));
+
+        const followers = await this.connectionRepo.find({
+          where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        });
+        
+        const mutualIds = followers
+          .filter(f => followingIds.has(f.senderId.toString()))
+          .map(f => f.senderId);
+
+        total = mutualIds.length;
+        targetMemberIds = mutualIds.slice(page * limit, (page + 1) * limit);
+      }
+
+      if (targetMemberIds.length === 0) {
+        return pagination(total, [], limit, page, res);
+      }
+
+      // Fetch Member Details
+      const members = await this.memberRepo.find({
+        where: { _id: { $in: targetMemberIds } } as any
+      });
+
+      // Fetch ALL my outgoing connections to these members to determine follow-back status
+      const myOutgoingConnections = await this.connectionRepo.find({
+        where: { 
+          senderId: new ObjectId(userId), 
+          receiverId: { $in: targetMemberIds } 
+        } as any
+      });
+      const outgoingMap = new Map(myOutgoingConnections.map(c => [c.receiverId.toString(), c.status]));
+
+      // Maintain order and map data
+      const data = targetMemberIds.map(id => {
+        const m = members.find(member => member._id.toString() === id.toString());
+        if (!m) return null;
+
+        return {
+          _id: m._id,
+          fullName: m.fullName,
+          profilePhoto: m.profilePhoto,
+          businessName: m.businessName,
+          city: m.city,
+          status: outgoingMap.get(m._id.toString()) === "ACCEPTED" 
+            ? "Following" 
+            : outgoingMap.get(m._id.toString()) === "PENDING" 
+              ? "Requested" 
+              : "Follow back"
+        };
+      }).filter(item => item !== null);
+
+      return pagination(total, data, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
    * /mobile-api/connections/{id}/status:
    *   put:
    *     summary: Accept or Reject a connection request
@@ -273,16 +392,19 @@ export class MobileConnectionController {
       connection.status = data.status;
       const saved = await this.connectionRepo.save(connection);
 
-      // ✅ Send Notification to original Sender if accepted
-      if (data.status === ConnectionStatus.ACCEPTED) {
+      // ✅ Send Notification to original Sender
+      if (data.status === ConnectionStatus.ACCEPTED || data.status === ConnectionStatus.REJECTED) {
         const originalSender = await this.memberRepo.findOneBy({ _id: connection.senderId, isDeleted: false });
         const receiver = await this.memberRepo.findOneBy({ _id: connection.receiverId, isDeleted: false });
 
         if (originalSender?.fcmToken) {
+          const statusText = data.status === ConnectionStatus.ACCEPTED ? "accepted" : "declined";
+          const subjectText = data.status === ConnectionStatus.ACCEPTED ? "Connection Request Accepted" : "Connection Request Declined";
+
           await insertPushNotification({
             token: originalSender.fcmToken,
-            subject: "Connection Request Accepted",
-            content: `${receiver?.fullName || "A member"} has accepted your connection request.`,
+            subject: subjectText,
+            content: `${receiver?.fullName || "A member"} has ${statusText} your connection request.`,
             moduleName: NotificationModule.CONNECTION,
             moduleId: saved._id.toString(),
             receiverId: connection.senderId.toString(),

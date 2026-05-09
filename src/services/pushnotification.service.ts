@@ -1,17 +1,28 @@
 import { JWT } from "google-auth-library";
 import axios from "axios";
 import path from "path";
+import * as fs from "fs";
 import { ObjectId } from "mongodb";
 import { NotificationModule, PushNotification } from "../entity/PushNotifications";
 import { AppDataSource } from "../data-source";
 import { InsertPushNotificationDto } from "../dto/mobile/InsertPushNotification.dto";
 
 const FCM_ENDPOINT = "https://fcm.googleapis.com/v1/projects/ctn-business-forum/messages:send";
-const serviceAccount = path.join(__dirname, "../views", "google-firebase.json");
+const serviceAccountPath = path.join(__dirname, "../views", "google-firebase.json");
+
+// Load service account explicitly to ensure it's valid
+let serviceAccount: any;
+try {
+  serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
+  console.log("✅ FCM Service Account loaded:", serviceAccount.client_email);
+} catch (error) {
+  console.error("❌ Failed to load FCM service account:", error);
+}
 
 // Initialize JWT client for Firebase
 const client = new JWT({
-  keyFile: serviceAccount,
+  email: serviceAccount?.client_email,
+  key: serviceAccount?.private_key,
   scopes: ["https://www.googleapis.com/auth/firebase.messaging"],
 });
 
