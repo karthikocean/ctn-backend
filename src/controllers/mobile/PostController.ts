@@ -15,8 +15,10 @@ import {
   UseBefore
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
-import { Post as PostEntity, PostType } from "../../entity/Post";
+import { PostModel as PostEntity, PostType } from "../../entity/Post";
 import { Member } from "../../entity/Member";
+import { Connection, ConnectionStatus } from "../../entity/Connection";
+import { Category } from "../../entity/Category";
 import { CreatePostDto, UpdatePostDto } from "../../dto/mobile/Post.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -29,6 +31,8 @@ import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 export class MobilePostController {
   private postRepo = AppDataSource.getMongoRepository(PostEntity);
   private memberRepo = AppDataSource.getMongoRepository(Member);
+  private connectionRepo = AppDataSource.getMongoRepository(Connection);
+  private categoryRepo = AppDataSource.getMongoRepository(Category);
 
   /**
    * @swagger
@@ -99,6 +103,89 @@ export class MobilePostController {
       });
 
       return pagination(total, posts, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/posts/following-posts:
+   *   get:
+   *     summary: Get posts from members you are following
+   *     tags: [Mobile Post]
+   *     security:
+   *       - bearerAuth: []
+   */
+  @Get("/following-posts")
+  async getFollowingPosts(
+    @Req() req: any,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @QueryParam("type") type: PostType,
+    @Res() res: any
+  ) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+    try {
+      const userId = req.user.userId;
+
+      // 1. Find who I am following
+      const followings = await this.connectionRepo.find({
+        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+      });
+
+      console.log(`User ${userId} is following ${followings.length} members`);
+
+      // Ensure all IDs are fresh ObjectIds for the Mongo query
+      const followingIds = followings.map(f => new ObjectId(f.receiverId));
+
+      // // Include own posts in the feed
+      // followingIds.push(new ObjectId(userId));
+
+      // 2. Fetch posts from these members
+      const where: any = {
+        memberId: { $in: followingIds },
+        isDeleted: false
+      };
+
+      if (type) where.type = type;
+
+      const [posts, total] = await this.postRepo.findAndCount({
+        where,
+        skip: page * limit,
+        take: limit,
+        order: { createdAt: "DESC" }
+      });
+
+      // 3. Populate Member Info
+      const memberIds = [...new Set(posts.map(p => p.memberId))];
+      const members = memberIds.length > 0
+        ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
+        : [];
+
+      // 4. Fetch Category Info for Members
+      const categoryIds = [...new Set(members.map(m => m.businessCategory).filter((id): id is ObjectId => !!id))];
+      const categories = categoryIds.length > 0
+        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : [];
+
+      const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
+
+      const memberMap = new Map(members.map(m => [m._id.toString(), {
+        _id: m._id,
+        fullName: m.fullName,
+        profilePhoto: m.profilePhoto,
+        businessName: m.businessName,
+        categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null
+      }]));
+
+      const data = posts.map(p => ({
+        ...p,
+        member: memberMap.get(p.memberId.toString()) || null
+      }));
+
+      return pagination(total, data, limit, page, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

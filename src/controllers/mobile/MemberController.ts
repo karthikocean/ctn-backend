@@ -25,13 +25,15 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import bcrypt from "bcryptjs";
 import { UserToken } from "../../entity/UserToken";
-import { Connection } from "../../entity/Connection";
+import { Connection, ConnectionStatus } from "../../entity/Connection";
+import { PostModel } from "../../entity/Post";
 
 @JsonController("/members")
 export class MobileMemberController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
   private connectionRepo = AppDataSource.getMongoRepository(Connection);
+  private postRepo = AppDataSource.getMongoRepository(PostModel);
   /**
    * @swagger
    * /mobile-api/members/register:
@@ -267,9 +269,14 @@ export class MobileMemberController {
 
       if (!member) throw new NotFoundError("Profile not found");
 
+      const counts = await this.getMemberCounts(userId);
+
       return res.status(StatusCodes.OK).json({
         success: true,
-        data: member
+        data: {
+          ...member,
+          ...counts
+        }
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -407,6 +414,84 @@ export class MobileMemberController {
       return handleErrorResponse(error, res);
     }
   }
+  /**
+   * @swagger
+   * /mobile-api/members/follow-back-suggestions:
+   *   get:
+   *     summary: Get members who follow you but you don't follow back
+   *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
+   */
+  @Get("/follow-back-suggestions")
+  @UseBefore(MobileAuthMiddleware)
+  async getFollowBackSuggestions(@Req() req: any, @Res() res: any) {
+    try {
+      const userId = req.user.userId;
+
+      // 1. Find all people who follow me
+      const myFollowers = await this.connectionRepo.find({
+        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+      });
+
+      if (myFollowers.length === 0) {
+        return res.status(StatusCodes.OK).json({ success: true, data: [] });
+      }
+
+      const followerIds = myFollowers.map(f => f.senderId);
+
+      // 2. Find people I already follow or have requested to follow
+      const myOutgoingRequests = await this.connectionRepo.find({
+        where: { 
+          senderId: new ObjectId(userId), 
+          status: { $in: [ConnectionStatus.ACCEPTED, ConnectionStatus.PENDING] } 
+        } as any
+      });
+
+      const followingIdsStrings = new Set(myOutgoingRequests.map(f => f.receiverId.toString()));
+
+      // 3. Filter followers who I am NOT already following or haven't requested yet
+      const followBackIds = followerIds.filter(id => !followingIdsStrings.has(id.toString()));
+
+      if (followBackIds.length === 0) {
+        return res.status(StatusCodes.OK).json({ success: true, data: [] });
+      }
+
+      // 4. Fetch member details
+      const members = await this.memberRepo.find({
+        where: {
+          _id: { $in: followBackIds },
+          isDeleted: false,
+          status: MemberStatus.ACTIVE
+        } as any
+      });
+
+
+      // Populate Categories for display
+      const allCategoryIds = [...new Set(members.flatMap(m => [m.businessCategory, m.subCategory]).filter((id): id is ObjectId => !!id))];
+      const categories = allCategoryIds.length > 0
+        ? await this.categoryRepo.find({ where: { _id: { $in: allCategoryIds } } as any })
+        : [];
+      const catMap = new Map(categories.map(c => [c._id.toString(), c.name]));
+
+      const data = members.map(m => ({
+        _id: m._id,
+        fullName: m.fullName,
+        profilePhoto: m.profilePhoto,
+        businessName: m.businessName,
+        city: m.city,
+        category: m.businessCategory ? { _id: m.businessCategory, name: catMap.get(m.businessCategory.toString()) } : null,
+        subCategory: m.subCategory ? { _id: m.subCategory, name: catMap.get(m.subCategory.toString()) } : null,
+      }));
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
 
   /**
    * @swagger
@@ -483,11 +568,16 @@ export class MobileMemberController {
    *   get:
    *     summary: Get details of another member
    *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
    */
   @Get("/:id")
-  async getMemberDetail(@Param("id") id: string, @Res() res: any) {
+  @UseBefore(MobileAuthMiddleware)
+  async getMemberDetail(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+
+      const currentUserId = req.user.id;
 
       const member = await this.memberRepo.findOne({
         where: { _id: new ObjectId(id), isDeleted: false, status: MemberStatus.ACTIVE }
@@ -502,12 +592,48 @@ export class MobileMemberController {
         populated.businessCategory = cat ? { _id: cat._id, name: cat.name } : null;
       }
 
+      // Add Connection Status if authenticated
+      if (currentUserId && currentUserId !== id) {
+        const myRequest = await this.connectionRepo.findOne({
+          where: { senderId: new ObjectId(currentUserId), receiverId: new ObjectId(id) }
+        });
+        const theirRequest = await this.connectionRepo.findOne({
+          where: { senderId: new ObjectId(id), receiverId: new ObjectId(currentUserId) }
+        });
+
+        populated.connection = {
+          myRequestStatus: myRequest?.status || null,
+          theirRequestStatus: theirRequest?.status || null,
+          isFollowing: myRequest?.status === ConnectionStatus.ACCEPTED,
+          isFollower: theirRequest?.status === ConnectionStatus.ACCEPTED,
+          isMutual: myRequest?.status === ConnectionStatus.ACCEPTED && theirRequest?.status === ConnectionStatus.ACCEPTED
+        };
+      }
+
       return res.status(StatusCodes.OK).json({
         success: true,
-        data: populated
+        data: {
+          ...populated,
+          ...(await this.getMemberCounts(id))
+        }
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
+  }
+
+  private async getMemberCounts(memberId: string) {
+    const id = new ObjectId(memberId);
+    const [followersCount, followingsCount, postsCount] = await Promise.all([
+      this.connectionRepo.countBy({ receiverId: id, status: ConnectionStatus.ACCEPTED }),
+      this.connectionRepo.countBy({ senderId: id, status: ConnectionStatus.ACCEPTED }),
+      this.postRepo.countBy({ memberId: id, isDeleted: false })
+    ]);
+
+    return {
+      followersCount,
+      followingsCount,
+      postsCount
+    };
   }
 }

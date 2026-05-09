@@ -15,41 +15,41 @@ export enum PostType {
 }
 
 @Entity("posts")
-export class Post {
+export class PostModel {
   @ObjectIdColumn()
-    _id!: ObjectId;
+  _id!: ObjectId;
 
   @Column({
     type: "enum",
     enum: PostType,
     default: PostType.REQUIREMENT
   })
-    type!: PostType;
+  type!: PostType;
 
   @Column()
-    title!: string;
+  title!: string;
 
   @Column()
-    description!: string;
+  description!: string;
 
   @Column({ nullable: true })
-    location?: string;
+  location?: string;
 
   @Column({ nullable: true })
-    period?: string;
+  period?: string;
 
   @Column("simple-array", { nullable: true })
-    media?: string[];
+  media?: string[];
 
   @Column()
-    memberId!: ObjectId;
+  memberId!: ObjectId;
 
   @Column({ default: false })
-    isDeleted!: boolean;
+  isDeleted!: boolean;
 
   @CreateDateColumn()
-    createdAt!: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-    updatedAt!: Date;
+  updatedAt!: Date;
 }
