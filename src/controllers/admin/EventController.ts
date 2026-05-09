@@ -13,45 +13,45 @@ import {
   Res
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
-import { Announcement, AnnouncementStatus } from "../../entity/Announcement";
+import { Event, EventStatus } from "../../entity/Event";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
-import { CreateAnnouncementDto, UpdateAnnouncementDto } from "../../dto/admin/Announcement.dto";
+import { CreateEventDto, UpdateEventDto } from "../../dto/admin/Event.dto";
 
-@JsonController("/announcements")
-export class AdminAnnouncementController {
-  private announcementRepo = AppDataSource.getMongoRepository(Announcement);
+@JsonController("/events")
+export class AdminEventController {
+  private eventRepo = AppDataSource.getMongoRepository(Event);
 
   /**
    * @swagger
-   * /api/admin/announcements:
+   * /api/admin/events:
    *   post:
-   *     summary: Create a new announcement (Admin)
-   *     tags: [Admin Announcement]
+   *     summary: Create a new event (Admin)
+   *     tags: [Admin Event]
    */
   @Post("/")
   @HttpCode(StatusCodes.CREATED)
-  async create(@Body() data: CreateAnnouncementDto, @Res() res: any) {
+  async create(@Body() data: CreateEventDto, @Res() res: any) {
     try {
       // ✅ Check for unique title
-      const existing = await this.announcementRepo.findOneBy({
+      const existing = await this.eventRepo.findOneBy({
         title: data.title,
         isDeleted: false
       });
-      if (existing) throw new BadRequestError("An announcement with this title already exists");
+      if (existing) throw new BadRequestError("An event with this title already exists");
 
-      const announcement = new Announcement();
-      Object.assign(announcement, data);
+      const event = new Event();
+      Object.assign(event, data);
 
-      announcement.isDeleted = false;
-      announcement.status = data.status || AnnouncementStatus.DRAFT;
+      event.isDeleted = false;
+      event.status = data.status || EventStatus.UPCOMING;
 
-      const saved = await this.announcementRepo.save(announcement);
+      const saved = await this.eventRepo.save(event);
       return res.status(StatusCodes.CREATED).json({
         success: true,
-        message: "Announcement created successfully",
+        message: "Event created successfully",
         data: saved
       });
     } catch (error: any) {
@@ -61,10 +61,10 @@ export class AdminAnnouncementController {
 
   /**
    * @swagger
-   * /api/admin/announcements:
+   * /api/admin/events:
    *   get:
-   *     summary: List all announcements (Admin)
-   *     tags: [Admin Announcement]
+   *     summary: List all events (Admin)
+   *     tags: [Admin Event]
    */
   @Get("/")
   async getAll(
@@ -82,14 +82,14 @@ export class AdminAnnouncementController {
         where.title = { $regex: search, $options: "i" };
       }
 
-      const [announcements, total] = await this.announcementRepo.findAndCount({
+      const [events, total] = await this.eventRepo.findAndCount({
         where,
         skip: page * limit,
         take: limit,
         order: { createdAt: "DESC" }
       });
 
-      return pagination(total, announcements, limit, page, res);
+      return pagination(total, events, limit, page, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
@@ -97,26 +97,26 @@ export class AdminAnnouncementController {
 
   /**
    * @swagger
-   * /api/admin/announcements/{id}:
+   * /api/admin/events/{id}:
    *   get:
-   *     summary: Get single announcement details
-   *     tags: [Admin Announcement]
+   *     summary: Get single event details
+   *     tags: [Admin Event]
    */
   @Get("/:id")
   async getOne(@Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
-      const announcement = await this.announcementRepo.findOneBy({
+      const event = await this.eventRepo.findOneBy({
         _id: new ObjectId(id),
         isDeleted: false
       });
 
-      if (!announcement) throw new NotFoundError("Announcement not found");
+      if (!event) throw new NotFoundError("Event not found");
 
       return res.status(StatusCodes.OK).json({
         success: true,
-        data: announcement
+        data: event
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -125,29 +125,29 @@ export class AdminAnnouncementController {
 
   /**
    * @swagger
-   * /api/admin/announcements/{id}:
+   * /api/admin/events/{id}:
    *   put:
-   *     summary: Update announcement
-   *     tags: [Admin Announcement]
+   *     summary: Update event
+   *     tags: [Admin Event]
    */
   @Put("/:id")
-  async update(@Param("id") id: string, @Body() data: UpdateAnnouncementDto, @Res() res: any) {
+  async update(@Param("id") id: string, @Body() data: UpdateEventDto, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
-      const announcement = await this.announcementRepo.findOneBy({
+      const event = await this.eventRepo.findOneBy({
         _id: new ObjectId(id),
         isDeleted: false
       });
 
-      if (!announcement) throw new NotFoundError("Announcement not found");
+      if (!event) throw new NotFoundError("Event not found");
 
-      Object.assign(announcement, data);
-      const saved = await this.announcementRepo.save(announcement);
+      Object.assign(event, data);
+      const saved = await this.eventRepo.save(event);
 
       return res.status(StatusCodes.OK).json({
         success: true,
-        message: "Announcement updated successfully",
+        message: "Event updated successfully",
         data: saved
       });
     } catch (error: any) {
@@ -157,29 +157,29 @@ export class AdminAnnouncementController {
 
   /**
    * @swagger
-   * /api/admin/announcements/{id}:
+   * /api/admin/events/{id}:
    *   delete:
-   *     summary: Soft delete announcement
-   *     tags: [Admin Announcement]
+   *     summary: Soft delete event
+   *     tags: [Admin Event]
    */
   @Delete("/:id")
   async delete(@Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
-      const announcement = await this.announcementRepo.findOneBy({
+      const event = await this.eventRepo.findOneBy({
         _id: new ObjectId(id),
         isDeleted: false
       });
 
-      if (!announcement) throw new NotFoundError("Announcement not found");
+      if (!event) throw new NotFoundError("Event not found");
 
-      announcement.isDeleted = true;
-      await this.announcementRepo.save(announcement);
+      event.isDeleted = true;
+      await this.eventRepo.save(event);
 
       return res.status(StatusCodes.OK).json({
         success: true,
-        message: "Announcement deleted successfully"
+        message: "Event deleted successfully"
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
