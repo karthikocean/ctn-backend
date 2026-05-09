@@ -16,8 +16,8 @@ export class Announcement {
     @Column()
       content!: string;
 
-    @Column({ nullable: true })
-      image?: string; // URL from media upload
+    @Column()
+      image!: string; // URL from media upload
 
     @Column({ nullable: true })
       video?: string; // URL from media upload
