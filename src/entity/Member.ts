@@ -7,6 +7,7 @@ import {
   Index
 } from "typeorm";
 import { ObjectId } from "mongodb";
+import { Exclude } from "class-transformer";
 
 export enum MemberStatus {
   ACTIVE = "active",
@@ -24,6 +25,7 @@ export class Member {
   // =========================================
   // BASIC INFORMATION
   // =========================================
+  @Exclude()
   @Column()
     pin!: string;
 
@@ -145,6 +147,7 @@ export class Member {
   @Column({ nullable: true })
     updatedBy?: ObjectId;
 
+  @Exclude()
   @Column({ nullable: true })
     fcmToken?: string;
 
