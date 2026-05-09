@@ -51,13 +51,15 @@ export class AdminMediaController {
 
       for (const file of files) {
         if (file.size > maxSize) {
-          throw new BadRequestError(`File ${file.name} exceeds 10MB limit`);
+          throw new BadRequestError(`File ${file.name} exceeds 50MB limit`);
         }
 
         const fileExt = path.extname(file.name);
         const fileName = `media-${Date.now()}-${Math.random().toString(36).substring(7)}${fileExt}`;
 
+        console.log(`Uploading file: ${fileName} to folder: ${targetFolder}`);
         const success = await imageService.fileUpload(file, targetFolder, fileName);
+        console.log(`Upload success: ${success}`);
 
         if (success) {
           uploadedData.push({
