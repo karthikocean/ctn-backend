@@ -266,7 +266,7 @@ export class MobileConnectionController {
         });
         targetMemberIds = followings.map(f => f.receiverId);
         total = count;
-      } 
+      }
       else if (type === "FOLLOWERS") {
         const [followers, count] = await this.connectionRepo.findAndCount({
           where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED },
@@ -275,7 +275,7 @@ export class MobileConnectionController {
         });
         targetMemberIds = followers.map(f => f.senderId);
         total = count;
-      } 
+      }
       else if (type === "MUTUAL") {
         // Mutual: Both followings and followers exist
         const followings = await this.connectionRepo.find({
@@ -286,7 +286,7 @@ export class MobileConnectionController {
         const followers = await this.connectionRepo.find({
           where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
         });
-        
+
         const mutualIds = followers
           .filter(f => followingIds.has(f.senderId.toString()))
           .map(f => f.senderId);
@@ -306,9 +306,9 @@ export class MobileConnectionController {
 
       // Fetch ALL my outgoing connections to these members to determine follow-back status
       const myOutgoingConnections = await this.connectionRepo.find({
-        where: { 
-          senderId: new ObjectId(userId), 
-          receiverId: { $in: targetMemberIds } 
+        where: {
+          senderId: new ObjectId(userId),
+          receiverId: { $in: targetMemberIds }
         } as any
       });
       const outgoingMap = new Map(myOutgoingConnections.map(c => [c.receiverId.toString(), c.status]));
@@ -324,10 +324,10 @@ export class MobileConnectionController {
           profilePhoto: m.profilePhoto,
           businessName: m.businessName,
           city: m.city,
-          status: outgoingMap.get(m._id.toString()) === "ACCEPTED" 
-            ? "Following" 
-            : outgoingMap.get(m._id.toString()) === "PENDING" 
-              ? "Requested" 
+          status: outgoingMap.get(m._id.toString()) === "ACCEPTED"
+            ? "Following"
+            : outgoingMap.get(m._id.toString()) === "PENDING"
+              ? "Requested"
               : "Follow back"
         };
       }).filter(item => item !== null);

@@ -442,9 +442,9 @@ export class MobileMemberController {
 
       // 2. Find people I already follow or have requested to follow
       const myOutgoingRequests = await this.connectionRepo.find({
-        where: { 
-          senderId: new ObjectId(userId), 
-          status: { $in: [ConnectionStatus.ACCEPTED, ConnectionStatus.PENDING] } 
+        where: {
+          senderId: new ObjectId(userId),
+          status: { $in: [ConnectionStatus.ACCEPTED, ConnectionStatus.PENDING] }
         } as any
       });
 
@@ -465,7 +465,6 @@ export class MobileMemberController {
           status: MemberStatus.ACTIVE
         } as any
       });
-
 
       // Populate Categories for display
       const allCategoryIds = [...new Set(members.flatMap(m => [m.businessCategory, m.subCategory]).filter((id): id is ObjectId => !!id))];
