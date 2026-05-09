@@ -24,7 +24,7 @@ export const initSocket = (server: HttpServer) => {
       const decoded = jwt.verify(cleanToken, process.env.JWT_SECRET as string) as any;
       socket.data.userId = decoded.id || decoded.userId;
       next();
-    } catch (err) {
+    } catch (_err) {
       return next(new Error("Authentication error: Invalid token"));
     }
   });

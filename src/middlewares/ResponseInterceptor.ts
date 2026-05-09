@@ -45,7 +45,7 @@ export class ResponseInterceptor implements InterceptorInterface {
 
       try {
         newObj[key] = this.transform(obj[key], visited);
-      } catch (e) {
+      } catch (_e) {
         // Fallback for properties that might throw on access
         newObj[key] = obj[key];
       }

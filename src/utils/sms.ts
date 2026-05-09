@@ -5,7 +5,7 @@ dotenv.config({ quiet: true });
 const API_KEY = process.env.SMS_API_KEY;
 const SENDER_ID = process.env.SMS_SENDER_ID;
 const WELCOME_TEMPLATE_ID = process.env.SMS_WELCOME_TEMPLATE_ID;
-const FORGOT_PIN_TEMPLATE_ID = process.env.SMS_FORGOT_PIN_TEMPLATE_ID;
+const _FORGOT_PIN_TEMPLATE_ID = process.env.SMS_FORGOT_PIN_TEMPLATE_ID;
 const SMS_URL = "https://sms.textspeed.in/vb/apikey.php";
 
 export const sendOTPSMS = async (phoneNumber: string, otp: string) => {
