@@ -10,3 +10,5 @@ dist/
 .DS_Store
 public/
 .packagehash
+google-firebase.json
+google-firebase.json

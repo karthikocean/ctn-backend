@@ -33,6 +33,9 @@ export class Member {
   @Column({ nullable: true })
     profilePhoto?: string;
 
+  @Column({ nullable: true })
+    profileBanner?: string;
+
   @Column()
     mobileNumber!: string;
 
@@ -141,6 +144,9 @@ export class Member {
 
   @Column({ nullable: true })
     updatedBy?: ObjectId;
+
+  @Column({ nullable: true })
+    fcmToken?: string;
 
   @CreateDateColumn()
     createdAt!: Date;
