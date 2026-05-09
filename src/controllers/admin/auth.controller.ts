@@ -26,7 +26,7 @@ export class AuthController {
 
     /**
      * @swagger
-     * /api/auth/login:
+     * /api/admin/auth/login:
      *   post:
      *     summary: Admin login using phone number and PIN
      *     tags: [Auth]
@@ -73,7 +73,26 @@ export class AuthController {
       let finalToken: string;
 
       if (existingToken) {
-        finalToken = existingToken.token;
+        try {
+          // Verify if existing token is valid
+          jwt.verify(existingToken.token, process.env.JWT_SECRET as string);
+          finalToken = existingToken.token;
+        } catch (_err) {
+          // Token expired or invalid, generate new one
+          finalToken = jwt.sign(
+            {
+              id: user.id.toString(),
+              roleId: user.roleId.toString()
+            },
+            process.env.JWT_SECRET as string,
+            {
+              expiresIn: (process.env.JWT_EXPIRES_IN || "1d") as any
+            }
+          );
+
+          existingToken.token = finalToken;
+          await tokenRepo.save(existingToken);
+        }
       } else {
         // Generate new token if not exists
         finalToken = jwt.sign(
@@ -81,10 +100,10 @@ export class AuthController {
             id: user.id.toString(),
             roleId: user.roleId.toString()
           },
-            process.env.JWT_SECRET as string,
-            {
-              expiresIn: "1d"
-            }
+          process.env.JWT_SECRET as string,
+          {
+            expiresIn: (process.env.JWT_EXPIRES_IN || "1d") as any
+          }
         );
 
         const userToken = new UserToken();
@@ -118,7 +137,7 @@ export class AuthController {
 
   /**
    * @swagger
-   * /api/auth/change-pin:
+   * /api/admin/auth/change-pin:
    *   post:
    *     summary: Change admin user PIN
    *     tags: [Auth]

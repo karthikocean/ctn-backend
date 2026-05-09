@@ -30,7 +30,7 @@ export class CategoryController {
 
   /**
    * @swagger
-   * /api/categories:
+   * /api/admin/categories:
    *   post:
    *     summary: Create a new category
    *     tags: [Category]
@@ -74,7 +74,7 @@ export class CategoryController {
 
   /**
    * @swagger
-   * /api/categories:
+   * /api/admin/categories:
    *   get:
    *     summary: Get all categories with pagination and search
    *     tags: [Category]
@@ -176,7 +176,7 @@ export class CategoryController {
 
   /**
    * @swagger
-   * /api/categories/{id}:
+   * /api/admin/categories/{id}:
    *   get:
    *     summary: Get a single category by ID
    *     tags: [Category]
@@ -220,7 +220,7 @@ export class CategoryController {
 
   /**
    * @swagger
-   * /api/categories/{id}:
+   * /api/admin/categories/{id}:
    *   put:
    *     summary: Update a category
    *     tags: [Category]
@@ -248,7 +248,7 @@ export class CategoryController {
 
   /**
    * @swagger
-   * /api/categories/{id}:
+   * /api/admin/categories/{id}:
    *   delete:
    *     summary: Delete a category (Soft Delete)
    *     tags: [Category]

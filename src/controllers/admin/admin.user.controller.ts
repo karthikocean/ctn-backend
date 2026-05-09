@@ -32,7 +32,7 @@ export class AdminUserController {
 
   /**
    * @swagger
-   * /api/admin-users:
+   * /api/admin/admin-users:
    *   get:
    *     summary: List all admin users with pagination
    *     tags: [AdminUser]
@@ -125,7 +125,7 @@ export class AdminUserController {
 
   /**
    * @swagger
-   * /api/admin-users/{id}:
+   * /api/admin/admin-users/{id}:
    *   get:
    *     summary: Get admin user by ID
    *     tags: [AdminUser]
@@ -181,7 +181,7 @@ export class AdminUserController {
 
   /**
    * @swagger
-   * /api/admin-users:
+   * /api/admin/admin-users:
    *   post:
    *     summary: Create a new admin user
    *     tags: [AdminUser]
@@ -237,7 +237,7 @@ export class AdminUserController {
 
   /**
    * @swagger
-   * /api/admin-users/{id}:
+   * /api/admin/admin-users/{id}:
    *   patch:
    *     summary: Update an existing admin user
    *     tags: [AdminUser]
@@ -292,7 +292,7 @@ export class AdminUserController {
 
   /**
    * @swagger
-   * /api/admin-users/{id}:
+   * /api/admin/admin-users/{id}:
    *   delete:
    *     summary: Delete an admin user (Soft delete)
    *     tags: [AdminUser]
@@ -329,7 +329,7 @@ export class AdminUserController {
 
   /**
    * @swagger
-   * /api/admin-users/{id}/status:
+   * /api/admin/admin-users/{id}/status:
    *   patch:
    *     summary: Update admin user status (isActive)
    *     tags: [AdminUser]
