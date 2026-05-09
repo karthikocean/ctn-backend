@@ -4,8 +4,7 @@ import {
   IsEnum,
   IsOptional,
   IsNumber,
-  Min,
-  IsDateString
+  Min
 } from "class-validator";
 import { Type } from "class-transformer";
 import { EventStatus } from "../../entity/Event";
@@ -13,11 +12,11 @@ import { EventStatus } from "../../entity/Event";
 export class CreateEventDto {
   @IsString()
   @IsNotEmpty({ message: "Title is required" })
-  title!: string;
+    title!: string;
 
   @IsString()
   @IsOptional()
-  description?: string;
+    description?: string;
 
   @Type(() => Date)
   @IsNotEmpty({ message: "Date is required" })
@@ -25,43 +24,43 @@ export class CreateEventDto {
 
   @IsString()
   @IsNotEmpty({ message: "Time is required" })
-  time!: string;
+    time!: string;
 
   @IsString()
   @IsNotEmpty({ message: "Location is required" })
-  location!: string;
+    location!: string;
 
   @IsString()
   @IsOptional()
-  image?: string;
+    image?: string;
 
   @IsString()
   @IsOptional()
-  video?: string;
+    video?: string;
 
   @IsNumber()
   @IsOptional()
   @Min(0)
-  points?: number;
+    points?: number;
 
   @IsNumber()
   @IsOptional()
   @Min(0)
-  membersLimit?: number;
+    membersLimit?: number;
 
   @IsEnum(EventStatus)
   @IsOptional()
-  status?: EventStatus = EventStatus.UPCOMING;
+    status?: EventStatus = EventStatus.UPCOMING;
 }
 
 export class UpdateEventDto {
   @IsString()
   @IsOptional()
-  title?: string;
+    title?: string;
 
   @IsString()
   @IsOptional()
-  description?: string;
+    description?: string;
 
   @Type(() => Date)
   @IsOptional()
@@ -69,31 +68,31 @@ export class UpdateEventDto {
 
   @IsString()
   @IsOptional()
-  time?: string;
+    time?: string;
 
   @IsString()
   @IsOptional()
-  location?: string;
+    location?: string;
 
   @IsString()
   @IsOptional()
-  image?: string;
+    image?: string;
 
   @IsString()
   @IsOptional()
-  video?: string;
+    video?: string;
 
   @IsNumber()
   @IsOptional()
   @Min(0)
-  points?: number;
+    points?: number;
 
   @IsNumber()
   @IsOptional()
   @Min(0)
-  membersLimit?: number;
+    membersLimit?: number;
 
   @IsEnum(EventStatus)
   @IsOptional()
-  status?: EventStatus;
+    status?: EventStatus;
 }
