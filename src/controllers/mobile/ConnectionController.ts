@@ -45,11 +45,7 @@ export class MobileConnectionController {
    *       content:
    *         application/json:
    *           schema:
-   *             type: object
-   *             properties:
-   *               receiverId:
-   *                 type: string
-   *                 example: "60d5ecb8b392d7001f8e8e3a"
+   *             $ref: '#/components/schemas/CreateConnectionDto'
    */
   @Post("/")
   @HttpCode(StatusCodes.CREATED)
@@ -429,6 +425,14 @@ export class MobileConnectionController {
    *   delete:
    *     summary: Remove or cancel a connection
    *     tags: [Mobile Connection]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
    */
   @Delete("/:id")
   async deleteConnection(@Req() req: any, @Param("id") id: string, @Res() res: any) {

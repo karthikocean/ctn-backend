@@ -19,12 +19,16 @@ import { PostModel as PostEntity, PostType } from "../../entity/Post";
 import { Member } from "../../entity/Member";
 import { Connection, ConnectionStatus } from "../../entity/Connection";
 import { Category } from "../../entity/Category";
+import { Conversation } from "../../entity/Conversation";
+import { Message, MessageType } from "../../entity/Message";
+import { SavedPost } from "../../entity/SavedPost";
 import { CreatePostDto, UpdatePostDto } from "../../dto/mobile/Post.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
+import { getIO } from "../../utils/socket";
 
 @JsonController("/posts")
 @UseBefore(MobileAuthMiddleware)
@@ -33,6 +37,9 @@ export class MobilePostController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private connectionRepo = AppDataSource.getMongoRepository(Connection);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
+  private conversationRepo = AppDataSource.getMongoRepository(Conversation);
+  private messageRepo = AppDataSource.getMongoRepository(Message);
+  private savedPostRepo = AppDataSource.getMongoRepository(SavedPost);
 
   /**
    * @swagger
@@ -79,6 +86,20 @@ export class MobilePostController {
    *     tags: [Mobile Post]
    *     security:
    *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: type
+   *         schema:
+   *           type: string
+   *           enum: [PROMOTION, REQUIREMENT, GIVE, ASK]
    */
   @Get("/my-posts")
   async getMyPosts(
@@ -116,6 +137,20 @@ export class MobilePostController {
    *     tags: [Mobile Post]
    *     security:
    *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: type
+   *         schema:
+   *           type: string
+   *           enum: [PROMOTION, REQUIREMENT, GIVE, ASK]
    */
   @Get("/following-posts")
   async getFollowingPosts(
@@ -180,9 +215,16 @@ export class MobilePostController {
         categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null
       }]));
 
+      // 5. Check which posts are saved by current user
+      const savedPosts = await this.savedPostRepo.find({
+        where: { memberId: new ObjectId(userId), postId: { $in: posts.map(p => p._id) } } as any
+      });
+      const savedPostIds = new Set(savedPosts.map(s => s.postId.toString()));
+
       const data = posts.map(p => ({
         ...p,
-        member: memberMap.get(p.memberId.toString()) || null
+        member: memberMap.get(p.memberId.toString()) || null,
+        isSaved: savedPostIds.has(p._id.toString())
       }));
 
       return pagination(total, data, limit, page, res);
@@ -197,9 +239,32 @@ export class MobilePostController {
    *   get:
    *     summary: Get all posts with filters and pagination
    *     tags: [Mobile Post]
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: type
+   *         schema:
+   *           type: string
+   *           enum: [PROMOTION, REQUIREMENT, GIVE, ASK]
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *       - in: query
+   *         name: memberId
+   *         schema:
+   *           type: string
    */
   @Get("/")
   async getAll(
+    @Req() req: any,
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
     @QueryParam("type") type: PostType,
@@ -209,6 +274,7 @@ export class MobilePostController {
   ) {
     page = Number(page) || 0;
     limit = Number(limit) || 10;
+    const userId = req.user.userId;
 
     try {
       const where: any = { isDeleted: false };
@@ -244,9 +310,16 @@ export class MobilePostController {
         businessName: m.businessName
       }]));
 
+      // Check which posts are saved by current user
+      const savedPosts = await this.savedPostRepo.find({
+        where: { memberId: new ObjectId(userId), postId: { $in: posts.map(p => p._id) } } as any
+      });
+      const savedPostIds = new Set(savedPosts.map(s => s.postId.toString()));
+
       const data = posts.map(p => ({
         ...p,
-        member: memberMap.get(p.memberId.toString()) || null
+        member: memberMap.get(p.memberId.toString()) || null,
+        isSaved: savedPostIds.has(p._id.toString())
       }));
 
       return pagination(total, data, limit, page, res);
@@ -261,11 +334,18 @@ export class MobilePostController {
    *   get:
    *     summary: Get post details by ID
    *     tags: [Mobile Post]
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
    */
   @Get("/:id")
-  async getOne(@Param("id") id: string, @Res() res: any) {
+  async getOne(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+      const userId = req.user.userId;
 
       const post = await this.postRepo.findOne({
         where: { _id: new ObjectId(id), isDeleted: false }
@@ -275,6 +355,12 @@ export class MobilePostController {
 
       const member = await this.memberRepo.findOneBy({ _id: post.memberId });
 
+      // Check if saved
+      const isSaved = !!(await this.savedPostRepo.findOneBy({
+        memberId: new ObjectId(userId),
+        postId: post._id
+      }));
+
       const data = {
         ...post,
         member: member ? {
@@ -282,7 +368,8 @@ export class MobilePostController {
           fullName: member.fullName,
           profilePhoto: member.profilePhoto,
           businessName: member.businessName
-        } : null
+        } : null,
+        isSaved
       };
 
       return res.status(StatusCodes.OK).json({
@@ -348,6 +435,14 @@ export class MobilePostController {
    *   delete:
    *     summary: Delete a post
    *     tags: [Mobile Post]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
    */
   @Delete("/:id")
   async delete(@Req() req: any, @Param("id") id: string, @Res() res: any) {
@@ -370,6 +465,272 @@ export class MobilePostController {
         success: true,
         message: "Post deleted successfully"
       });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/posts/{id}/share:
+   *   post:
+   *     summary: Increment sharedCount of a post
+   *     tags: [Mobile Post]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               receiverId:
+   *                 type: string
+   */
+  @Post("/:id/share")
+  async share(@Req() req: any, @Param("id") id: string, @Body() body: { receiverId: string }, @Res() res: any) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+      const userId = new ObjectId(req.user.userId);
+      const { receiverId } = body;
+
+      if (!receiverId || !ObjectId.isValid(receiverId)) {
+        throw new BadRequestError("Invalid or missing receiverId");
+      }
+
+      const post = await this.postRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
+      if (!post) throw new NotFoundError("Post not found");
+
+      // Increment share count
+      post.sharedCount = (post.sharedCount || 0) + 1;
+      await this.postRepo.save(post);
+
+      const recId = new ObjectId(receiverId);
+      // Find or Create conversation between userId and receiverId
+      let targetConversation = await this.conversationRepo.findOne({
+        where: {
+          participants: { $all: [userId, recId] },
+          postId: { $exists: false } // General chat
+        } as any
+      });
+
+      if (!targetConversation) {
+        targetConversation = new Conversation();
+        targetConversation.participants = [userId, recId];
+        targetConversation.status = "";
+        targetConversation = await this.conversationRepo.save(targetConversation);
+      } else {
+        // Check if already shared in this conversation by this user
+        const existingShare = await this.messageRepo.findOne({
+          where: {
+            conversationId: targetConversation._id,
+            senderId: userId,
+            type: MessageType.POST_SHARE,
+            postId: post._id
+          } as any
+        });
+
+        if (existingShare) {
+          return res.status(StatusCodes.OK).json({
+            success: true,
+            message: "You have already shared this post with this member",
+            sharedCount: post.sharedCount,
+            conversationId: targetConversation._id,
+            existingShare
+          });
+        }
+      }
+
+      // If targetConversation is found or created, send the post into the chat
+      if (targetConversation) {
+        const newMessage = new Message();
+        newMessage.conversationId = targetConversation._id;
+        newMessage.senderId = userId;
+        newMessage.content = "Shared a post";
+        newMessage.type = MessageType.POST_SHARE;
+        newMessage.postId = post._id;
+        await this.messageRepo.save(newMessage);
+
+        // Update conversation last message
+        targetConversation.lastMessage = "Shared a post";
+        targetConversation.lastMessageTime = new Date();
+        targetConversation.lastMessageSenderId = userId;
+        await this.conversationRepo.save(targetConversation);
+
+        // Socket Notification
+        const otherId = targetConversation.participants.find(p => !p.equals(userId));
+        if (otherId) {
+          const io = getIO();
+          const populatedMessage = {
+            ...newMessage,
+            isMe: false,
+            post: post
+          };
+          io.to(otherId.toString()).emit("new_message", populatedMessage);
+          io.to(otherId.toString()).emit("conversation_updated", {
+            ...targetConversation,
+            lastMessage: "Shared a post",
+            lastMessageTime: targetConversation.lastMessageTime,
+            lastMessageSenderId: userId,
+            unreadCount: 1
+          });
+        }
+      }
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Post shared successfully",
+        sharedCount: post.sharedCount,
+        conversationId: targetConversation?._id
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/posts/{id}/save:
+   *   post:
+   *     summary: Save a post to bookmarks
+   *     tags: [Mobile Post]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   */
+  @Post("/:id/save")
+  async savePost(@Req() req: any, @Param("id") id: string, @Res() res: any) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+      const userId = new ObjectId(req.user.userId);
+      const postId = new ObjectId(id);
+
+      const post = await this.postRepo.findOneBy({ _id: postId, isDeleted: false });
+      if (!post) throw new NotFoundError("Post not found");
+
+      const existing = await this.savedPostRepo.findOneBy({ memberId: userId, postId });
+      if (existing) {
+        return res.status(StatusCodes.OK).json({
+          success: true,
+          message: "Post already saved"
+        });
+      }
+
+      const savedPost = new SavedPost();
+      savedPost.memberId = userId;
+      savedPost.postId = postId;
+      await this.savedPostRepo.save(savedPost);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Post saved to bookmarks"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/posts/{id}/unsave:
+   *   post:
+   *     summary: Remove a post from bookmarks
+   *     tags: [Mobile Post]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   */
+  @Post("/:id/unsave")
+  async unsavePost(@Req() req: any, @Param("id") id: string, @Res() res: any) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+      const userId = new ObjectId(req.user.userId);
+      const postId = new ObjectId(id);
+
+      await this.savedPostRepo.deleteMany({ memberId: userId, postId });
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Post removed from bookmarks"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/posts/saved/list:
+   *   get:
+   *     summary: Get all saved posts of the logged-in member
+   *     tags: [Mobile Post]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   */
+  @Get("/saved/list")
+  async getSavedPosts(@Req() req: any, @QueryParam("page") page: number, @QueryParam("limit") limit: number, @Res() res: any) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+    try {
+      const userId = new ObjectId(req.user.userId);
+
+      const [savedEntries, total] = await this.savedPostRepo.findAndCount({
+        where: { memberId: userId },
+        skip: page * limit,
+        take: limit,
+        order: { createdAt: "DESC" }
+      });
+
+      const postIds = savedEntries.map(s => s.postId);
+      const posts = postIds.length > 0
+        ? await this.postRepo.find({ where: { _id: { $in: postIds }, isDeleted: false } as any })
+        : [];
+
+      // Populate Member Info for the posts
+      const memberIds = [...new Set(posts.map(p => p.memberId))];
+      const members = memberIds.length > 0
+        ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
+        : [];
+
+      const memberMap = new Map(members.map(m => [m._id.toString(), {
+        _id: m._id,
+        fullName: m.fullName,
+        profilePhoto: m.profilePhoto,
+        businessName: m.businessName
+      }]));
+
+      const data = posts.map(p => ({
+        ...p,
+        member: memberMap.get(p.memberId.toString()) || null,
+        isSaved: true
+      }));
+
+      return pagination(total, data, limit, page, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

@@ -10,6 +10,5 @@ export const AppDataSource = new DataSource({
   url: process.env.MONGO_URI || "",
   synchronize: false,
   logging: process.env.NODE_ENV !== "production",
-
   entities: [`${__dirname}/entity/**/*.${ext}`],
 });
