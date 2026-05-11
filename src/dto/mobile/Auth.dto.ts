@@ -46,6 +46,26 @@ import { IsString, IsNotEmpty, Length, IsEnum, IsOptional } from "class-validato
  *         otp:
  *           type: string
  *           example: "1234"
+ *         fcmToken:
+ *           type: string
+ *           example: "fcm_token_123"
+ *     ResetPinDto:
+ *       type: object
+ *       required:
+ *         - identifier
+ *         - type
+ *         - newPin
+ *       properties:
+ *         identifier:
+ *           type: string
+ *           example: "user@example.com"
+ *         type:
+ *           type: string
+ *           enum: [email, phone]
+ *           example: "email"
+ *         newPin:
+ *           type: string
+ *           example: "1234"
  */
 
 export class MobileLoginDto {

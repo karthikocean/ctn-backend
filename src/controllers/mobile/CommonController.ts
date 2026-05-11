@@ -21,6 +21,28 @@ export class CommonController {
    *   get:
    *     summary: Get all active categories
    *     tags: [Mobile Common]
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *       - in: query
+   *         name: type
+   *         schema:
+   *           type: string
+   *           enum: [MAIN, SUB, REFERRAL]
+   *       - in: query
+   *         name: parentId
+   *         schema:
+   *           type: string
    */
   @Get("/categories")
   async getCategories(

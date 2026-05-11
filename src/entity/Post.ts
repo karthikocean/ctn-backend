@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index
 } from "typeorm";
 import { ObjectId } from "mongodb";
 
@@ -15,6 +16,10 @@ export enum PostType {
 }
 
 @Entity("posts")
+@Index(["memberId"])
+@Index(["type"])
+@Index(["isDeleted"])
+@Index(["createdAt"])
 export class PostModel {
   @ObjectIdColumn()
     _id!: ObjectId;
@@ -43,6 +48,12 @@ export class PostModel {
 
   @Column()
     memberId!: ObjectId;
+
+  @Column({ default: 0 })
+    responsedCount!: number;
+
+  @Column({ default: 0 })
+    sharedCount!: number;
 
   @Column({ default: false })
     isDeleted!: boolean;

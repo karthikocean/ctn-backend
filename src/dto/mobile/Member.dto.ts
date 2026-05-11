@@ -36,6 +36,16 @@ import {
  *         profileBanner:
  *           type: string
  *           example: "https://example.com/banner.jpg"
+ *         gstNumber:
+ *           type: string
+ *         businessCategory:
+ *           type: string
+ *         subCategory:
+ *           type: string
+ *         city:
+ *           type: string
+ *         yearsOfExperience:
+ *           type: integer
  *     UpdateProfileDto:
  *       type: object
  *       properties:
@@ -50,6 +60,14 @@ import {
  *         profilePhoto:
  *           type: string
  *         profileBanner:
+ *           type: string
+ *         businessCategory:
+ *           type: string
+ *         subCategory:
+ *           type: string
+ *         yearsOfExperience:
+ *           type: integer
+ *         fcmToken:
  *           type: string
  *     SetPinDto:
  *       type: object
@@ -113,9 +131,9 @@ export class CreateMemberDto {
   @IsOptional()
     serviceLocations?: string[];
 
-  @IsString()
+  @IsArray()
   @IsOptional()
-    productsServicesDescription?: string;
+    productsServices?: { title: string; image: string; description: string }[];
 
   @IsString()
   @IsOptional()
@@ -207,9 +225,9 @@ export class UpdateProfileDto {
   @IsOptional()
     serviceLocations?: string[];
 
-  @IsString()
+  @IsArray()
   @IsOptional()
-    productsServicesDescription?: string;
+    productsServices?: { title: string; image: string; description: string }[];
 
   @IsString()
   @IsOptional()

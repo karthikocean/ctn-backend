@@ -5,7 +5,7 @@ import { AppDataSource } from "../../data-source";
 import { Member } from "../../entity/Member";
 import { Verification } from "../../entity/Verification";
 import { UserToken } from "../../entity/UserToken";
-import { MobileLoginDto, MobileSendOtpDto, MobileVerifyOtpLoginDto } from "../../dto/mobile/Auth.dto";
+import { MobileLoginDto, MobileSendOtpDto, MobileVerifyOtpLoginDto, ResetPinDto } from "../../dto/mobile/Auth.dto";
 import handleErrorResponse from "../../utils/commonFunction";
 import { MailService } from "../../services/mail.service";
 import { sendOTPSMS } from "../../utils/sms";
@@ -233,7 +233,7 @@ export class MobileAuthController {
    */
   @Post("/reset-pin")
   @HttpCode(StatusCodes.OK)
-  async resetPin(@Body() body: any, @Res() res: any) {
+  async resetPin(@Body() body: ResetPinDto, @Res() res: any) {
     try {
       const { identifier, type, newPin } = body;
 

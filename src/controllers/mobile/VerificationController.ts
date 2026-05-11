@@ -21,15 +21,7 @@ export class VerificationController {
    *       content:
    *         application/json:
    *           schema:
-   *             type: object
-   *             properties:
-   *               identifier:
-   *                 type: string
-   *                 example: user@example.com
-   *               type:
-   *                 type: string
-   *                 enum: [email, phone]
-   *                 example: email
+   *             $ref: '#/components/schemas/SendOtpDto'
    *     responses:
    *       200:
    *         description: OTP sent successfully
@@ -89,18 +81,7 @@ export class VerificationController {
    *       content:
    *         application/json:
    *           schema:
-   *             type: object
-   *             properties:
-   *               identifier:
-   *                 type: string
-   *                 example: user@example.com
-   *               type:
-   *                 type: string
-   *                 enum: [email, phone]
-   *                 example: email
-   *               otp:
-   *                 type: string
-   *                 example: "1234"
+   *             $ref: '#/components/schemas/VerifyOtpDto'
    *     responses:
    *       200:
    *         description: Verified successfully
