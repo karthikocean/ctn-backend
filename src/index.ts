@@ -95,11 +95,9 @@ AppDataSource.initialize()
         uptime: process.uptime()
       });
     });
-
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       console.error(err);
       const isProd = process.env.NODE_ENV === "production";
-
       res.status(err.httpCode || 500).json({
         message: isProd ? "An unexpected error occurred." : err.message,
         errors: isProd ? null : err.errors || null
@@ -110,8 +108,7 @@ AppDataSource.initialize()
 
     const httpServer = createServer(app);
     initSocket(httpServer);
-
-    httpServer.listen(PORT, () => {
+    const server = httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📄 Swagger: http://localhost:${PORT}/api-docs`);
 
@@ -126,6 +123,23 @@ AppDataSource.initialize()
         }
       });
     });
+
+    // ✅ Graceful Shutdown Handlers
+    const closeServer = async () => {
+      console.log("Shutting down server...");
+      server.close(async () => {
+        console.log("Server closed.");
+        if (AppDataSource.isInitialized) {
+          await AppDataSource.destroy();
+          console.log("Database connection closed.");
+        }
+        process.exit(0);
+      });
+    };
+
+    process.on("SIGINT", closeServer);
+    process.on("SIGTERM", closeServer);
+    process.on("SIGUSR2", closeServer); // For nodemon restarts
 
   })
   .catch((error) => {

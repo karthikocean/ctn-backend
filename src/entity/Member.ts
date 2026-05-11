@@ -18,6 +18,8 @@ export enum MemberStatus {
 @Entity("members")
 @Index(["mobileNumber"], { unique: true })
 @Index(["email"], { unique: true, sparse: true })
+@Index(["status"])
+@Index(["isDeleted"])
 export class Member {
   @ObjectIdColumn()
     _id!: ObjectId;
@@ -50,6 +52,12 @@ export class Member {
   @Column({ default: false })
     emailVerified!: boolean;
 
+  @Column({ nullable: true })
+    about?: string;
+
+  @Column({ default: "BASIC" })
+    membershipType!: string;
+
   // =========================================
   // BUSINESS INFORMATION
   // =========================================
@@ -65,6 +73,9 @@ export class Member {
 
   @Column({ nullable: true })
     businessCategory?: ObjectId;
+
+  @Column({ nullable: true })
+    industry?: string;
 
   @Column({ nullable: true })
     subCategory?: ObjectId;
@@ -92,8 +103,8 @@ export class Member {
   // PROFESSIONAL DETAILS
   // =========================================
 
-  @Column({ nullable: true })
-    productsServicesDescription?: string;
+  @Column("json", { nullable: true })
+    productsServices?: { title: string; image: string; description: string }[];
 
   @Column({ nullable: true })
     targetAudience?: string;

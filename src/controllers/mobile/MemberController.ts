@@ -26,7 +26,10 @@ import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import bcrypt from "bcryptjs";
 import { UserToken } from "../../entity/UserToken";
 import { Connection, ConnectionStatus } from "../../entity/Connection";
-import { PostModel } from "../../entity/Post";
+import { PostModel, PostType } from "../../entity/Post";
+import { OneToOne } from "../../entity/OneToOne";
+import { Referral } from "../../entity/Referral";
+import { ThankYouSlip } from "../../entity/ThankYouSlip";
 
 @JsonController("/members")
 export class MobileMemberController {
@@ -34,12 +37,21 @@ export class MobileMemberController {
   private categoryRepo = AppDataSource.getMongoRepository(Category);
   private connectionRepo = AppDataSource.getMongoRepository(Connection);
   private postRepo = AppDataSource.getMongoRepository(PostModel);
+  private oneToOneRepo = AppDataSource.getMongoRepository(OneToOne);
+  private referralRepo = AppDataSource.getMongoRepository(Referral);
+  private tySlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
   /**
    * @swagger
    * /mobile-api/members/register:
    *   post:
    *     summary: Register a new member
    *     tags: [Mobile Member]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/CreateMemberDto'
    */
   @Post("/register")
   @HttpCode(StatusCodes.CREATED)
@@ -257,6 +269,8 @@ export class MobileMemberController {
    *   get:
    *     summary: Get own profile details
    *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
    */
   @Get("/profile")
   @UseBefore(MobileAuthMiddleware)
@@ -271,10 +285,14 @@ export class MobileMemberController {
 
       const counts = await this.getMemberCounts(userId);
 
+      const data: any = { ...member };
+      delete data.pin;
+      delete data.fcmToken;
+
       return res.status(StatusCodes.OK).json({
         success: true,
         data: {
-          ...member,
+          ...data,
           ...counts
         }
       });
@@ -289,6 +307,14 @@ export class MobileMemberController {
    *   put:
    *     summary: Update own profile
    *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/UpdateProfileDto'
    */
   @Put("/profile")
   @UseBefore(MobileAuthMiddleware)
@@ -320,6 +346,8 @@ export class MobileMemberController {
    *   get:
    *     summary: Get member suggestions based on category referral mapping
    *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
    *     parameters:
    *       - in: query
    *         name: categoryId
@@ -498,6 +526,27 @@ export class MobileMemberController {
    *   get:
    *     summary: Get member directory
    *     tags: [Mobile Member]
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *       - in: query
+   *         name: city
+   *         schema:
+   *           type: string
+   *       - in: query
+   *         name: category
+   *         schema:
+   *           type: string
    */
   @Get("/")
   async getDirectory(
@@ -565,10 +614,19 @@ export class MobileMemberController {
    * @swagger
    * /mobile-api/members/{id}:
    *   get:
-   *     summary: Get details of another member
+   *     summary: Get comprehensive profile details of another member
    *     tags: [Mobile Member]
    *     security:
    *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: Member profile details retrieved successfully
    */
   @Get("/:id")
   @UseBefore(MobileAuthMiddleware)
@@ -576,7 +634,7 @@ export class MobileMemberController {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
-      const currentUserId = req.user.id;
+      const currentUserId = req.user.userId;
 
       const member = await this.memberRepo.findOne({
         where: { _id: new ObjectId(id), isDeleted: false, status: MemberStatus.ACTIVE }
@@ -586,9 +644,15 @@ export class MobileMemberController {
 
       // Populate Categories
       const populated: any = { ...member };
+      delete populated.pin;
+      delete populated.fcmToken;
       if (member.businessCategory) {
         const cat = await this.categoryRepo.findOneBy({ _id: member.businessCategory });
         populated.businessCategory = cat ? { _id: cat._id, name: cat.name } : null;
+      }
+      if (member.subCategory) {
+        const subCat = await this.categoryRepo.findOneBy({ _id: member.subCategory });
+        populated.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : null;
       }
 
       // Add Connection Status if authenticated
@@ -609,16 +673,85 @@ export class MobileMemberController {
         };
       }
 
+      // Fetch Stats & Summary
+      const counts = await this.getMemberCounts(id);
+      const contributionSummary = await this.getContributionSummary(id);
+
+      // Fetch categorized posts
+      const [promotionPosts, requirementPosts, givePosts, askPosts] = await Promise.all([
+        this.postRepo.find({
+          where: { memberId: new ObjectId(id), type: PostType.PROMOTION, isDeleted: false },
+          take: 5,
+          order: { createdAt: "DESC" }
+        }),
+        this.postRepo.find({
+          where: { memberId: new ObjectId(id), type: PostType.REQUIREMENT, isDeleted: false },
+          take: 5,
+          order: { createdAt: "DESC" }
+        }),
+        this.postRepo.find({
+          where: { memberId: new ObjectId(id), type: PostType.GIVE, isDeleted: false },
+          take: 5,
+          order: { createdAt: "DESC" }
+        }),
+        this.postRepo.find({
+          where: { memberId: new ObjectId(id), type: PostType.ASK, isDeleted: false },
+          take: 5,
+          order: { createdAt: "DESC" }
+        })
+      ]);
+
       return res.status(StatusCodes.OK).json({
         success: true,
         data: {
           ...populated,
-          ...(await this.getMemberCounts(id))
+          ...counts,
+          contributionSummary,
+          posts: {
+            promotion: promotionPosts || [],
+            requirement: requirementPosts || [],
+            give: givePosts || [],
+            ask: askPosts || []
+          },
+          productsServices: member.productsServices || []
         }
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
+  }
+
+  private async getContributionSummary(memberId: string) {
+    const id = new ObjectId(memberId);
+    const [
+      oneToOnesCount,
+      referralsGiven,
+      referralsReceived,
+      tySlipsGiven,
+      tySlipsReceived
+    ] = await Promise.all([
+      this.oneToOneRepo.count({ $or: [{ senderId: id }, { receiverId: id }] } as any),
+      this.referralRepo.countBy({ senderId: id }),
+      this.referralRepo.countBy({ receiverId: id }),
+      this.tySlipRepo.find({ where: { senderId: id } }),
+      this.tySlipRepo.find({ where: { receiverId: id } })
+    ]);
+
+    const tySlipsGivenAmount = tySlipsGiven.reduce((sum, slip) => sum + (slip.amount || 0), 0);
+    const tySlipsReceivedAmount = tySlipsReceived.reduce((sum, slip) => sum + (slip.amount || 0), 0);
+
+    // responsesCount can be calculated based on interactions or just a placeholder for now
+    // If you have a specific Responses table, use that.
+    const responsesCount = 0;
+
+    return {
+      oneToOnesCount,
+      referralsGivenCount: referralsGiven,
+      referralsReceivedCount: referralsReceived,
+      thankYouSlipsGivenAmount: tySlipsGivenAmount,
+      thankYouSlipsReceivedAmount: tySlipsReceivedAmount,
+      responsesCount
+    };
   }
 
   private async getMemberCounts(memberId: string) {

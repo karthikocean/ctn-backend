@@ -80,7 +80,8 @@ export async function seedAdmin() {
     });
 
     await userRepo.save(adminUser);
+    console.log("✅ Seed Completed");
+
   }
 
-  console.log("✅ Seed Completed");
 }
