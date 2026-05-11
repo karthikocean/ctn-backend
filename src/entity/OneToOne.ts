@@ -8,20 +8,10 @@ import {
 } from "typeorm";
 import { ObjectId } from "mongodb";
 
-export enum ConnectionStatus {
-  PENDING = "PENDING",
-  ACCEPTED = "ACCEPTED",
-  REJECTED = "REJECTED",
-  BLOCKED = "BLOCKED",
-  CANCELLED = "CANCELLED"
-}
-
-@Entity("connections")
-@Index(["senderId", "receiverId"])
+@Entity("one_to_ones")
 @Index(["senderId"])
 @Index(["receiverId"])
-@Index(["status"])
-export class Connection {
+export class OneToOne {
   @ObjectIdColumn()
     _id!: ObjectId;
 
@@ -31,12 +21,8 @@ export class Connection {
   @Column()
     receiverId!: ObjectId;
 
-  @Column({
-    type: "enum",
-    enum: ConnectionStatus,
-    default: ConnectionStatus.PENDING
-  })
-    status!: ConnectionStatus;
+  @Column({ nullable: true })
+    media?: string[];
 
   @CreateDateColumn()
     createdAt!: Date;
