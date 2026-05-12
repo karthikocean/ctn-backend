@@ -22,6 +22,9 @@ export class Conversation {
     postId?: ObjectId; // Reference to the specific post this chat is about
 
   @Column({ nullable: true })
+    milestoneId?: ObjectId; // Reference to the specific milestone this chat is about
+
+  @Column({ nullable: true })
     lastMessage?: string;
 
   @Column({ nullable: true })

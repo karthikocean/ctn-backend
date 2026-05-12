@@ -30,6 +30,7 @@ import { PostModel, PostType } from "../../entity/Post";
 import { OneToOne } from "../../entity/OneToOne";
 import { Referral } from "../../entity/Referral";
 import { ThankYouSlip } from "../../entity/ThankYouSlip";
+import { Milestone } from "../../entity/Milestone";
 
 @JsonController("/members")
 export class MobileMemberController {
@@ -40,6 +41,7 @@ export class MobileMemberController {
   private oneToOneRepo = AppDataSource.getMongoRepository(OneToOne);
   private referralRepo = AppDataSource.getMongoRepository(Referral);
   private tySlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
+  private milestoneRepo = AppDataSource.getMongoRepository(Milestone);
   /**
    * @swagger
    * /mobile-api/members/register:
@@ -284,6 +286,7 @@ export class MobileMemberController {
       if (!member) throw new NotFoundError("Profile not found");
 
       const counts = await this.getMemberCounts(userId);
+      const contributionSummary = await this.getContributionSummary(userId);
 
       const data: any = { ...member };
       delete data.pin;
@@ -293,7 +296,8 @@ export class MobileMemberController {
         success: true,
         data: {
           ...data,
-          ...counts
+          ...counts,
+          contributionSummary
         }
       });
     } catch (error: any) {
@@ -728,21 +732,22 @@ export class MobileMemberController {
       referralsGiven,
       referralsReceived,
       tySlipsGiven,
-      tySlipsReceived
+      tySlipsReceived,
+      responsedData
     ] = await Promise.all([
       this.oneToOneRepo.count({ $or: [{ senderId: id }, { receiverId: id }] } as any),
       this.referralRepo.countBy({ senderId: id }),
       this.referralRepo.countBy({ receiverId: id }),
       this.tySlipRepo.find({ where: { senderId: id } }),
-      this.tySlipRepo.find({ where: { receiverId: id } })
+      this.tySlipRepo.find({ where: { receiverId: id } }),
+      this.postRepo.find({ memberId: id, isDeleted: false })
     ]);
 
     const tySlipsGivenAmount = tySlipsGiven.reduce((sum, slip) => sum + (slip.amount || 0), 0);
     const tySlipsReceivedAmount = tySlipsReceived.reduce((sum, slip) => sum + (slip.amount || 0), 0);
-
-    // responsesCount can be calculated based on interactions or just a placeholder for now
-    // If you have a specific Responses table, use that.
-    const responsesCount = 0;
+    const responsesCount = responsedData.reduce((sum, post) => sum + (post.responsedCount || 0), 0);
+    const milestoneData = await this.milestoneRepo.find({ where: { memberId: id, isDeleted: false } });
+    const milestoneViewsCount = milestoneData.reduce((sum, m) => sum + (m.viewCount || 0), 0);
 
     return {
       oneToOnesCount,
@@ -750,7 +755,8 @@ export class MobileMemberController {
       referralsReceivedCount: referralsReceived,
       thankYouSlipsGivenAmount: tySlipsGivenAmount,
       thankYouSlipsReceivedAmount: tySlipsReceivedAmount,
-      responsesCount
+      responsesCount,
+      milestoneViewsCount
     };
   }
 
