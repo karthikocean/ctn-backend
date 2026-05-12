@@ -24,28 +24,28 @@ import { UseBefore } from "routing-controllers";
 @JsonController("/auth")
 export class AuthController {
 
-    /**
-     * @swagger
-     * /api/admin/auth/login:
-     *   post:
-     *     summary: Admin login using phone number and PIN
-     *     tags: [Auth]
-     *     requestBody:
-     *       required: true
-     *       content:
-     *         application/json:
-     *           schema:
-     *             $ref: '#/components/schemas/LoginDto'
-     *     responses:
-     *       200:
-     *         description: Login successful
-     *       400:
-     *         description: Missing fields
-     *       401:
-     *         description: Invalid credentials
-     */
-    @Post("/login")
-    @HttpCode(StatusCodes.OK)
+  /**
+   * @swagger
+   * /api/admin/auth/login:
+   *   post:
+   *     summary: Admin login using phone number and PIN
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/LoginDto'
+   *     responses:
+   *       200:
+   *         description: Login successful
+   *       400:
+   *         description: Missing fields
+   *       401:
+   *         description: Invalid credentials
+   */
+  @Post("/login")
+  @HttpCode(StatusCodes.OK)
   async login(@Body() body: LoginDto, @Res() res: any) {
     try {
       const { phoneNumber, pin } = body;
@@ -77,7 +77,7 @@ export class AuthController {
           // Verify if existing token is valid
           jwt.verify(existingToken.token, process.env.JWT_SECRET as string);
           finalToken = existingToken.token;
-        } catch (_err) {
+        } catch {
           // Token expired or invalid, generate new one
           finalToken = jwt.sign(
             {
@@ -160,35 +160,35 @@ export class AuthController {
   @Post("/change-pin")
   @UseBefore(AuthMiddleware)
   @HttpCode(StatusCodes.OK)
-    async changePin(@Body() body: ChangePinDto, @Res() res: any) {
-      try {
-        const { oldPin, newPin } = body;
-        const userId = (res.req as any).user.userId;
+  async changePin(@Body() body: ChangePinDto, @Res() res: any) {
+    try {
+      const { oldPin, newPin } = body;
+      const userId = (res.req as any).user.userId;
 
-        const userRepo = AppDataSource.getMongoRepository(AdminUser);
-        const user = await userRepo.findOne({
-          where: { _id: new ObjectId(userId) }
-        });
+      const userRepo = AppDataSource.getMongoRepository(AdminUser);
+      const user = await userRepo.findOne({
+        where: { _id: new ObjectId(userId) }
+      });
 
-        if (!user) {
-          throw new UnauthorizedError("User not found");
-        }
-
-        const isMatch = await bcrypt.compare(oldPin, user.pin);
-        if (!isMatch) {
-          throw new BadRequestError("Invalid old PIN");
-        }
-
-        user.pin = await bcrypt.hash(newPin, 10);
-        await userRepo.save(user);
-
-        return res.status(StatusCodes.OK).json({
-          message: "PIN changed successfully"
-        });
-      } catch (error: any) {
-        return handleErrorResponse(error, res);
+      if (!user) {
+        throw new UnauthorizedError("User not found");
       }
+
+      const isMatch = await bcrypt.compare(oldPin, user.pin);
+      if (!isMatch) {
+        throw new BadRequestError("Invalid old PIN");
+      }
+
+      user.pin = await bcrypt.hash(newPin, 10);
+      await userRepo.save(user);
+
+      return res.status(StatusCodes.OK).json({
+        message: "PIN changed successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
     }
+  }
 
   /**
    * @swagger
