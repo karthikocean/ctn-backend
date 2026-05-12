@@ -15,7 +15,8 @@ export enum MessageType {
   ONE_TO_ONE = "ONE_TO_ONE",
   REFERRAL = "REFERRAL",
   THANK_YOU_SLIP = "THANK_YOU_SLIP",
-  POST_SHARE = "POST_SHARE"
+  POST_SHARE = "POST_SHARE",
+  MILESTONE_REPLY = "MILESTONE_REPLY"
 }
 
 @Entity("messages")
@@ -44,6 +45,9 @@ export class Message {
 
   @Column({ nullable: true })
     postId?: ObjectId; // Reference to post if it's a POST_RESPONSE
+
+  @Column({ nullable: true })
+    milestoneId?: ObjectId; // Reference to milestone if it's a MILESTONE_REPLY
 
   @Column({ default: false })
     isRead!: boolean;
