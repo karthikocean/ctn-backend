@@ -26,6 +26,9 @@ export class BusinessRegion {
   @Column()
     city!: string;
 
+  @Column("simple-array", { nullable: true })
+    areas?: string[];
+
   @Column({
     type: "enum",
     enum: BusinessRegionStatus,
