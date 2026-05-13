@@ -28,7 +28,7 @@ import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import handleErrorResponse from "../../utils/commonFunction";
-import { getIO } from "../../utils/socket";
+import { getIO, isUserInConversation } from "../../utils/socket";
 import { pagination } from "../../utils";
 
 @JsonController("/chats")
@@ -131,6 +131,8 @@ export class MobileChatController {
           categoryName = categoryMap.get(otherUser.businessCategory.toString()) || null;
         }
 
+        const unreadCount = conv.unreadCounts?.[userId.toString()] || 0;
+
         return {
           ...conv,
           otherUser: otherUser ? {
@@ -142,11 +144,61 @@ export class MobileChatController {
           post: post || null,
           milestone: conv.milestoneId ? milestoneMap.get(conv.milestoneId.toString()) : null,
           status: conv.status || "",
-          reportReason: conv.reportReason || null
+          reportReason: conv.reportReason || null,
+          unreadCount
         };
       });
 
       return pagination(total, results, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/chats/conversations/{id}/read:
+   *   patch:
+   *     summary: Mark all messages in a conversation as read
+   *     tags: [Mobile Chat]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: Messages marked as read
+   */
+  @Patch("/conversations/:id/read")
+  async markRead(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Res() res: any
+  ) {
+    try {
+      const userId = new ObjectId(req.user.userId);
+      const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(id) });
+      if (!conversation) throw new NotFoundError("Conversation not found");
+
+      await this.messageRepo.updateMany(
+        { conversationId: new ObjectId(id), senderId: { $ne: userId }, isRead: false } as any,
+        { $set: { isRead: true } } as any
+      );
+
+      // Reset unread count for this user
+      const unreadCounts = conversation.unreadCounts || {};
+      unreadCounts[userId.toString()] = 0;
+      conversation.unreadCounts = { ...unreadCounts };
+      await this.conversationRepo.save(conversation);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Messages marked as read"
+      });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
@@ -437,17 +489,60 @@ export class MobileChatController {
       newMessage.content = message || "Hi, I'm interested in your post.";
       newMessage.type = MessageType.POST_RESPONSE;
       newMessage.postId = new ObjectId(postId);
+
+      // Check if receiver is in the chat room
+      const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
+      if (isReceiverActive) {
+        newMessage.isRead = true;
+      }
+
       const savedMessage = await this.messageRepo.save(newMessage);
 
       conversation.lastMessage = newMessage.content;
       conversation.lastMessageTime = new Date();
       conversation.lastMessageSenderId = senderId;
+
+      // Update unread count for receiver
+      const unreadCounts = conversation.unreadCounts || {};
+      if (isReceiverActive) {
+        unreadCounts[receiverId.toString()] = 0;
+      } else {
+        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
+      }
+      conversation.unreadCounts = { ...unreadCounts };
+
+
       await this.conversationRepo.save(conversation);
 
       const io = getIO();
       io.to(receiverId.toString()).emit("new_message", {
         ...savedMessage,
         post
+      });
+
+      // Emit conversation update for the conversation list screen
+      const sender = await this.memberRepo.findOneBy({ _id: senderId });
+      let senderCategoryName = null;
+      if (sender && sender.businessCategory) {
+        const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
+        senderCategoryName = cat ? cat.name : null;
+      }
+
+      const unreadCount = conversation.unreadCounts?.[receiverId.toString()] || 0;
+
+      io.to(receiverId.toString()).emit("conversation_updated", {
+        ...conversation,
+        lastMessage: savedMessage.content,
+        lastMessageTime: savedMessage.createdAt,
+        lastMessageSenderId: savedMessage.senderId,
+        otherUser: sender ? {
+          _id: sender._id,
+          fullName: sender.fullName,
+          profilePhoto: sender.profilePhoto,
+          categoryName: senderCategoryName
+        } : null,
+        post: post || null,
+        unreadCount
       });
 
       return res.status(StatusCodes.OK).json({
@@ -538,6 +633,12 @@ export class MobileChatController {
       newMessage.content = content;
       newMessage.type = type;
 
+      // Check if receiver is in the chat room
+      const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
+      if (isReceiverActive) {
+        newMessage.isRead = true;
+      }
+
       // Handle Automatic Business Action Creation
       if ([MessageType.ONE_TO_ONE, MessageType.REFERRAL, MessageType.THANK_YOU_SLIP].includes(type)) {
         console.log(type === MessageType.ONE_TO_ONE, "type === MessageType.ONE_TO_ONE");
@@ -590,6 +691,17 @@ export class MobileChatController {
       conversation.lastMessage = content;
       conversation.lastMessageTime = new Date();
       conversation.lastMessageSenderId = senderId;
+
+      // Update unread count for receiver
+      const unreadCounts = conversation.unreadCounts || {};
+      if (isReceiverActive) {
+        unreadCounts[receiverId.toString()] = 0;
+      } else {
+        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
+      }
+      conversation.unreadCounts = { ...unreadCounts };
+
+
       await this.conversationRepo.save(conversation);
 
       if (receiverId) {
@@ -615,12 +727,27 @@ export class MobileChatController {
         io.to(receiverId.toString()).emit("new_message", populatedMessage);
 
         // Emit conversation update for the conversation list screen
+        const sender = await this.memberRepo.findOneBy({ _id: senderId });
+        let senderCategoryName = null;
+        if (sender && sender.businessCategory) {
+          const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
+          senderCategoryName = cat ? cat.name : null;
+        }
+
+        const unreadCount = conversation.unreadCounts?.[receiverId.toString()] || 0;
+
         io.to(receiverId.toString()).emit("conversation_updated", {
           ...conversation,
           lastMessage: savedMessage.content,
           lastMessageTime: savedMessage.createdAt,
           lastMessageSenderId: savedMessage.senderId,
-          unreadCount: 1 // You can implement actual unread logic here
+          otherUser: sender ? {
+            _id: sender._id,
+            fullName: sender.fullName,
+            profilePhoto: sender.profilePhoto,
+            categoryName: senderCategoryName
+          } : null,
+          unreadCount
         });
       }
 
