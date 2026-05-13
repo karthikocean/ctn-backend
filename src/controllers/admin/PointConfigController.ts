@@ -36,20 +36,22 @@ export class PointConfigController {
   @HttpCode(StatusCodes.CREATED)
   async create(@Body() data: CreatePointConfigDto, @Res() res: any) {
     try {
-      // Check for duplicate module name (case-insensitive and not deleted)
+      // Check for duplicate module name and type (case-insensitive and not deleted)
       const existing = await this.configRepo.findOne({
         where: {
           moduleName: { $regex: new RegExp(`^${data.moduleName}$`, "i") },
+          type: data.type,
           isDeleted: false
         }
       });
 
       if (existing) {
-        throw new BadRequestError(`Module "${data.moduleName}" already has a point configuration`);
+        throw new BadRequestError(`Module "${data.moduleName}" with type "${data.type}" already has a point configuration`);
       }
 
       const config = new PointConfig();
       config.moduleName = data.moduleName;
+      config.type = data.type;
       config.points = data.points;
       config.isDeleted = false;
 
@@ -135,16 +137,22 @@ export class PointConfigController {
 
       if (!config) throw new NotFoundError("Configuration not found");
 
-      if (data.moduleName && data.moduleName !== config.moduleName) {
+      const moduleName = data.moduleName || config.moduleName;
+      const type = data.type || config.type;
+
+      if (data.moduleName || data.type) {
         const existing = await this.configRepo.findOne({
           where: {
-            moduleName: { $regex: new RegExp(`^${data.moduleName}$`, "i") },
+            moduleName: { $regex: new RegExp(`^${moduleName}$`, "i") },
+            type: type,
             _id: { $ne: new ObjectId(id) },
             isDeleted: false
           }
         });
-        if (existing) throw new BadRequestError(`Module "${data.moduleName}" already exists`);
-        config.moduleName = data.moduleName;
+        if (existing) throw new BadRequestError(`Module "${moduleName}" with type "${type}" already exists`);
+        
+        if (data.moduleName) config.moduleName = data.moduleName;
+        if (data.type) config.type = data.type;
       }
 
       if (data.points !== undefined) config.points = data.points;
