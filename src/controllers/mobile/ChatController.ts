@@ -23,6 +23,7 @@ import { Category } from "../../entity/Category";
 import { OneToOne } from "../../entity/OneToOne";
 import { Referral } from "../../entity/Referral";
 import { ThankYouSlip } from "../../entity/ThankYouSlip";
+import { Milestone } from "../../entity/Milestone";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
@@ -41,6 +42,7 @@ export class MobileChatController {
   private oneToOneRepo = AppDataSource.getMongoRepository(OneToOne);
   private referralRepo = AppDataSource.getMongoRepository(Referral);
   private tySlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
+  private milestoneRepo = AppDataSource.getMongoRepository(Milestone);
 
   /**
    * @swagger
@@ -109,6 +111,16 @@ export class MobileChatController {
 
       const postMap = new Map(posts.map(p => [p._id.toString(), p]));
 
+      const milestoneIds = conversations
+        .map(c => c.milestoneId)
+        .filter(id => !!id) as ObjectId[];
+
+      const milestones = milestoneIds.length > 0
+        ? await this.milestoneRepo.find({ where: { _id: { $in: milestoneIds } } as any })
+        : [];
+
+      const milestoneMap = new Map(milestones.map(m => [m._id.toString(), m]));
+
       const results = conversations.map(conv => {
         const otherParticipantId = conv.participants.find(p => !p.equals(userId));
         const otherUser = otherParticipantId ? memberMap.get(otherParticipantId.toString()) : null;
@@ -128,6 +140,7 @@ export class MobileChatController {
             categoryName: categoryName
           } : null,
           post: post || null,
+          milestone: conv.milestoneId ? milestoneMap.get(conv.milestoneId.toString()) : null,
           status: conv.status || "",
           reportReason: conv.reportReason || null
         };
@@ -229,6 +242,10 @@ export class MobileChatController {
 
         if ((msg.type === MessageType.POST_RESPONSE || msg.type === MessageType.POST_SHARE) && msg.postId) {
           result.post = await this.postRepo.findOneBy({ _id: msg.postId });
+        }
+
+        if (msg.type === MessageType.MILESTONE_REPLY && msg.milestoneId) {
+          result.milestone = await this.milestoneRepo.findOneBy({ _id: msg.milestoneId });
         }
 
         if (msg.replyToMessageId) {
