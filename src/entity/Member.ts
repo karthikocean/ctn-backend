@@ -165,9 +165,6 @@ export class Member {
   @Column({ default: 0 })
     points!: number;
 
-  @Column({ default: [] })
-    unlockedTrainings!: ObjectId[];
-
   @CreateDateColumn()
     createdAt!: Date;
 

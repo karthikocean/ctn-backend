@@ -1,17 +1,22 @@
-import { JsonController, Get, Post, Param, Res, Req, UseBefore, NotFoundError, BadRequestError, Body } from "routing-controllers";
+import { JsonController, Get, Post, Param, QueryParam, Res, Req, UseBefore, NotFoundError, BadRequestError, Body } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Training, TrainingStatus } from "../../entity/Training";
 import { Member } from "../../entity/Member";
+import { LessonProgress } from "../../entity/LessonProgress";
+import { MemberTraining } from "../../entity/MemberTraining";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import handleErrorResponse from "../../utils/commonFunction";
+import pagination from "../../utils/pagination";
 
 @JsonController("/trainings")
 @UseBefore(MobileAuthMiddleware)
 export class MobileTrainingController {
   private trainingRepo = AppDataSource.getMongoRepository(Training);
   private memberRepo = AppDataSource.getMongoRepository(Member);
+  private progressRepo = AppDataSource.getMongoRepository(LessonProgress);
+  private enrollmentRepo = AppDataSource.getMongoRepository(MemberTraining);
 
   /**
    * @swagger
@@ -26,20 +31,82 @@ export class MobileTrainingController {
    *         description: List of active trainings
    */
   @Get("/active")
-  async getActive(@Res() res: any) {
+  async getActive(
+    @Req() req: any,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @Res() res: any
+  ) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
     try {
-      const trainings = await this.trainingRepo.find({
+      const userId = new ObjectId(req.user.userId);
+      const [trainings, total] = await this.trainingRepo.findAndCount({
         where: {
           status: TrainingStatus.ACTIVE,
           isDeleted: false
         },
+        skip: page * limit,
+        take: limit,
         order: { createdAt: "DESC" }
       });
 
-      return res.status(StatusCodes.OK).json({
-        success: true,
-        data: trainings
+      // Fetch enrollments for this user
+      const enrollments = await this.enrollmentRepo.find({
+        where: { memberId: userId }
       });
+
+      // Fetch all progress for this user to calculate completion counts
+      const allProgress = await this.progressRepo.find({
+        where: { memberId: userId }
+      });
+
+      const data = trainings.map(t => {
+        const trainingProgress = allProgress.filter(p => p.trainingId.toString() === t._id.toString());
+        const completedCount = trainingProgress.filter(p => p.isCompleted).length;
+        const totalLessons = t.lessons?.length || 0;
+
+        // Find enrollment to get the last watched lesson
+        const enrollment = enrollments.find(e => e.trainingId.toString() === t._id.toString());
+        const lastWatchedLessonId = enrollment?.lessonId?.toString() || null;
+
+        // Map lessons with their individual progress
+        const lessonsWithProgress = t.lessons?.map(lesson => {
+          const lp = trainingProgress.find(p => p.lessonId.toString() === lesson._id?.toString());
+          return {
+            ...lesson,
+            progress: lp ? {
+              position: lp.lastWatchedPosition,
+              isCompleted: lp.isCompleted,
+              updatedAt: lp.updatedAt
+            } : {
+              position: 0,
+              isCompleted: false
+            }
+          };
+        });
+
+        // Find detailed progress for the last watched lesson (summary at top level)
+        const lastWatchedProgress = lastWatchedLessonId
+          ? trainingProgress.find(p => p.lessonId.toString() === lastWatchedLessonId.toString())
+          : null;
+
+        return {
+          ...t,
+          lessons: lessonsWithProgress,
+          completedLessonsCount: completedCount,
+          totalLessonsCount: totalLessons,
+          isUnlocked: !!enrollment,
+          lastWatchedLessonId,
+          lastWatchedLessonProgress: lastWatchedProgress ? {
+            position: lastWatchedProgress.lastWatchedPosition,
+            isCompleted: lastWatchedProgress.isCompleted,
+            updatedAt: lastWatchedProgress.updatedAt
+          } : null
+        };
+      });
+
+      return pagination(total, data, limit, page, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
@@ -74,12 +141,33 @@ export class MobileTrainingController {
       const member = await this.memberRepo.findOneBy({ _id: userId });
       if (!member) throw new NotFoundError("Member not found");
 
-      // Check if already unlocked
-      const isUnlocked = member.unlockedTrainings?.some(tid => tid.toString() === training._id.toString());
+      // Check if already unlocked using the enrollment collection
+      const isUnlocked = await this.enrollmentRepo.findOneBy({
+        memberId: userId,
+        trainingId: training._id
+      });
+
+      // Fetch progress for each lesson
+      const progressList = await this.progressRepo.find({
+        where: { memberId: userId, trainingId: training._id }
+      });
+
+      const progressMap = new Map<string, any>(progressList.map(p => [p.lessonId.toString(), p]));
+
+      const lessonsWithProgress = training.lessons?.map(lesson => ({
+        ...lesson,
+        progress: progressMap.get(lesson._id?.toString() || "") || {
+          lastWatchedPosition: 0,
+          isCompleted: false
+        }
+      }));
 
       return res.status(StatusCodes.OK).json({
         success: true,
-        data: training,
+        data: {
+          ...training,
+          lessons: lessonsWithProgress
+        },
         isUnlocked: !!isUnlocked,
         remainingPoints: member.points
       });
@@ -111,7 +199,10 @@ export class MobileTrainingController {
       const member = await this.memberRepo.findOneBy({ _id: userId });
       if (!member) throw new NotFoundError("Member not found");
 
-      const isUnlocked = member.unlockedTrainings?.some(tid => tid.toString() === training._id.toString());
+      const isUnlocked = await this.enrollmentRepo.findOneBy({
+        memberId: userId,
+        trainingId: training._id
+      });
       if (isUnlocked) {
         return res.status(StatusCodes.OK).json({
           success: true,
@@ -127,15 +218,102 @@ export class MobileTrainingController {
       }
 
       member.points -= pointsToDeduct;
-      if (!member.unlockedTrainings) member.unlockedTrainings = [];
-      member.unlockedTrainings.push(training._id);
       await this.memberRepo.save(member);
+
+      // Create new enrollment record
+      const enrollment = new MemberTraining();
+      enrollment.memberId = userId;
+      enrollment.trainingId = training._id;
+      await this.enrollmentRepo.save(enrollment);
 
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Training unlocked successfully",
         remainingPoints: member.points,
         isUnlocked: true
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/trainings/lesson-progress:
+   *   post:
+   *     summary: Update video watch progress for a lesson
+   *     tags: [Mobile Training]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               trainingId:
+   *                 type: string
+   *               lessonId:
+   *                 type: string
+   *               position:
+   *                 type: number
+   *               isCompleted:
+   *                 type: boolean
+   */
+  @Post("/lesson-progress")
+  async updateProgress(@Req() req: any, @Body() data: { trainingId: string, lessonId: string, position: number, isCompleted?: boolean }, @Res() res: any) {
+    try {
+      const userId = new ObjectId(req.user.userId);
+      const { trainingId, lessonId, position, isCompleted = false } = data;
+
+      if (!ObjectId.isValid(trainingId)) throw new BadRequestError("Invalid Training ID");
+
+      // 1. Check if user is enrolled in this training
+      const trainingOid = new ObjectId(trainingId);
+      let enrollment = await this.enrollmentRepo.findOneBy({
+        memberId: userId,
+        trainingId: trainingOid
+      });
+
+      if (!enrollment) {
+        // If not enrolled, check if the training is FREE
+        const training = await this.trainingRepo.findOneBy({ _id: trainingOid });
+        if (!training) throw new NotFoundError("Training not found");
+
+        // Auto-enroll for free trainings
+        enrollment = new MemberTraining();
+        enrollment.memberId = userId;
+        enrollment.trainingId = trainingOid;
+        await this.enrollmentRepo.save(enrollment);
+      } else {
+        // Update the last watched lesson and timestamp on the enrollment
+        enrollment.lessonId = new ObjectId(lessonId);
+        await this.enrollmentRepo.save(enrollment);
+      }
+
+      // 2. Update or Create progress record
+      let progress = await this.progressRepo.findOneBy({
+        memberId: userId,
+        trainingId: trainingOid,
+        lessonId: new ObjectId(lessonId)
+      });
+
+      if (!progress) {
+        progress = new LessonProgress();
+        progress.memberId = userId;
+        progress.trainingId = trainingOid;
+        progress.lessonId = new ObjectId(lessonId);
+      }
+
+      progress.lastWatchedPosition = position;
+      progress.isCompleted = isCompleted || progress.isCompleted;
+
+      await this.progressRepo.save(progress);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: progress
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
