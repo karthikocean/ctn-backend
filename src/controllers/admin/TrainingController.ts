@@ -110,7 +110,7 @@ export class TrainingController {
 
     try {
       const where: any = { isDeleted: false };
-      
+
       if (search) {
         where.$or = [
           { title: { $regex: search, $options: "i" } },

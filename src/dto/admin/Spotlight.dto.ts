@@ -3,8 +3,7 @@ import {
   IsNotEmpty,
   IsEnum,
   IsOptional,
-  IsDateString,
-  IsMongoId
+  IsDateString
 } from "class-validator";
 import { SpotlightStatus } from "../../entity/Spotlight";
 

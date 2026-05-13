@@ -117,9 +117,9 @@ export class SpotlightController {
       const allMemberIds = spotlights.reduce((acc: ObjectId[], s) => {
         return [...acc, ...s.members];
       }, []);
-      
+
       const uniqueMemberIds = Array.from(new Set(allMemberIds.map(id => id.toString()))).map(id => new ObjectId(id));
-      
+
       const members = await this.memberRepo.find({
         where: { _id: { $in: uniqueMemberIds } }
       });
