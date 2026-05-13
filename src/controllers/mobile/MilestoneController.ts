@@ -28,7 +28,7 @@ import { StatusCodes } from "http-status-codes";
 import handleErrorResponse from "../../utils/commonFunction";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { pagination } from "../../utils";
-import { getIO } from "../../utils/socket";
+import { getIO, isUserInConversation } from "../../utils/socket";
 
 @JsonController("/milestones")
 @UseBefore(MobileAuthMiddleware)
@@ -161,7 +161,7 @@ export class MobileMilestoneController {
         };
       });
 
-      // 5. Sort: 
+      // 5. Sort:
       // Priority 1: Unwatched groups first
       // Priority 2: Watched groups last
       // Within groups, sort by latest milestone creation
@@ -180,7 +180,7 @@ export class MobileMilestoneController {
       const total = result.length;
       const paginatedData = result.slice(page * limit, (page + 1) * limit);
 
-      return pagination(total, paginatedData, limit, page, res)
+      return pagination(total, paginatedData, limit, page, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
@@ -364,12 +364,29 @@ export class MobileMilestoneController {
       message.content = content;
       message.type = MessageType.MILESTONE_REPLY;
       message.milestoneId = milestoneId;
+
+      // Check if receiver is in the chat room
+      const isReceiverActive = isUserInConversation(ownerId.toString(), conversation._id.toString());
+      if (isReceiverActive) {
+        message.isRead = true;
+      }
+
       const savedMessage = await this.messageRepo.save(message);
 
       // 3. Update Conversation
       conversation.lastMessage = content;
       conversation.lastMessageTime = new Date();
       conversation.lastMessageSenderId = userId;
+
+      // Update unread count for receiver
+      const unreadCounts = conversation.unreadCounts || {};
+      if (isReceiverActive) {
+        unreadCounts[ownerId.toString()] = 0;
+      } else {
+        unreadCounts[ownerId.toString()] = (unreadCounts[ownerId.toString()] || 0) + 1;
+      }
+      conversation.unreadCounts = { ...unreadCounts };
+
       await this.conversationRepo.save(conversation);
 
       // 4. Socket Notification
@@ -381,13 +398,29 @@ export class MobileMilestoneController {
       };
 
       // Emit to the owner
+      const sender = await this.memberRepo.findOneBy({ _id: userId });
+      let senderCategoryName = null;
+      if (sender && sender.businessCategory) {
+        const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
+        senderCategoryName = cat ? cat.name : null;
+      }
+
+      const unreadCount = conversation.unreadCounts?.[ownerId.toString()] || 0;
+
       io.to(ownerId.toString()).emit("new_message", populatedMessage);
       io.to(ownerId.toString()).emit("conversation_updated", {
         ...conversation,
         lastMessage: content,
         lastMessageTime: conversation.lastMessageTime,
         lastMessageSenderId: userId,
-        unreadCount: 1
+        otherUser: sender ? {
+          _id: sender._id,
+          fullName: sender.fullName,
+          profilePhoto: sender.profilePhoto,
+          categoryName: senderCategoryName
+        } : null,
+        milestone: milestone,
+        unreadCount
       });
 
       return res.status(StatusCodes.OK).json({
@@ -477,7 +510,7 @@ export class MobileMilestoneController {
       const milestone = await this.milestoneRepo.findOneBy({ _id: milestoneId });
       if (!milestone) throw new NotFoundError("Milestone not found");
 
-      // Only the owner should probably see who viewed it? 
+      // Only the owner should probably see who viewed it?
       // The user didn't specify, but usually this is private to the owner.
       // If we want it public, we can remove this check.
       // if (milestone.memberId.toString() !== req.user.userId) {

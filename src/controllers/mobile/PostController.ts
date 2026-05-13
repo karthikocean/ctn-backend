@@ -28,7 +28,7 @@ import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
-import { getIO } from "../../utils/socket";
+import { getIO, isUserInConversation } from "../../utils/socket";
 
 @JsonController("/posts")
 @UseBefore(MobileAuthMiddleware)
@@ -549,38 +549,74 @@ export class MobilePostController {
 
       // If targetConversation is found or created, send the post into the chat
       if (targetConversation) {
+        const otherId = targetConversation.participants.find(p => !p.equals(userId));
+        if (!otherId) throw new BadRequestError("No receiver found in this conversation");
+
         const newMessage = new Message();
         newMessage.conversationId = targetConversation._id;
         newMessage.senderId = userId;
         newMessage.content = "Shared a post";
         newMessage.type = MessageType.POST_SHARE;
         newMessage.postId = post._id;
+
+        // Check if receiver is in the chat room
+        const isReceiverActive = isUserInConversation(otherId.toString(), targetConversation._id.toString());
+        if (isReceiverActive) {
+          newMessage.isRead = true;
+        }
+
         await this.messageRepo.save(newMessage);
 
-        // Update conversation last message
-        targetConversation.lastMessage = "Shared a post";
-        targetConversation.lastMessageTime = new Date();
-        targetConversation.lastMessageSenderId = userId;
-        await this.conversationRepo.save(targetConversation);
+          // Update conversation last message and unread count
+          targetConversation.lastMessage = "Shared a post";
+          targetConversation.lastMessageTime = new Date();
+          targetConversation.lastMessageSenderId = userId;
+          
+          // Update unread count for receiver
+          const unreadCounts = targetConversation.unreadCounts || {};
+          if (isReceiverActive) {
+            unreadCounts[otherId.toString()] = 0;
+          } else {
+            unreadCounts[otherId.toString()] = (unreadCounts[otherId.toString()] || 0) + 1;
+          }
+          targetConversation.unreadCounts = { ...unreadCounts };
 
-        // Socket Notification
-        const otherId = targetConversation.participants.find(p => !p.equals(userId));
-        if (otherId) {
-          const io = getIO();
-          const populatedMessage = {
-            ...newMessage,
-            isMe: false,
-            post: post
-          };
-          io.to(otherId.toString()).emit("new_message", populatedMessage);
-          io.to(otherId.toString()).emit("conversation_updated", {
-            ...targetConversation,
-            lastMessage: "Shared a post",
-            lastMessageTime: targetConversation.lastMessageTime,
-            lastMessageSenderId: userId,
-            unreadCount: 1
-          });
-        }
+          await this.conversationRepo.save(targetConversation);
+
+          // Socket Notification
+          if (otherId) {
+            const io = getIO();
+            const populatedMessage = {
+              ...newMessage,
+              isMe: false,
+              post: post
+            };
+            io.to(otherId.toString()).emit("new_message", populatedMessage);
+            // Emit conversation update for the conversation list screen
+            const sender = await this.memberRepo.findOneBy({ _id: userId });
+            let senderCategoryName = null;
+            if (sender && sender.businessCategory) {
+              const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
+              senderCategoryName = cat ? cat.name : null;
+            }
+
+            const unreadCount = targetConversation.unreadCounts?.[otherId.toString()] || 0;
+
+            io.to(otherId.toString()).emit("conversation_updated", {
+              ...targetConversation,
+              lastMessage: "Shared a post",
+              lastMessageTime: targetConversation.lastMessageTime,
+              lastMessageSenderId: userId,
+              otherUser: sender ? {
+                _id: sender._id,
+                fullName: sender.fullName,
+                profilePhoto: sender.profilePhoto,
+                categoryName: senderCategoryName
+              } : null,
+              post: post,
+              unreadCount
+            });
+          }
       }
 
       return res.status(StatusCodes.OK).json({
