@@ -161,7 +161,7 @@ export class MobileMilestoneController {
         };
       });
 
-      // 5. Sort: 
+      // 5. Sort:
       // Priority 1: Unwatched groups first
       // Priority 2: Watched groups last
       // Within groups, sort by latest milestone creation
@@ -180,7 +180,7 @@ export class MobileMilestoneController {
       const total = result.length;
       const paginatedData = result.slice(page * limit, (page + 1) * limit);
 
-      return pagination(total, paginatedData, limit, page, res)
+      return pagination(total, paginatedData, limit, page, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
@@ -477,7 +477,7 @@ export class MobileMilestoneController {
       const milestone = await this.milestoneRepo.findOneBy({ _id: milestoneId });
       if (!milestone) throw new NotFoundError("Milestone not found");
 
-      // Only the owner should probably see who viewed it? 
+      // Only the owner should probably see who viewed it?
       // The user didn't specify, but usually this is private to the owner.
       // If we want it public, we can remove this check.
       // if (milestone.memberId.toString() !== req.user.userId) {
