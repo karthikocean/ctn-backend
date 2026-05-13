@@ -8,6 +8,7 @@ import cors from "cors";
 import { useExpressServer } from "routing-controllers";
 import { AppDataSource } from "./data-source";
 import fileUpload from "express-fileupload";
+import { Spotlight, SpotlightStatus } from "./entity/Spotlight";
 
 // ✅ Swagger
 import swaggerUi from "swagger-ui-express";
@@ -120,6 +121,57 @@ AppDataSource.initialize()
           console.log(`🕒 Cron Health Check: ${response.data} at ${new Date().toLocaleString()}`);
         } catch (error: any) {
           console.error(`❌ Cron Health Check Failed: ${error.message}`);
+        }
+      });
+
+      // ✅ Spotlight Activation Cron - Runs every day at 12:01 AM
+      cron.schedule("1 0 * * *", async () => {
+        try {
+          console.log("🕒 Running Spotlight Activation Cron...");
+          const spotlightRepo = AppDataSource.getMongoRepository(Spotlight);
+
+          const todayStart = new Date();
+          todayStart.setHours(0, 0, 0, 0);
+          const todayEnd = new Date();
+          todayEnd.setHours(23, 59, 59, 999);
+
+          const result = await spotlightRepo.updateMany(
+            {
+              scheduleDate: { $gte: todayStart, $lte: todayEnd },
+              status: SpotlightStatus.SCHEDULE,
+              isDeleted: false
+            },
+            { $set: { status: SpotlightStatus.ACTIVE } }
+          );
+
+          console.log(`✅ Spotlight Activation: ${result.modifiedCount} records set to active.`);
+        } catch (error: any) {
+          console.error(`❌ Spotlight Activation Cron Failed: ${error.message}`);
+        }
+      });
+
+      // ✅ Spotlight Deactivation Cron - Runs every minute
+      cron.schedule("* * * * *", async () => {
+        try {
+          const spotlightRepo = AppDataSource.getMongoRepository(Spotlight);
+          const todayStart = new Date();
+          todayStart.setHours(0, 0, 0, 0);
+
+          // Deactivate spotlights that were active but their schedule date is now in the past
+          const result = await spotlightRepo.updateMany(
+            {
+              status: SpotlightStatus.ACTIVE,
+              scheduleDate: { $lt: todayStart },
+              isDeleted: false
+            },
+            { $set: { status: SpotlightStatus.INACTIVE } }
+          );
+
+          if (result.modifiedCount > 0) {
+            console.log(`✅ Spotlight Deactivation: ${result.modifiedCount} records set to inactive/deleted.`);
+          }
+        } catch (error: any) {
+          console.error(`❌ Spotlight Deactivation Cron Failed: ${error.message}`);
         }
       });
     });
