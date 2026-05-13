@@ -280,7 +280,32 @@ export class MobilePostController {
       const where: any = { isDeleted: false };
 
       if (type) where.type = type;
-      if (memberId && ObjectId.isValid(memberId)) where.memberId = new ObjectId(memberId);
+
+      // Special logic for GIVE posts: Only show from mutual friends
+      if (type === PostType.GIVE) {
+        // 1. Find who current user follows
+        const following = await this.connectionRepo.find({
+          where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        });
+        const followingIds = following.map(f => f.receiverId.toString());
+
+        // 2. Find who follows current user
+        const followers = await this.connectionRepo.find({
+          where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        });
+        const followerIds = followers.map(f => f.senderId.toString());
+
+        // 3. Mutual = Intersection
+        const mutualIds = followingIds
+          .filter(id => followerIds.includes(id))
+          .map(id => new ObjectId(id));
+        
+        // If no mutual friends, return empty list (or maybe show own posts too?)
+        // The user said "only mutual friends posts"
+        where.memberId = { $in: mutualIds };
+      } else if (memberId && ObjectId.isValid(memberId)) {
+        where.memberId = new ObjectId(memberId);
+      }
 
       if (search) {
         where.$or = [
