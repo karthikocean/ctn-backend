@@ -25,6 +25,7 @@ export async function seedAdmin() {
     "awards",
     "members",
     "activities",
+    "spotlight",
     "connections",
     "contributions",
     "reports"
