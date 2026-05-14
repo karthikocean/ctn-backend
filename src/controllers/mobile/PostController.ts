@@ -548,7 +548,7 @@ export class MobilePostController {
       if (!targetConversation) {
         targetConversation = new Conversation();
         targetConversation.participants = [userId, recId];
-        targetConversation.status = "";
+        targetConversation.status = "PENDING";
         targetConversation = await this.conversationRepo.save(targetConversation);
       } else {
         // Check if already shared in this conversation by this user

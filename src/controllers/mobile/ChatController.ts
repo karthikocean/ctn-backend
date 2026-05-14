@@ -139,7 +139,8 @@ export class MobileChatController {
             _id: otherUser._id,
             fullName: otherUser.fullName,
             profilePhoto: otherUser.profilePhoto,
-            categoryName: categoryName
+            categoryName: categoryName,
+            isOnline: otherUser.isOnline
           } : null,
           post: post || null,
           milestone: conv.milestoneId ? milestoneMap.get(conv.milestoneId.toString()) : null,
@@ -256,7 +257,8 @@ export class MobileChatController {
             fullName: user.fullName,
             profilePhoto: user.profilePhoto,
             businessName: user.businessName,
-            categoryName: categoryName
+            categoryName: categoryName,
+            isOnline: user.isOnline
           };
         }
       }
@@ -365,8 +367,8 @@ export class MobileChatController {
    *             properties:
    *               status:
    *                 type: string
-   *                 enum: [USEFUL, MAY_BE_LATER, REJECTED, REPORTED]
-   *                 example: "USEFUL"
+   *                 enum: [PENDING, ACCEPTED, USEFUL, MAY_BE_LATER, REJECTED, REPORTED]
+   *                 example: "ACCEPTED"
    *               reason:
    *                 type: string
    *                 description: Required if status is REPORTED
@@ -379,7 +381,7 @@ export class MobileChatController {
   async updateConversationStatus(
     @Req() req: any,
     @Param("id") id: string,
-    @Body() body: { status: string; reason?: string },
+    @Body() body: { status: any; reason?: string },
     @Res() res: any
   ) {
     try {
@@ -538,7 +540,8 @@ export class MobileChatController {
           _id: sender._id,
           fullName: sender.fullName,
           profilePhoto: sender.profilePhoto,
-          categoryName: senderCategoryName
+          categoryName: senderCategoryName,
+          isOnline: sender.isOnline
         } : null,
         post: post || null,
         unreadCount
@@ -613,6 +616,10 @@ export class MobileChatController {
 
       const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(conversationId) });
       if (!conversation) throw new NotFoundError("Conversation not found");
+
+      if (conversation.status === "REJECTED") {
+        throw new BadRequestError("This conversation has been rejected.");
+      }
 
       const receiverId = conversation.participants.find(p => !p.equals(senderId));
       if (!receiverId) throw new BadRequestError("No receiver found in this conversation");
@@ -743,7 +750,8 @@ export class MobileChatController {
             _id: sender._id,
             fullName: sender.fullName,
             profilePhoto: sender.profilePhoto,
-            categoryName: senderCategoryName
+            categoryName: senderCategoryName,
+            isOnline: sender.isOnline
           } : null,
           unreadCount
         });

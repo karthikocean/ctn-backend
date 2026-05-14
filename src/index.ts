@@ -9,6 +9,7 @@ import { useExpressServer } from "routing-controllers";
 import { AppDataSource } from "./data-source";
 import fileUpload from "express-fileupload";
 import { Spotlight, SpotlightStatus } from "./entity/Spotlight";
+import { Member } from "./entity/Member";
 
 // ✅ Swagger
 import swaggerUi from "swagger-ui-express";
@@ -22,6 +23,15 @@ import axios from "axios";
 AppDataSource.initialize()
   .then(async () => {
     console.log("✅ Database connected");
+
+    // ✅ Reset all online statuses on startup
+    try {
+      const memberRepo = AppDataSource.getMongoRepository(Member);
+      await memberRepo.updateMany({}, { $set: { isOnline: false } });
+      console.log("🔄 Reset all member online statuses to false");
+    } catch (error) {
+      console.error("❌ Error resetting online statuses:", error);
+    }
 
     const app = express();
     // seed default admin user

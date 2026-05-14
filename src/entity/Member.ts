@@ -165,6 +165,9 @@ export class Member {
   @Column({ default: 0 })
     points!: number;
 
+  @Column({ default: false })
+    isOnline!: boolean;
+
   @CreateDateColumn()
     createdAt!: Date;
 

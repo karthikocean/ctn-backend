@@ -154,19 +154,41 @@ export class MobileTrainingController {
 
       const progressMap = new Map<string, any>(progressList.map(p => [p.lessonId.toString(), p]));
 
-      const lessonsWithProgress = training.lessons?.map(lesson => ({
-        ...lesson,
-        progress: progressMap.get(lesson._id?.toString() || "") || {
-          lastWatchedPosition: 0,
-          isCompleted: false
-        }
-      }));
+      const lessonsWithProgress = training.lessons?.map(lesson => {
+        const lp = progressMap.get(lesson._id?.toString() || "");
+        return {
+          ...lesson,
+          progress: lp ? {
+            position: lp.lastWatchedPosition,
+            isCompleted: lp.isCompleted,
+            updatedAt: lp.updatedAt
+          } : {
+            position: 0,
+            isCompleted: false
+          }
+        };
+      });
+
+      const completedCount = progressList.filter(p => p.isCompleted).length;
+      const totalLessons = training.lessons?.length || 0;
+      const lastWatchedLessonId = isUnlocked?.lessonId?.toString() || null;
+      const lastWatchedProgress = lastWatchedLessonId
+        ? progressMap.get(lastWatchedLessonId)
+        : null;
 
       return res.status(StatusCodes.OK).json({
         success: true,
         data: {
           ...training,
-          lessons: lessonsWithProgress
+          lessons: lessonsWithProgress,
+          completedLessonsCount: completedCount,
+          totalLessonsCount: totalLessons,
+          lastWatchedLessonId,
+          lastWatchedLessonProgress: lastWatchedProgress ? {
+            position: lastWatchedProgress.lastWatchedPosition,
+            isCompleted: lastWatchedProgress.isCompleted,
+            updatedAt: lastWatchedProgress.updatedAt
+          } : null
         },
         isUnlocked: !!isUnlocked,
         remainingPoints: member.points
