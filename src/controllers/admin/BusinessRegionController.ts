@@ -242,7 +242,7 @@ export class BusinessRegionController {
       if (data.state) region.state = data.state;
       if (data.city) region.city = data.city;
       if (data.status) region.status = data.status;
-      if (data.areas) region.areas = data.areas;
+      if (data.areas !== undefined) region.areas = data.areas;
 
       const saved = await this.regionRepo.save(region);
       return res.status(StatusCodes.OK).json({
