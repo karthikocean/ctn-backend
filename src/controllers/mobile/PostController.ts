@@ -299,7 +299,7 @@ export class MobilePostController {
         const mutualIds = followingIds
           .filter(id => followerIds.includes(id))
           .map(id => new ObjectId(id));
-        
+
         // If no mutual friends, return empty list (or maybe show own posts too?)
         // The user said "only mutual friends posts"
         where.memberId = { $in: mutualIds };
@@ -592,56 +592,56 @@ export class MobilePostController {
 
         await this.messageRepo.save(newMessage);
 
-          // Update conversation last message and unread count
-          targetConversation.lastMessage = "Shared a post";
-          targetConversation.lastMessageTime = new Date();
-          targetConversation.lastMessageSenderId = userId;
-          
-          // Update unread count for receiver
-          const unreadCounts = targetConversation.unreadCounts || {};
-          if (isReceiverActive) {
-            unreadCounts[otherId.toString()] = 0;
-          } else {
-            unreadCounts[otherId.toString()] = (unreadCounts[otherId.toString()] || 0) + 1;
+        // Update conversation last message and unread count
+        targetConversation.lastMessage = "Shared a post";
+        targetConversation.lastMessageTime = new Date();
+        targetConversation.lastMessageSenderId = userId;
+
+        // Update unread count for receiver
+        const unreadCounts = targetConversation.unreadCounts || {};
+        if (isReceiverActive) {
+          unreadCounts[otherId.toString()] = 0;
+        } else {
+          unreadCounts[otherId.toString()] = (unreadCounts[otherId.toString()] || 0) + 1;
+        }
+        targetConversation.unreadCounts = { ...unreadCounts };
+
+        await this.conversationRepo.save(targetConversation);
+
+        // Socket Notification
+        if (otherId) {
+          const io = getIO();
+          const populatedMessage = {
+            ...newMessage,
+            isMe: false,
+            post: post
+          };
+          io.to(otherId.toString()).emit("new_message", populatedMessage);
+          // Emit conversation update for the conversation list screen
+          const sender = await this.memberRepo.findOneBy({ _id: userId });
+          let senderCategoryName = null;
+          if (sender && sender.businessCategory) {
+            const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
+            senderCategoryName = cat ? cat.name : null;
           }
-          targetConversation.unreadCounts = { ...unreadCounts };
 
-          await this.conversationRepo.save(targetConversation);
+          const unreadCount = targetConversation.unreadCounts?.[otherId.toString()] || 0;
 
-          // Socket Notification
-          if (otherId) {
-            const io = getIO();
-            const populatedMessage = {
-              ...newMessage,
-              isMe: false,
-              post: post
-            };
-            io.to(otherId.toString()).emit("new_message", populatedMessage);
-            // Emit conversation update for the conversation list screen
-            const sender = await this.memberRepo.findOneBy({ _id: userId });
-            let senderCategoryName = null;
-            if (sender && sender.businessCategory) {
-              const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
-              senderCategoryName = cat ? cat.name : null;
-            }
-
-            const unreadCount = targetConversation.unreadCounts?.[otherId.toString()] || 0;
-
-            io.to(otherId.toString()).emit("conversation_updated", {
-              ...targetConversation,
-              lastMessage: "Shared a post",
-              lastMessageTime: targetConversation.lastMessageTime,
-              lastMessageSenderId: userId,
-              otherUser: sender ? {
-                _id: sender._id,
-                fullName: sender.fullName,
-                profilePhoto: sender.profilePhoto,
-                categoryName: senderCategoryName
-              } : null,
-              post: post,
-              unreadCount
-            });
-          }
+          io.to(otherId.toString()).emit("conversation_updated", {
+            ...targetConversation,
+            lastMessage: "Shared a post",
+            lastMessageTime: targetConversation.lastMessageTime,
+            lastMessageSenderId: userId,
+            otherUser: sender ? {
+              _id: sender._id,
+              fullName: sender.fullName,
+              profilePhoto: sender.profilePhoto,
+              categoryName: senderCategoryName
+            } : null,
+            post: post,
+            unreadCount
+          });
+        }
       }
 
       return res.status(StatusCodes.OK).json({
