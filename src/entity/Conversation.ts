@@ -42,6 +42,9 @@ export class Conversation {
   @Column({ nullable: true })
     reportReason?: string;
 
+  @Column({ default: {} })
+    unreadCounts!: any; // Map of userId string to unread count
+
   @CreateDateColumn()
     createdAt!: Date;
 
