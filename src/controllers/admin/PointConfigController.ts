@@ -150,7 +150,7 @@ export class PointConfigController {
           }
         });
         if (existing) throw new BadRequestError(`Module "${moduleName}" with type "${type}" already exists`);
-        
+
         if (data.moduleName) config.moduleName = data.moduleName;
         if (data.type) config.type = data.type;
       }
