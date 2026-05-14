@@ -47,9 +47,9 @@ export class MobileSpotlightController {
 
       // Fetch member details
       const members = await this.memberRepo.find({
-        where: { 
-            _id: { $in: spotlight.members },
-            isDeleted: false
+        where: {
+          _id: { $in: spotlight.members },
+          isDeleted: false
         }
       });
 
@@ -57,11 +57,11 @@ export class MobileSpotlightController {
       const categoryIds = members
         .map(m => m.businessCategory)
         .filter(id => id) as ObjectId[];
-      
+
       let categoryMap = new Map();
       if (categoryIds.length > 0) {
         const categories = await this.categoryRepo.find({
-            where: { _id: { $in: categoryIds } }
+          where: { _id: { $in: categoryIds } }
         });
         categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
       }

@@ -12,20 +12,20 @@ import { ObjectId } from "mongodb";
 @Index(["memberId", "trainingId"], { unique: true })
 export class MemberTraining {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   @Column()
-  memberId!: ObjectId;
+    memberId!: ObjectId;
 
   @Column()
-  trainingId!: ObjectId;
+    trainingId!: ObjectId;
 
   @Column({ nullable: true })
-  lessonId?: ObjectId;
+    lessonId?: ObjectId;
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }
