@@ -37,6 +37,16 @@ export const initSocket = (server: HttpServer) => {
     // ✅ Join user to a private room based on their userId
     socket.join(userId);
 
+    socket.on("join_conversation", (conversationId: string) => {
+      console.log(`👤 User ${userId} joined conversation: ${conversationId}`);
+      socket.join(`conversation_${conversationId}`);
+    });
+
+    socket.on("leave_conversation", (conversationId: string) => {
+      console.log(`👤 User ${userId} left conversation: ${conversationId}`);
+      socket.leave(`conversation_${conversationId}`);
+    });
+
     socket.on("disconnect", () => {
       console.log(`❌ User disconnected: ${userId}`);
     });
@@ -63,4 +73,21 @@ export const emitToUsers = (userIds: string[], event: string, data: any) => {
   userIds.forEach((id) => {
     io.to(id).emit(event, data);
   });
+};
+/**
+ * Check if a user is currently in a specific conversation room
+ */
+export const isUserInConversation = (userId: string, conversationId: string): boolean => {
+  if (!io) return false;
+  const roomName = `conversation_${conversationId}`;
+  const room = io.sockets.adapter.rooms.get(roomName);
+  if (!room) return false;
+
+  const userSockets = io.sockets.adapter.rooms.get(userId);
+  if (!userSockets) return false;
+
+  for (const socketId of userSockets) {
+    if (room.has(socketId)) return true;
+  }
+  return false;
 };

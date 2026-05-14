@@ -2,7 +2,8 @@ import {
   IsString,
   IsNotEmpty,
   IsEnum,
-  IsOptional
+  IsOptional,
+  IsArray
 } from "class-validator";
 import { BusinessRegionStatus } from "../../entity/BusinessRegion";
 
@@ -22,6 +23,11 @@ export class CreateBusinessRegionDto {
   @IsEnum(BusinessRegionStatus)
   @IsOptional()
     status?: BusinessRegionStatus = BusinessRegionStatus.ACTIVE;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+    areas?: string[];
 }
 
 export class UpdateBusinessRegionDto {
@@ -40,4 +46,9 @@ export class UpdateBusinessRegionDto {
   @IsEnum(BusinessRegionStatus)
   @IsOptional()
     status?: BusinessRegionStatus;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+    areas?: string[];
 }
