@@ -73,15 +73,18 @@ export class MobileTrainingController {
         // Map lessons with their individual progress
         const lessonsWithProgress = t.lessons?.map(lesson => {
           const lp = trainingProgress.find(p => p.lessonId.toString() === lesson._id?.toString());
+          const durationSec = this.durationToSeconds(lesson.duration);
+          const lastPos = lp?.lastWatchedPosition || 0;
+          
+          // Calculate if completed based on position or existing flag
+          const isCompleted = lp?.isCompleted || (durationSec > 0 && lastPos >= durationSec);
+
           return {
             ...lesson,
-            progress: lp ? {
-              position: lp.lastWatchedPosition,
-              isCompleted: lp.isCompleted,
-              updatedAt: lp.updatedAt
-            } : {
-              position: 0,
-              isCompleted: false
+            progress: {
+              position: lastPos,
+              isCompleted: isCompleted,
+              updatedAt: lp?.updatedAt
             }
           };
         });
@@ -91,11 +94,15 @@ export class MobileTrainingController {
           ? trainingProgress.find(p => p.lessonId.toString() === lastWatchedLessonId.toString())
           : null;
 
+        // Calculate total duration
+        const totalDuration = this.sumDurations(t.lessons?.map(l => l.duration) || []);
+
         return {
           ...t,
           lessons: lessonsWithProgress,
           completedLessonsCount: completedCount,
           totalLessonsCount: totalLessons,
+          totalDuration,
           isUnlocked: !!enrollment,
           lastWatchedLessonId,
           lastWatchedLessonProgress: lastWatchedProgress ? {
@@ -110,6 +117,45 @@ export class MobileTrainingController {
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
+  }
+
+  private sumDurations(durations: (string | undefined)[]): string {
+    let totalSeconds = 0;
+    durations.forEach(d => {
+      if (!d) return;
+      const parts = d.split(":").map(Number);
+      if (parts.length === 3) {
+        totalSeconds += (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+      } else if (parts.length === 2) {
+        totalSeconds += (parts[0] || 0) * 60 + (parts[1] || 0);
+      } else if (parts.length === 1) {
+        totalSeconds += (parts[0] || 0);
+      }
+    });
+
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+
+    const parts = [];
+    if (h > 0) parts.push(h.toString().padStart(2, "0"));
+    parts.push(m.toString().padStart(2, "0"));
+    parts.push(s.toString().padStart(2, "0"));
+
+    return parts.join(":");
+  }
+
+  private durationToSeconds(duration: string | undefined): number {
+    if (!duration) return 0;
+    const parts = duration.split(":").map(Number);
+    if (parts.length === 3) {
+      return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+    } else if (parts.length === 2) {
+      return (parts[0] || 0) * 60 + (parts[1] || 0);
+    } else if (parts.length === 1) {
+      return (parts[0] || 0);
+    }
+    return 0;
   }
 
   /**
@@ -154,19 +200,29 @@ export class MobileTrainingController {
 
       const progressMap = new Map<string, any>(progressList.map(p => [p.lessonId.toString(), p]));
 
-      const lessonsWithProgress = training.lessons?.map(lesson => ({
-        ...lesson,
-        progress: progressMap.get(lesson._id?.toString() || "") || {
-          lastWatchedPosition: 0,
-          isCompleted: false
-        }
-      }));
+      const lessonsWithProgress = training.lessons?.map(lesson => {
+        const lp = progressMap.get(lesson._id?.toString() || "");
+        const durationSec = this.durationToSeconds(lesson.duration);
+        const lastPos = lp?.lastWatchedPosition || 0;
+
+        // Calculate if completed based on position or existing flag
+        const isCompleted = lp?.isCompleted || (durationSec > 0 && lastPos >= durationSec);
+
+        return {
+          ...lesson,
+          progress: {
+            lastWatchedPosition: lastPos,
+            isCompleted: isCompleted
+          }
+        };
+      });
 
       return res.status(StatusCodes.OK).json({
         success: true,
         data: {
           ...training,
-          lessons: lessonsWithProgress
+          lessons: lessonsWithProgress,
+          totalDuration: this.sumDurations(training.lessons?.map(l => l.duration) || [])
         },
         isUnlocked: !!isUnlocked,
         remainingPoints: member.points
