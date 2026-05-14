@@ -65,6 +65,7 @@ export class MobileMilestoneController {
       Object.assign(milestone, data);
       milestone.memberId = new ObjectId(userId);
       milestone.viewCount = 0;
+      milestone.clapsCount = 0;
       milestone.isDeleted = false;
 
       const saved = await this.milestoneRepo.save(milestone);
@@ -215,11 +216,11 @@ export class MobileMilestoneController {
       });
 
       // Group views by milestoneId
-      const viewsMap = new Map<string, ObjectId[]>();
+      const viewsMap = new Map<string, any[]>();
       views.forEach(v => {
         const mid = v.milestoneId.toString();
         if (!viewsMap.has(mid)) viewsMap.set(mid, []);
-        viewsMap.get(mid)?.push(v.viewerId);
+        viewsMap.get(mid)?.push({ viewerId: v.viewerId, reacted: v.reacted });
       });
 
       // Get all unique viewer IDs
@@ -250,10 +251,13 @@ export class MobileMilestoneController {
       }]));
 
       const data = milestones.map(m => {
-        const vIds = viewsMap.get(m._id.toString()) || [];
+        const vData = viewsMap.get(m._id.toString()) || [];
         return {
           ...m,
-          viewers: vIds.map(vid => viewerMap.get(vid.toString())).filter(v => !!v)
+          viewers: vData.map(vd => {
+            const profile = viewerMap.get(vd.viewerId.toString());
+            return profile ? { ...profile, reacted: vd.reacted || false } : null;
+          }).filter(v => !!v)
         };
       });
 
@@ -488,6 +492,70 @@ export class MobileMilestoneController {
 
   /**
    * @swagger
+   * /mobile-api/milestones/{id}/react:
+   *   post:
+   *     summary: Toggle reaction (clap) on a milestone
+   *     tags: [Mobile Milestone]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   */
+  @Post("/:id/react")
+  async react(@Req() req: any, @Param("id") id: string, @Res() res: any) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid Milestone ID");
+      const userId = new ObjectId(req.user.userId);
+      const milestoneId = new ObjectId(id);
+
+      const milestone = await this.milestoneRepo.findOneBy({ _id: milestoneId });
+      if (!milestone) throw new NotFoundError("Milestone not found");
+
+      // Reaction should also count as a view if not already viewed
+      let milestoneView = await this.milestoneViewRepo.findOneBy({ milestoneId, viewerId: userId });
+
+      if (!milestoneView) {
+        milestoneView = new MilestoneView();
+        milestoneView.milestoneId = milestoneId;
+        milestoneView.viewerId = userId;
+        milestoneView.reacted = true;
+        await this.milestoneViewRepo.save(milestoneView);
+
+        milestone.viewCount = (milestone.viewCount || 0) + 1;
+        milestone.clapsCount = (milestone.clapsCount || 0) + 1;
+      } else {
+        // Toggle reaction
+        const previousReacted = milestoneView.reacted;
+        milestoneView.reacted = !milestoneView.reacted;
+        await this.milestoneViewRepo.save(milestoneView);
+
+        // Update clapsCount on milestone
+        if (milestoneView.reacted && !previousReacted) {
+          milestone.clapsCount = (milestone.clapsCount || 0) + 1;
+        } else if (!milestoneView.reacted && previousReacted) {
+          milestone.clapsCount = Math.max(0, (milestone.clapsCount || 0) - 1);
+        }
+      }
+
+      await this.milestoneRepo.save(milestone);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: milestoneView.reacted ? "Reacted successfully" : "Reaction removed",
+        reacted: milestoneView.reacted,
+        clapsCount: milestone.clapsCount
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
    * /mobile-api/milestones/{id}/viewers:
    *   get:
    *     summary: Get the list of members who viewed this milestone
@@ -510,13 +578,6 @@ export class MobileMilestoneController {
       const milestone = await this.milestoneRepo.findOneBy({ _id: milestoneId });
       if (!milestone) throw new NotFoundError("Milestone not found");
 
-      // Only the owner should probably see who viewed it?
-      // The user didn't specify, but usually this is private to the owner.
-      // If we want it public, we can remove this check.
-      // if (milestone.memberId.toString() !== req.user.userId) {
-      //   throw new BadRequestError("You can only see viewers of your own milestones");
-      // }
-
       const views = await this.milestoneViewRepo.find({
         where: { milestoneId },
         order: { createdAt: "DESC" }
@@ -529,17 +590,24 @@ export class MobileMilestoneController {
         })
         : [];
 
-      // Map profiles for response
-      const viewerProfiles = viewers.map(m => ({
-        _id: m._id,
-        fullName: m.fullName,
-        profilePhoto: m.profilePhoto,
-        businessName: m.businessName
-      }));
+      const viewerMap = new Map(viewers.map(m => [m._id.toString(), m]));
+
+      // Map profiles for response including reacted status
+      const viewerProfiles = views.map(v => {
+        const m = viewerMap.get(v.viewerId.toString());
+        return {
+          _id: v.viewerId,
+          fullName: m?.fullName,
+          profilePhoto: m?.profilePhoto,
+          businessName: m?.businessName,
+          reacted: v.reacted || false
+        };
+      });
 
       return res.status(StatusCodes.OK).json({
         success: true,
         viewCount: milestone.viewCount || 0,
+        clapsCount: milestone.clapsCount || 0,
         data: viewerProfiles
       });
     } catch (error: any) {
