@@ -12,26 +12,26 @@ import { ObjectId } from "mongodb";
 @Index(["memberId", "trainingId", "lessonId"], { unique: true })
 export class LessonProgress {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   @Column()
-  memberId!: ObjectId;
+    memberId!: ObjectId;
 
   @Column()
-  trainingId!: ObjectId;
+    trainingId!: ObjectId;
 
   @Column()
-  lessonId!: ObjectId;
+    lessonId!: ObjectId;
 
   @Column({ type: "float", default: 0 })
-  lastWatchedPosition!: number; // in seconds or percentage
+    lastWatchedPosition!: number; // in seconds or percentage
 
   @Column({ default: false })
-  isCompleted!: boolean;
+    isCompleted!: boolean;
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }
