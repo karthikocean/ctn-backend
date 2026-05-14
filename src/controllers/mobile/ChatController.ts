@@ -511,7 +511,6 @@ export class MobileChatController {
       }
       conversation.unreadCounts = { ...unreadCounts };
 
-
       await this.conversationRepo.save(conversation);
 
       const io = getIO();
@@ -700,7 +699,6 @@ export class MobileChatController {
         unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
       }
       conversation.unreadCounts = { ...unreadCounts };
-
 
       await this.conversationRepo.save(conversation);
 
