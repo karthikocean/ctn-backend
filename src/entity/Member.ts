@@ -162,6 +162,9 @@ export class Member {
   @Column({ nullable: true })
     fcmToken?: string;
 
+  @Column({ default: 0 })
+    points!: number;
+
   @CreateDateColumn()
     createdAt!: Date;
 
