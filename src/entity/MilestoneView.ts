@@ -20,6 +20,9 @@ export class MilestoneView {
   @Column()
     viewerId!: ObjectId;
 
+  @Column({ default: false })
+    reacted!: boolean;
+
   @CreateDateColumn()
     createdAt!: Date;
 }
