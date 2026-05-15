@@ -91,10 +91,16 @@ export class Member {
   // =========================================
 
   @Column({ nullable: true })
+    state?: string;
+
+  @Column({ nullable: true })
     city?: string;
 
   @Column({ nullable: true })
     businessAddress?: string;
+
+  @Column({ nullable: true })
+    areas?: string;
 
   @Column("simple-array", { nullable: true })
     serviceLocations?: string[];
@@ -102,6 +108,9 @@ export class Member {
   // =========================================
   // PROFESSIONAL DETAILS
   // =========================================
+
+  @Column({ nullable: true })
+    productsServicesDescription?: string;
 
   @Column("json", { nullable: true })
     productsServices?: { title: string; image: string; description: string }[];

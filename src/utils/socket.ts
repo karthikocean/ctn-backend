@@ -2,8 +2,9 @@ import { Server as SocketServer } from "socket.io";
 import { Server as HttpServer } from "http";
 import jwt from "jsonwebtoken";
 import { AppDataSource } from "../data-source";
-import { Member } from "../entity/Member";
-import { Conversation } from "../entity/Conversation";
+import { Training } from "../entity/Training";
+import { MemberTraining } from "../entity/MemberTraining";
+import { LessonProgress } from "../entity/LessonProgress";
 import { ObjectId } from "mongodb";
 
 let io: SocketServer;
@@ -88,32 +89,71 @@ export const initSocket = (server: HttpServer) => {
       socket.leave(`conversation_${conversationId}`);
     });
 
-    socket.on("disconnect", async (reason) => {
-      console.log(`❌ User disconnected: ${userId}, Reason: ${reason}`);
-
+    // ✅ Video Lesson Progress Update
+    socket.on("update_lesson_progress", async (data: { trainingId: string, lessonId: string, position: number, isCompleted?: boolean }) => {
       try {
-        // Check if user has other active connections
-        const activeSockets = await io.in(userId).fetchSockets();
-        console.log(`📉 Remaining active sockets for ${userId}: ${activeSockets.length}`);
+        const { trainingId, lessonId, position, isCompleted = false } = data;
+        const userId = socket.data.userId;
 
-        if (activeSockets.length === 0) {
-          if (ObjectId.isValid(userId)) {
-            const memberRepo = AppDataSource.getMongoRepository(Member);
-            await memberRepo.updateOne(
-              { _id: new ObjectId(userId) },
-              { $set: { isOnline: false } }
-            );
-            // ✅ Broadcast to all users
-            io.emit("user_offline", { userId });
-            console.log(`📡 Broadcasted user_offline for ${userId}`);
+        if (!ObjectId.isValid(trainingId) || !ObjectId.isValid(lessonId)) return;
 
-            // ✅ Notify conversation partners
-            await notifyStatusChange(userId, false);
-          }
+        const trainingOid = new ObjectId(trainingId);
+        const lessonOid = new ObjectId(lessonId);
+        const userOid = new ObjectId(userId);
+
+        const enrollmentRepo = AppDataSource.getMongoRepository(MemberTraining);
+        const trainingRepo = AppDataSource.getMongoRepository(Training);
+        const progressRepo = AppDataSource.getMongoRepository(LessonProgress);
+
+        // 1. Check if user is enrolled
+        let enrollment = await enrollmentRepo.findOneBy({
+          memberId: userOid,
+          trainingId: trainingOid
+        });
+
+        if (!enrollment) {
+          const training = await trainingRepo.findOneBy({ _id: trainingOid });
+          if (!training) return;
+
+          // Auto-enroll
+          enrollment = new MemberTraining();
+          enrollment.memberId = userOid;
+          enrollment.trainingId = trainingOid;
+          await enrollmentRepo.save(enrollment);
+        } else {
+          enrollment.lessonId = lessonOid;
+          await enrollmentRepo.save(enrollment);
         }
+
+        // 2. Update or Create progress
+        let progress = await progressRepo.findOneBy({
+          memberId: userOid,
+          trainingId: trainingOid,
+          lessonId: lessonOid
+        });
+
+        if (!progress) {
+          progress = new LessonProgress();
+          progress.memberId = userOid;
+          progress.trainingId = trainingOid;
+          progress.lessonId = lessonOid;
+        }
+
+        progress.lastWatchedPosition = position;
+        progress.isCompleted = isCompleted || progress.isCompleted;
+
+        await progressRepo.save(progress);
+
+        // Optionally emit success back to user
+        socket.emit("lesson_progress_saved", { lessonId, position, isCompleted: progress.isCompleted });
+
       } catch (error) {
-        console.error(`❌ Error updating offline status for ${userId}:`, error);
+        console.error("❌ Error updating lesson progress via socket:", error);
       }
+    });
+
+    socket.on("disconnect", () => {
+      console.log(`❌ User disconnected: ${userId}`);
     });
   });
 
