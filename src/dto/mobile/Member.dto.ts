@@ -120,16 +120,28 @@ export class CreateMemberDto {
 
   @IsString()
   @IsOptional()
+    state?: string;
+
+  @IsString()
+  @IsOptional()
     city?: string;
 
   @IsString()
   @IsOptional()
     businessAddress?: string;
 
+  @IsString()
+  @IsOptional()
+    areas?: string;
+
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
     serviceLocations?: string[];
+
+  @IsString()
+  @IsOptional()
+    productsServicesDescription?: string;
 
   @IsArray()
   @IsOptional()
@@ -207,6 +219,10 @@ export class UpdateProfileDto {
 
   @IsString()
   @IsOptional()
+    state?: string;
+
+  @IsString()
+  @IsOptional()
     city?: string;
   @IsString()
   @IsOptional()
@@ -220,10 +236,18 @@ export class UpdateProfileDto {
   @IsOptional()
     businessAddress?: string;
 
+  @IsString()
+  @IsOptional()
+    areas?: string;
+
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
     serviceLocations?: string[];
+
+  @IsString()
+  @IsOptional()
+    productsServicesDescription?: string;
 
   @IsArray()
   @IsOptional()
