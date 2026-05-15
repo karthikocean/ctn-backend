@@ -30,7 +30,7 @@ export const initSocket = (server: HttpServer) => {
       const cleanToken = token.replace("Bearer ", "");
       const decoded = jwt.verify(cleanToken, process.env.JWT_SECRET as string) as any;
       const userId = decoded.userId || decoded.id;
-      
+
       if (!userId) {
         console.error("❌ Socket Auth Failed: No userId in token payload", decoded);
         return next(new Error("Authentication error: Invalid token payload"));

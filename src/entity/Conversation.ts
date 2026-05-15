@@ -13,40 +13,40 @@ import { ObjectId } from "mongodb";
 @Index(["postId"])
 export class Conversation {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   @Column()
-  participants!: ObjectId[]; // Array of member IDs
+    participants!: ObjectId[]; // Array of member IDs
 
   @Column({ nullable: true })
-  postId?: ObjectId; // Reference to the specific post this chat is about
+    postId?: ObjectId; // Reference to the specific post this chat is about
 
   @Column({ nullable: true })
-  milestoneId?: ObjectId; // Reference to the specific milestone this chat is about
+    milestoneId?: ObjectId; // Reference to the specific milestone this chat is about
 
   @Column({ nullable: true })
-  lastMessage?: string;
+    lastMessage?: string;
 
   @Column({ nullable: true })
-  lastMessageTime?: Date;
+    lastMessageTime?: Date;
 
   @Column({ nullable: true })
-  lastMessageSenderId?: ObjectId;
+    lastMessageSenderId?: ObjectId;
 
   @Column()
-  status: "PENDING" | "ACCEPTED" | "USEFUL" | "MAY_BE_LATER" | "REJECTED" | "REPORTED" | "DELETED" = "PENDING";
+    status: "PENDING" | "ACCEPTED" | "USEFUL" | "MAY_BE_LATER" | "REJECTED" | "REPORTED" | "DELETED" = "PENDING";
   @Column({ nullable: true })
-  reportedBy?: ObjectId;
+    reportedBy?: ObjectId;
 
   @Column({ nullable: true })
-  reportReason?: string;
+    reportReason?: string;
 
   @Column({ default: {} })
-  unreadCounts!: any; // Map of userId string to unread count
+    unreadCounts!: any; // Map of userId string to unread count
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }
