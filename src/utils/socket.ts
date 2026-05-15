@@ -1,6 +1,11 @@
 import { Server as SocketServer } from "socket.io";
 import { Server as HttpServer } from "http";
 import jwt from "jsonwebtoken";
+import { AppDataSource } from "../data-source";
+import { Training } from "../entity/Training";
+import { MemberTraining } from "../entity/MemberTraining";
+import { LessonProgress } from "../entity/LessonProgress";
+import { ObjectId } from "mongodb";
 
 let io: SocketServer;
 
@@ -45,6 +50,69 @@ export const initSocket = (server: HttpServer) => {
     socket.on("leave_conversation", (conversationId: string) => {
       console.log(`👤 User ${userId} left conversation: ${conversationId}`);
       socket.leave(`conversation_${conversationId}`);
+    });
+
+    // ✅ Video Lesson Progress Update
+    socket.on("update_lesson_progress", async (data: { trainingId: string, lessonId: string, position: number, isCompleted?: boolean }) => {
+      try {
+        const { trainingId, lessonId, position, isCompleted = false } = data;
+        const userId = socket.data.userId;
+
+        if (!ObjectId.isValid(trainingId) || !ObjectId.isValid(lessonId)) return;
+
+        const trainingOid = new ObjectId(trainingId);
+        const lessonOid = new ObjectId(lessonId);
+        const userOid = new ObjectId(userId);
+
+        const enrollmentRepo = AppDataSource.getMongoRepository(MemberTraining);
+        const trainingRepo = AppDataSource.getMongoRepository(Training);
+        const progressRepo = AppDataSource.getMongoRepository(LessonProgress);
+
+        // 1. Check if user is enrolled
+        let enrollment = await enrollmentRepo.findOneBy({
+          memberId: userOid,
+          trainingId: trainingOid
+        });
+
+        if (!enrollment) {
+          const training = await trainingRepo.findOneBy({ _id: trainingOid });
+          if (!training) return;
+
+          // Auto-enroll
+          enrollment = new MemberTraining();
+          enrollment.memberId = userOid;
+          enrollment.trainingId = trainingOid;
+          await enrollmentRepo.save(enrollment);
+        } else {
+          enrollment.lessonId = lessonOid;
+          await enrollmentRepo.save(enrollment);
+        }
+
+        // 2. Update or Create progress
+        let progress = await progressRepo.findOneBy({
+          memberId: userOid,
+          trainingId: trainingOid,
+          lessonId: lessonOid
+        });
+
+        if (!progress) {
+          progress = new LessonProgress();
+          progress.memberId = userOid;
+          progress.trainingId = trainingOid;
+          progress.lessonId = lessonOid;
+        }
+
+        progress.lastWatchedPosition = position;
+        progress.isCompleted = isCompleted || progress.isCompleted;
+
+        await progressRepo.save(progress);
+        
+        // Optionally emit success back to user
+        socket.emit("lesson_progress_saved", { lessonId, position, isCompleted: progress.isCompleted });
+
+      } catch (error) {
+        console.error("❌ Error updating lesson progress via socket:", error);
+      }
     });
 
     socket.on("disconnect", () => {

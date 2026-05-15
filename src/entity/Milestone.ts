@@ -28,6 +28,9 @@ export class Milestone {
   @Column({ default: 0 })
     viewCount!: number;
 
+  @Column({ default: 0 })
+    clapsCount!: number;
+
   @Column({ default: false })
     isDeleted!: boolean;
 
