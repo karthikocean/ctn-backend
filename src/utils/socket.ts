@@ -6,6 +6,8 @@ import { Training } from "../entity/Training";
 import { MemberTraining } from "../entity/MemberTraining";
 import { LessonProgress } from "../entity/LessonProgress";
 import { ObjectId } from "mongodb";
+import { Member } from "../entity/Member";
+import { Conversation } from "../entity/Conversation";
 
 let io: SocketServer;
 
@@ -14,7 +16,9 @@ export const initSocket = (server: HttpServer) => {
     cors: {
       origin: "*",
       methods: ["GET", "POST"]
-    }
+    },
+    pingInterval: 10000, // Send ping every 10 seconds
+    pingTimeout: 20000   // Wait 20 seconds for pong before disconnecting
   });
 
   // ✅ JWT Authentication Middleware
@@ -80,13 +84,17 @@ export const initSocket = (server: HttpServer) => {
     }
 
     socket.on("join_conversation", (conversationId: string) => {
-      console.log(`👤 User ${userId} joined conversation: ${conversationId}`);
-      socket.join(`conversation_${conversationId}`);
+      if (!conversationId) return;
+      const convIdStr = conversationId.toString();
+      console.log(`👤 User ${userId} joining conversation room: conversation_${convIdStr}`);
+      socket.join(`conversation_${convIdStr}`);
     });
 
     socket.on("leave_conversation", (conversationId: string) => {
-      console.log(`👤 User ${userId} left conversation: ${conversationId}`);
-      socket.leave(`conversation_${conversationId}`);
+      if (!conversationId) return;
+      const convIdStr = conversationId.toString();
+      console.log(`👤 User ${userId} leaving conversation room: conversation_${convIdStr}`);
+      socket.leave(`conversation_${convIdStr}`);
     });
 
     // ✅ Video Lesson Progress Update
@@ -152,8 +160,35 @@ export const initSocket = (server: HttpServer) => {
       }
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
       console.log(`❌ User disconnected: ${userId}`);
+      if (!userId) return;
+
+      try {
+        // Check if user has other active connections (e.g. from another device/tab)
+        const activeSockets = await io.in(userId).fetchSockets();
+
+        if (activeSockets.length === 0) {
+          // No more active sockets, user is truly offline
+          if (ObjectId.isValid(userId)) {
+            const memberRepo = AppDataSource.getMongoRepository(Member);
+            await memberRepo.updateOne(
+              { _id: new ObjectId(userId) },
+              { $set: { isOnline: false } }
+            );
+            // ✅ Broadcast to all users
+            io.emit("user_offline", { userId });
+            console.log(`📡 Broadcasted user_offline for ${userId}`);
+
+            // ✅ Notify conversation partners
+            await notifyStatusChange(userId, false);
+          }
+        } else {
+          console.log(`ℹ️ User ${userId} still has ${activeSockets.length} active connection(s).`);
+        }
+      } catch (error) {
+        console.error(`❌ Error updating offline status for ${userId}:`, error);
+      }
     });
   });
 
@@ -207,14 +242,27 @@ export const emitToUsers = (userIds: string[], event: string, data: any) => {
 export const isUserInConversation = (userId: string, conversationId: string): boolean => {
   if (!io) return false;
   const roomName = `conversation_${conversationId}`;
-  const room = io.sockets.adapter.rooms.get(roomName);
-  if (!room) return false;
+  const conversationRoom = io.sockets.adapter.rooms.get(roomName);
 
-  const userSockets = io.sockets.adapter.rooms.get(userId);
-  if (!userSockets) return false;
-
-  for (const socketId of userSockets) {
-    if (room.has(socketId)) return true;
+  if (!conversationRoom) {
+    console.log(`🔍 Room ${roomName} not found or empty.`);
+    return false;
   }
+
+  const userRoom = io.sockets.adapter.rooms.get(userId);
+  if (!userRoom) {
+    console.log(`🔍 User room ${userId} not found or empty.`);
+    return false;
+  }
+
+  // Check intersection: if any socket ID of the user is in the conversation room
+  for (const socketId of userRoom) {
+    if (conversationRoom.has(socketId)) {
+      console.log(`✅ User ${userId} is active in conversation ${conversationId} (via socket ${socketId})`);
+      return true;
+    }
+  }
+
+  console.log(`🔍 User ${userId} is connected but NOT in conversation ${conversationId}`);
   return false;
 };

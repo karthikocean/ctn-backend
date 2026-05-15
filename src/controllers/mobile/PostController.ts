@@ -586,6 +586,7 @@ export class MobilePostController {
 
         // Check if receiver is in the chat room
         const isReceiverActive = isUserInConversation(otherId.toString(), targetConversation._id.toString());
+        console.log(`📨 share: receiver ${otherId} active status in room: ${isReceiverActive}`);
         if (isReceiverActive) {
           newMessage.isRead = true;
         }

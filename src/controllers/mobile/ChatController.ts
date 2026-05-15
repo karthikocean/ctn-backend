@@ -182,6 +182,7 @@ export class MobileChatController {
   ) {
     try {
       const userId = new ObjectId(req.user.userId);
+      console.log(`📖 markRead called for conversation ${id} by user ${userId}`);
       const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(id) });
       if (!conversation) throw new NotFoundError("Conversation not found");
 
@@ -195,6 +196,21 @@ export class MobileChatController {
       unreadCounts[userId.toString()] = 0;
       conversation.unreadCounts = { ...unreadCounts };
       await this.conversationRepo.save(conversation);
+
+      // Notify the sender that their messages have been read
+      const otherId = conversation.participants.find(p => !p.equals(userId));
+      if (otherId) {
+        const io = getIO();
+        const payload = {
+          conversationId: conversation._id,
+          readBy: userId,
+          readAt: new Date()
+        };
+        // Emit to user's private room
+        io.to(otherId.toString()).emit("messages_read", payload);
+        // Emit to the conversation room
+        io.to(`conversation_${id}`).emit("messages_read", payload);
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -409,10 +425,18 @@ export class MobileChatController {
       // Notify the other participant
       const otherId = conversation.participants.find(p => !p.equals(userId));
       if (otherId) {
-        getIO().to(otherId.toString()).emit("conversation_status_updated", {
+        const io = getIO();
+        const payload = {
           conversationId: conversation._id,
-          status: status
-        });
+          status: status,
+          updatedBy: userId
+        };
+
+        // Emit to user's private room (for list updates)
+        io.to(otherId.toString()).emit("conversation_status_updated", payload);
+
+        // Emit to the specific conversation room (for real-time chat screen updates)
+        io.to(`conversation_${id}`).emit("conversation_status_updated", payload);
       }
 
       return res.status(StatusCodes.OK).json({
@@ -494,6 +518,7 @@ export class MobileChatController {
 
       // Check if receiver is in the chat room
       const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
+      console.log(`📨 respondToPost: receiver ${receiverId} active status in room: ${isReceiverActive}`);
       if (isReceiverActive) {
         newMessage.isRead = true;
       }
@@ -641,6 +666,7 @@ export class MobileChatController {
 
       // Check if receiver is in the chat room
       const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
+      console.log(`📨 sendMessage: receiver ${receiverId} active status in room: ${isReceiverActive}`);
       if (isReceiverActive) {
         newMessage.isRead = true;
       }
