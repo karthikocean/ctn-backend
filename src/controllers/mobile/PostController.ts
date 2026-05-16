@@ -548,7 +548,7 @@ export class MobilePostController {
       if (!targetConversation) {
         targetConversation = new Conversation();
         targetConversation.participants = [userId, recId];
-        targetConversation.status = "PENDING";
+        targetConversation.status = 'PENDING';
         targetConversation = await this.conversationRepo.save(targetConversation);
       } else {
         // Check if already shared in this conversation by this user
@@ -586,7 +586,6 @@ export class MobilePostController {
 
         // Check if receiver is in the chat room
         const isReceiverActive = isUserInConversation(otherId.toString(), targetConversation._id.toString());
-        console.log(`📨 share: receiver ${otherId} active status in room: ${isReceiverActive}`);
         if (isReceiverActive) {
           newMessage.isRead = true;
         }

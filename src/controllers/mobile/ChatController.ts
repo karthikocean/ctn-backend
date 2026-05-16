@@ -139,8 +139,7 @@ export class MobileChatController {
             _id: otherUser._id,
             fullName: otherUser.fullName,
             profilePhoto: otherUser.profilePhoto,
-            categoryName: categoryName,
-            isOnline: otherUser.isOnline
+            categoryName: categoryName
           } : null,
           post: post || null,
           milestone: conv.milestoneId ? milestoneMap.get(conv.milestoneId.toString()) : null,
@@ -182,7 +181,6 @@ export class MobileChatController {
   ) {
     try {
       const userId = new ObjectId(req.user.userId);
-      console.log(`📖 markRead called for conversation ${id} by user ${userId}`);
       const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(id) });
       if (!conversation) throw new NotFoundError("Conversation not found");
 
@@ -196,21 +194,6 @@ export class MobileChatController {
       unreadCounts[userId.toString()] = 0;
       conversation.unreadCounts = { ...unreadCounts };
       await this.conversationRepo.save(conversation);
-
-      // Notify the sender that their messages have been read
-      const otherId = conversation.participants.find(p => !p.equals(userId));
-      if (otherId) {
-        const io = getIO();
-        const payload = {
-          conversationId: conversation._id,
-          readBy: userId,
-          readAt: new Date()
-        };
-        // Emit to user's private room
-        io.to(otherId.toString()).emit("messages_read", payload);
-        // Emit to the conversation room
-        io.to(`conversation_${id}`).emit("messages_read", payload);
-      }
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -273,8 +256,7 @@ export class MobileChatController {
             fullName: user.fullName,
             profilePhoto: user.profilePhoto,
             businessName: user.businessName,
-            categoryName: categoryName,
-            isOnline: user.isOnline
+            categoryName: categoryName
           };
         }
       }
@@ -383,8 +365,8 @@ export class MobileChatController {
    *             properties:
    *               status:
    *                 type: string
-   *                 enum: [PENDING, ACCEPTED, USEFUL, MAY_BE_LATER, REJECTED, REPORTED]
-   *                 example: "ACCEPTED"
+   *                 enum: [USEFUL, MAY_BE_LATER, REJECTED, REPORTED]
+   *                 example: "USEFUL"
    *               reason:
    *                 type: string
    *                 description: Required if status is REPORTED
@@ -397,7 +379,7 @@ export class MobileChatController {
   async updateConversationStatus(
     @Req() req: any,
     @Param("id") id: string,
-    @Body() body: { status: any; reason?: string },
+    @Body() body: { status: string; reason?: string },
     @Res() res: any
   ) {
     try {
@@ -414,7 +396,7 @@ export class MobileChatController {
         throw new BadRequestError("You are not a participant in this conversation");
       }
 
-      conversation.status = status;
+      conversation.status = status as any;
       if (status === "REPORTED") {
         conversation.reportedBy = userId;
         conversation.reportReason = reason;
@@ -425,18 +407,10 @@ export class MobileChatController {
       // Notify the other participant
       const otherId = conversation.participants.find(p => !p.equals(userId));
       if (otherId) {
-        const io = getIO();
-        const payload = {
+        getIO().to(otherId.toString()).emit("conversation_status_updated", {
           conversationId: conversation._id,
-          status: status,
-          updatedBy: userId
-        };
-
-        // Emit to user's private room (for list updates)
-        io.to(otherId.toString()).emit("conversation_status_updated", payload);
-
-        // Emit to the specific conversation room (for real-time chat screen updates)
-        io.to(`conversation_${id}`).emit("conversation_status_updated", payload);
+          status: status
+        });
       }
 
       return res.status(StatusCodes.OK).json({
@@ -518,7 +492,6 @@ export class MobileChatController {
 
       // Check if receiver is in the chat room
       const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
-      console.log(`📨 respondToPost: receiver ${receiverId} active status in room: ${isReceiverActive}`);
       if (isReceiverActive) {
         newMessage.isRead = true;
       }
@@ -565,8 +538,7 @@ export class MobileChatController {
           _id: sender._id,
           fullName: sender.fullName,
           profilePhoto: sender.profilePhoto,
-          categoryName: senderCategoryName,
-          isOnline: sender.isOnline
+          categoryName: senderCategoryName
         } : null,
         post: post || null,
         unreadCount
@@ -642,10 +614,6 @@ export class MobileChatController {
       const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(conversationId) });
       if (!conversation) throw new NotFoundError("Conversation not found");
 
-      if (conversation.status === "REJECTED") {
-        throw new BadRequestError("This conversation has been rejected.");
-      }
-
       const receiverId = conversation.participants.find(p => !p.equals(senderId));
       if (!receiverId) throw new BadRequestError("No receiver found in this conversation");
 
@@ -666,7 +634,6 @@ export class MobileChatController {
 
       // Check if receiver is in the chat room
       const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
-      console.log(`📨 sendMessage: receiver ${receiverId} active status in room: ${isReceiverActive}`);
       if (isReceiverActive) {
         newMessage.isRead = true;
       }
@@ -776,8 +743,7 @@ export class MobileChatController {
             _id: sender._id,
             fullName: sender.fullName,
             profilePhoto: sender.profilePhoto,
-            categoryName: senderCategoryName,
-            isOnline: sender.isOnline
+            categoryName: senderCategoryName
           } : null,
           unreadCount
         });

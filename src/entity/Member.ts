@@ -174,9 +174,12 @@ export class Member {
   @Column({ default: 0 })
     points!: number;
 
+<<<<<<< HEAD
   @Column({ default: false })
     isOnline!: boolean;
 
+=======
+>>>>>>> origin/dev
   @CreateDateColumn()
     createdAt!: Date;
 

@@ -31,7 +31,6 @@ import { OneToOne } from "../../entity/OneToOne";
 import { Referral } from "../../entity/Referral";
 import { ThankYouSlip } from "../../entity/ThankYouSlip";
 import { Milestone } from "../../entity/Milestone";
-import { Conversation } from "../../entity/Conversation";
 
 @JsonController("/members")
 export class MobileMemberController {
@@ -437,7 +436,6 @@ export class MobileMemberController {
         city: m.city,
         category: m.businessCategory ? { _id: m.businessCategory, name: catMap.get(m.businessCategory.toString()) } : null,
         sub_category: m.subCategory ? { _id: m.subCategory, name: catMap.get(m.subCategory.toString()) } : null,
-        isOnline: m.isOnline
       }));
 
       return res.status(StatusCodes.OK).json({
@@ -515,7 +513,6 @@ export class MobileMemberController {
         city: m.city,
         category: m.businessCategory ? { _id: m.businessCategory, name: catMap.get(m.businessCategory.toString()) } : null,
         subCategory: m.subCategory ? { _id: m.subCategory, name: catMap.get(m.subCategory.toString()) } : null,
-        isOnline: m.isOnline
       }));
 
       return res.status(StatusCodes.OK).json({
@@ -609,7 +606,6 @@ export class MobileMemberController {
         city: m.city,
         businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null,
         subCategory: m.subCategory ? categoryMap.get(m.subCategory.toString()) : null,
-        isOnline: m.isOnline
       }));
 
       return pagination(total, data, limit, page, res);
@@ -679,13 +675,6 @@ export class MobileMemberController {
           isFollower: theirRequest?.status === ConnectionStatus.ACCEPTED,
           isMutual: myRequest?.status === ConnectionStatus.ACCEPTED && theirRequest?.status === ConnectionStatus.ACCEPTED
         };
-
-        // Add Chat Status
-        const chat = await AppDataSource.getMongoRepository(Conversation).findOne({
-          where: { participants: { $all: [new ObjectId(currentUserId), new ObjectId(id)] } } as any
-        });
-        populated.chatStatus = chat?.status || null;
-        populated.conversationId = chat?._id || null;
       }
 
       // Fetch Stats & Summary

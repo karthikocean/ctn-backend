@@ -33,8 +33,14 @@ export class Conversation {
   @Column({ nullable: true })
     lastMessageSenderId?: ObjectId;
 
+<<<<<<< HEAD
   @Column()
     status: "PENDING" | "ACCEPTED" | "USEFUL" | "MAY_BE_LATER" | "REJECTED" | "REPORTED" | "DELETED" = "PENDING";
+=======
+  @Column({ default: "PENDING" })
+    status!: string; // PENDING, USEFUL, MAY_BE_LATER, REJECTED, REPORTED
+
+>>>>>>> origin/dev
   @Column({ nullable: true })
     reportedBy?: ObjectId;
 
