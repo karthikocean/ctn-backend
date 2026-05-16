@@ -88,6 +88,7 @@ export const initSocket = (server: HttpServer) => {
       const convIdStr = conversationId.toString();
       console.log(`👤 User ${userId} joining conversation room: conversation_${convIdStr}`);
       socket.join(`conversation_${convIdStr}`);
+
     });
 
     socket.on("leave_conversation", (conversationId: string) => {
