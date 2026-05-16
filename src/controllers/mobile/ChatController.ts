@@ -396,7 +396,7 @@ export class MobileChatController {
         throw new BadRequestError("You are not a participant in this conversation");
       }
 
-      conversation.status = status;
+      conversation.status = status as any;
       if (status === "REPORTED") {
         conversation.reportedBy = userId;
         conversation.reportReason = reason;

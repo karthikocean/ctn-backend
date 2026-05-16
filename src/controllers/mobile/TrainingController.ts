@@ -75,7 +75,7 @@ export class MobileTrainingController {
           const lp = trainingProgress.find(p => p.lessonId.toString() === lesson._id?.toString());
           const durationSec = this.durationToSeconds(lesson.duration);
           const lastPos = lp?.lastWatchedPosition || 0;
-          
+
           // Calculate if completed based on position or existing flag
           const isCompleted = lp?.isCompleted || (durationSec > 0 && lastPos >= durationSec);
 

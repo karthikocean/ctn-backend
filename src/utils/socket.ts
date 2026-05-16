@@ -106,7 +106,7 @@ export const initSocket = (server: HttpServer) => {
         progress.isCompleted = isCompleted || progress.isCompleted;
 
         await progressRepo.save(progress);
-        
+
         // Optionally emit success back to user
         socket.emit("lesson_progress_saved", { lessonId, position, isCompleted: progress.isCompleted });
 
