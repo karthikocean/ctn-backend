@@ -28,7 +28,8 @@ export async function seedAdmin() {
     "spotlight",
     "connections",
     "contributions",
-    "reports"
+    "reports",
+    "plans"
   ];
 
   const actions = ["view", "create", "edit", "delete"];

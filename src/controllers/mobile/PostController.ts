@@ -235,6 +235,126 @@ export class MobilePostController {
 
   /**
    * @swagger
+   * /mobile-api/posts/region-requirements:
+   *   get:
+   *     summary: Get requirement posts based on member's region (city/state)
+   *     tags: [Mobile Post]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   */
+  @Get("/region-requirements")
+  async getRegionRequirements(
+    @Req() req: any,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @QueryParam("search") search: string,
+    @Res() res: any
+  ) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+
+    try {
+      const userId = req.user.userId;
+
+      // 1. Get logged-in member's location
+      const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
+      if (!currentMember) {
+        throw new BadRequestError("Member not found");
+      }
+
+      const memberCity = currentMember.city;
+      const memberAreas = currentMember.areas;
+
+
+      if (!memberCity && !memberAreas) {
+        // If member has no location, return empty list
+        return pagination(0, [], limit, page, res);
+      }
+
+      // 2. Find members in the same region
+      const locationCondition: any = { isDeleted: false };
+      if (memberCity) locationCondition.city = memberCity;
+      if (memberAreas) locationCondition.areas = memberAreas;
+
+      const regionMembers = await this.memberRepo.find({ where: locationCondition });
+      const regionMemberIds = regionMembers
+        .filter(m => m._id.toString() !== userId)
+        .map(m => m._id);
+
+      if (regionMemberIds.length === 0) {
+        return pagination(0, [], limit, page, res);
+      }
+
+      // 3. Find REQUIREMENT posts from these members
+      const where: any = {
+        type: PostType.REQUIREMENT,
+        memberId: { $in: regionMemberIds },
+        isDeleted: false
+      };
+
+      if (search) {
+        where.$or = [
+          { title: { $regex: search, $options: "i" } },
+          { description: { $regex: search, $options: "i" } },
+          { location: { $regex: search, $options: "i" } }
+        ];
+      }
+
+      const [posts, total] = await this.postRepo.findAndCount({
+        where,
+        skip: page * limit,
+        take: limit,
+        order: { createdAt: "DESC" }
+      });
+
+      // 4. Populate Member Info
+      const memberIds = [...new Set(posts.map(p => p.memberId))];
+      const members = memberIds.length > 0
+        ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
+        : [];
+
+      const memberMap = new Map(members.map(m => [m._id.toString(), {
+        _id: m._id,
+        fullName: m.fullName,
+        profilePhoto: m.profilePhoto,
+        businessName: m.businessName,
+        city: m.city,
+        areas: m.areas
+      }]));
+
+      // // 5. Check which posts are saved by current user
+      // const savedPosts = await this.savedPostRepo.find({
+      //   where: { memberId: new ObjectId(userId), postId: { $in: posts.map(p => p._id) } } as any
+      // });
+      // const savedPostIds = new Set(savedPosts.map(s => s.postId.toString()));
+
+      const data = posts.map(p => ({
+        ...p,
+        member: memberMap.get(p.memberId.toString()) || null,
+        // isSaved: savedPostIds.has(p._id.toString())
+      }));
+
+      return pagination(total, data, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
    * /mobile-api/posts:
    *   get:
    *     summary: Get all posts with filters and pagination
