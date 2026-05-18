@@ -292,6 +292,15 @@ export class MobileMemberController {
       delete data.pin;
       delete data.fcmToken;
 
+      if (member.businessCategory) {
+        const cat = await this.categoryRepo.findOneBy({ _id: member.businessCategory });
+        data.businessCategory = cat ? { _id: cat._id, name: cat.name } : member.businessCategory;
+      }
+      if (member.subCategory) {
+        const subCat = await this.categoryRepo.findOneBy({ _id: member.subCategory });
+        data.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : member.subCategory;
+      }
+
       return res.status(StatusCodes.OK).json({
         success: true,
         data: {
