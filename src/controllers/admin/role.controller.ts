@@ -18,6 +18,7 @@ import { AppDataSource } from "../../data-source";
 import { Role } from "../../entity/Role.Permission";
 import { AdminUser } from "../../entity/AdminUser";
 import { CreateRoleDto, UpdateRoleDto } from "../../dto/admin/Role.dto";
+import { Module } from "../../entity/Module";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
@@ -28,6 +29,7 @@ import { canAccess } from "../../middlewares/PermissionMiddleware";
 @JsonController("/roles")
 export class RoleController {
   private roleRepo = AppDataSource.getMongoRepository(Role);
+  private moduleRepo = AppDataSource.getMongoRepository(Module);
 
   /**
    * @swagger
@@ -94,6 +96,27 @@ export class RoleController {
       }));
 
       return pagination(totalCount, rolesWithCounts, Number(limit), Number(page), res);
+    } catch (error) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/roles/modules:
+   *   get:
+   *     summary: List all available modules for permissions
+   *     tags: [Role]
+   *     responses:
+   *       200:
+   *         description: List of modules
+   */
+  @Get("/modules")
+  @UseBefore(AuthMiddleware)
+  async getModules(@Res() res: any) {
+    try {
+      const modules = await this.moduleRepo.find({ where: { isDelete: 0, isActive: 1 } });
+      return res.status(StatusCodes.OK).json({ success: true, data: modules });
     } catch (error) {
       return handleErrorResponse(error, res);
     }
@@ -289,6 +312,17 @@ export class RoleController {
       });
 
       if (!role) throw new NotFoundError("Role not found");
+
+      // Check if any users are assigned to this role
+      const userRepo = AppDataSource.getMongoRepository(AdminUser);
+      const assignedUsersCount = await userRepo.count({
+        roleId: new ObjectId(id),
+        isDeleted: false
+      });
+
+      if (assignedUsersCount > 0) {
+        throw new BadRequestError("Cannot delete role because it is currently assigned to one or more users.");
+      }
 
       role.isDeleted = true;
       await this.roleRepo.save(role);
