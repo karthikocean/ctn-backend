@@ -278,7 +278,6 @@ export class MobilePostController {
       const memberCity = currentMember.city;
       const memberAreas = currentMember.areas;
 
-
       if (!memberCity && !memberAreas) {
         // If member has no location, return empty list
         return pagination(0, [], limit, page, res);

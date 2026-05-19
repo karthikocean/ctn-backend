@@ -5,6 +5,7 @@ import { AppDataSource } from "../data-source";
 import { Training } from "../entity/Training";
 import { MemberTraining } from "../entity/MemberTraining";
 import { LessonProgress } from "../entity/LessonProgress";
+import { Member } from "../entity/Member";
 import { ObjectId } from "mongodb";
 
 let io: SocketServer;
@@ -14,7 +15,9 @@ export const initSocket = (server: HttpServer) => {
     cors: {
       origin: "*",
       methods: ["GET", "POST"]
-    }
+    },
+    pingInterval: 10000,
+    pingTimeout: 20000
   });
 
   // ✅ JWT Authentication Middleware
@@ -35,9 +38,22 @@ export const initSocket = (server: HttpServer) => {
     }
   });
 
-  io.on("connection", (socket) => {
+  io.on("connection", async (socket) => {
     const userId = socket.data.userId;
     console.log(`🔌 User connected: ${userId} (Socket ID: ${socket.id})`);
+
+    if (userId && ObjectId.isValid(userId)) {
+      try {
+        const memberRepo = AppDataSource.getMongoRepository(Member);
+        await memberRepo.updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: { isOnline: true } }
+        );
+        io.emit("user_status_changed", { userId, isOnline: true, lastSeen: new Date() });
+      } catch (err) {
+        console.error("Failed to update user online status", err);
+      }
+    }
 
     // ✅ Join user to a private room based on their userId
     socket.join(userId);
@@ -45,6 +61,21 @@ export const initSocket = (server: HttpServer) => {
     socket.on("join_conversation", (conversationId: string) => {
       console.log(`👤 User ${userId} joined conversation: ${conversationId}`);
       socket.join(`conversation_${conversationId}`);
+    });
+
+    socket.on("set_status", async (data: { isOnline: boolean }) => {
+      if (!userId || !ObjectId.isValid(userId)) return;
+      try {
+        const memberRepo = AppDataSource.getMongoRepository(Member);
+        const lastSeen = new Date();
+        await memberRepo.updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: { isOnline: data.isOnline, lastSeen } }
+        );
+        io.emit("user_status_changed", { userId, isOnline: data.isOnline, lastSeen });
+      } catch (err) {
+        console.error("Failed to manual update user online status", err);
+      }
     });
 
     socket.on("leave_conversation", (conversationId: string) => {
@@ -115,8 +146,29 @@ export const initSocket = (server: HttpServer) => {
       }
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
       console.log(`❌ User disconnected: ${userId}`);
+      if (!userId || !ObjectId.isValid(userId)) return;
+
+      try {
+        // Delay slightly to handle quick reconnects or multi-device behavior if needed,
+        // but checking io.sockets.adapter.rooms should be immediate.
+        const activeSockets = io.sockets.adapter.rooms.get(userId);
+        if (!activeSockets || activeSockets.size === 0) {
+          // No active sockets left, mark offline
+          const memberRepo = AppDataSource.getMongoRepository(Member);
+          const lastSeen = new Date();
+          await memberRepo.updateOne(
+            { _id: new ObjectId(userId) },
+            { $set: { isOnline: false, lastSeen } }
+          );
+
+          // Emit to others that the user went offline
+          io.emit("user_status_changed", { userId, isOnline: false, lastSeen });
+        }
+      } catch (err) {
+        console.error("Failed to update user offline status", err);
+      }
     });
   });
 

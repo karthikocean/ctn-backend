@@ -139,7 +139,9 @@ export class MobileChatController {
             _id: otherUser._id,
             fullName: otherUser.fullName,
             profilePhoto: otherUser.profilePhoto,
-            categoryName: categoryName
+            categoryName: categoryName,
+            isOnline: otherUser.isOnline || false,
+            lastSeen: otherUser.lastSeen || null
           } : null,
           post: post || null,
           milestone: conv.milestoneId ? milestoneMap.get(conv.milestoneId.toString()) : null,
@@ -194,6 +196,21 @@ export class MobileChatController {
       unreadCounts[userId.toString()] = 0;
       conversation.unreadCounts = { ...unreadCounts };
       await this.conversationRepo.save(conversation);
+
+      // Notify the sender that their messages have been read
+      const otherId = conversation.participants.find(p => !p.equals(userId));
+      if (otherId) {
+        const io = getIO();
+        const payload = {
+          conversationId: conversation._id,
+          readBy: userId,
+          readAt: new Date()
+        };
+        // Emit to the specific conversation room
+        io.to(`conversation_${conversation._id}`).emit("messages_read", payload);
+        // Also emit directly to the sender's private room
+        io.to(otherId.toString()).emit("messages_read", payload);
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -256,7 +273,9 @@ export class MobileChatController {
             fullName: user.fullName,
             profilePhoto: user.profilePhoto,
             businessName: user.businessName,
-            categoryName: categoryName
+            categoryName: categoryName,
+            isOnline: user.isOnline || false,
+            lastSeen: user.lastSeen || null
           };
         }
       }
@@ -459,6 +478,7 @@ export class MobileChatController {
         conversation = new Conversation();
         conversation.participants = [senderId, receiverId];
         conversation.postId = new ObjectId(postId);
+        conversation.status = "PENDING";
         conversation = await this.conversationRepo.save(conversation);
       } else {
         // Check if sender already responded to this post in this conversation
@@ -538,7 +558,9 @@ export class MobileChatController {
           _id: sender._id,
           fullName: sender.fullName,
           profilePhoto: sender.profilePhoto,
-          categoryName: senderCategoryName
+          categoryName: senderCategoryName,
+          isOnline: sender.isOnline || false,
+          lastSeen: sender.lastSeen || null
         } : null,
         post: post || null,
         unreadCount
@@ -743,7 +765,9 @@ export class MobileChatController {
             _id: sender._id,
             fullName: sender.fullName,
             profilePhoto: sender.profilePhoto,
-            categoryName: senderCategoryName
+            categoryName: senderCategoryName,
+            isOnline: sender.isOnline || false,
+            lastSeen: sender.lastSeen || null
           } : null,
           unreadCount
         });
