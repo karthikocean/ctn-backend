@@ -174,6 +174,12 @@ export class Member {
   @Column({ default: 0 })
     points!: number;
 
+  @Column({ default: false })
+    isOnline!: boolean;
+
+  @Column({ nullable: true })
+    lastSeen?: Date;
+
   @CreateDateColumn()
     createdAt!: Date;
 
