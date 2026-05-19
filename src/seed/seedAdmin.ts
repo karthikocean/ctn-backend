@@ -7,14 +7,17 @@ import { AppDataSource } from "../data-source";
 
 import { AdminUser } from "../entity/AdminUser";
 import { Role } from "../entity/Role.Permission";
+import { Module } from "../entity/Module";
 
 export async function seedAdmin() {
 
   const roleRepo = AppDataSource.getMongoRepository(Role);
   const userRepo = AppDataSource.getMongoRepository(AdminUser);
+  const moduleRepo = AppDataSource.getMongoRepository(Module);
 
   const modules = [
     "dashboard",
+    "admin_users",
     "roles_permissions",
     "business_regions",
     "categories",
@@ -29,8 +32,24 @@ export async function seedAdmin() {
     "connections",
     "contributions",
     "reports",
-    "plans"
+    "plans",
+    "franchises"
   ];
+
+  // ✅ MODULES
+  for (const moduleName of modules) {
+    const existingModule = await moduleRepo.findOne({
+      where: { name: moduleName }
+    });
+    if (!existingModule) {
+      const newModule = moduleRepo.create({
+        name: moduleName,
+        isActive: 1,
+        isDelete: 0
+      });
+      await moduleRepo.save(newModule);
+    }
+  }
 
   const actions = ["view", "create", "edit", "delete"];
 

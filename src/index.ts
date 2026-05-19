@@ -154,24 +154,31 @@ AppDataSource.initialize()
       cron.schedule("* * * * *", async () => {
         try {
           const spotlightRepo = AppDataSource.getMongoRepository(Spotlight);
-          const todayStart = new Date();
-          todayStart.setHours(0, 0, 0, 0);
 
-          // Deactivate spotlights that were active but their schedule date is now in the past
+          const now = new Date();
+
           const result = await spotlightRepo.updateMany(
             {
               status: SpotlightStatus.ACTIVE,
-              scheduleDate: { $lt: todayStart },
-              isDeleted: false
+              scheduleDate: { $lt: now },
+              isDeleted: false,
             },
-            { $set: { status: SpotlightStatus.INACTIVE } }
+            {
+              $set: {
+                status: SpotlightStatus.INACTIVE,
+              },
+            }
           );
 
           if (result.modifiedCount > 0) {
-            console.log(`✅ Spotlight Deactivation: ${result.modifiedCount} records set to inactive/deleted.`);
+            console.log(
+              `✅ Spotlight Deactivation: ${result.modifiedCount} records set to inactive.`
+            );
           }
         } catch (error: any) {
-          console.error(`❌ Spotlight Deactivation Cron Failed: ${error.message}`);
+          console.error(
+            `❌ Spotlight Deactivation Cron Failed: ${error.message}`
+          );
         }
       });
     });
