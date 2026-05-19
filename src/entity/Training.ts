@@ -27,6 +27,9 @@ export class Training {
   @ObjectIdColumn()
     _id!: ObjectId;
 
+  @Column({ nullable: true })
+    categoryId?: ObjectId;
+
   @Column()
     title!: string;
 

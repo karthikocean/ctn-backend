@@ -123,6 +123,52 @@ export class AdminUserController {
     }
   }
 
+  @Get("/getfranchies-user")
+  @UseBefore(AuthMiddleware)
+  async getFranchiseUsers(@Res() res: any) {
+    try {
+      const roleRepo = AppDataSource.getMongoRepository(Role);
+      const roles = await roleRepo.find({
+        where: {
+          code: { $regex: /franchise|franchies/i },
+          isDeleted: false
+        }
+      });
+
+      if (!roles || roles.length === 0) {
+        return res.status(StatusCodes.OK).json([]);
+      }
+
+      const roleIds = roles.map(r => r._id);
+
+      const users = await this.adminUserRepo.find({
+        where: {
+          roleId: { $in: roleIds },
+          isDeleted: false,
+          isActive: true
+        }
+      });
+
+      const roleMap = new Map(roles.map(r => [r._id.toString(), r.name]));
+
+      const mappedUsers = users.map(user => ({
+        id: user.id,
+        name: user.name,
+        userId: user.userId,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        roleId: user.roleId,
+        roleName: roleMap.get(user.roleId.toString()) || "N/A",
+        isActive: user.isActive,
+        profileImage: user.profileImage
+      }));
+
+      return res.status(StatusCodes.OK).json(mappedUsers);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
   /**
    * @swagger
    * /api/admin/admin-users/{id}:

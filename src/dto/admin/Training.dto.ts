@@ -80,6 +80,10 @@ export class CreateTrainingDto {
   @ValidateNested({ each: true })
   @Type(() => LessonDto)
     lessons!: LessonDto[];
+
+  @IsString()
+  @IsOptional()
+    categoryId?: string;
 }
 
 export class UpdateTrainingDto {
@@ -124,4 +128,8 @@ export class UpdateTrainingDto {
   @ValidateNested({ each: true })
   @Type(() => LessonDto)
     lessons?: LessonDto[];
+
+  @IsString()
+  @IsOptional()
+    categoryId?: string;
 }

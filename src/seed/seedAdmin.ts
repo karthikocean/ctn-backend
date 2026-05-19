@@ -32,7 +32,8 @@ export async function seedAdmin() {
     "connections",
     "contributions",
     "reports",
-    "plans"
+    "plans",
+    "franchises"
   ];
 
   // ✅ MODULES
