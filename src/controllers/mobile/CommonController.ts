@@ -10,6 +10,7 @@ import { Category, CategoryStatus } from "../../entity/Category";
 import { ObjectId } from "mongodb";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
+import { BusinessRegion } from "../../entity/BusinessRegion";
 
 @JsonController("/common")
 export class CommonController {
@@ -186,6 +187,43 @@ export class CommonController {
         });
       }
     } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  @Get("/business-region")
+  async getBusinessRegion(@QueryParam("state") state: string, @QueryParam("city") city: string, @Res() res: any) {
+    try {
+      if (!state || !city) {
+        return res.status(400).json({
+          status: false,
+          message: "status and city are required"
+        });
+      }
+
+      const businessRegionRepository = AppDataSource.getMongoRepository(BusinessRegion);
+
+      const businessRegion = await businessRegionRepository.findOne({
+        where: {
+          state: { $regex: new RegExp(`^${state}$`, "i") },
+          city: { $regex: new RegExp(`^${city}$`, "i") },
+          isDeleted: false
+        }
+      });
+
+      return res.status(200).json({
+        status: true,
+        message: businessRegion
+          ? "Business region found successfully"
+          : "No matching business region found",
+        data: {
+          state,
+          city,
+          areas: businessRegion?.areas || []
+        }
+      });
+
+    } catch (error) {
       return handleErrorResponse(error, res);
     }
   }
