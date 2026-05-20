@@ -30,6 +30,8 @@ import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import handleErrorResponse from "../../utils/commonFunction";
 import { getIO, isUserInConversation } from "../../utils/socket";
 import { pagination } from "../../utils";
+import { insertPushNotification } from "../../services/pushnotification.service";
+import { NotificationModule } from "../../entity/PushNotifications";
 
 @JsonController("/chats")
 @UseBefore(MobileAuthMiddleware)
@@ -518,6 +520,21 @@ export class MobileChatController {
 
       const savedMessage = await this.messageRepo.save(newMessage);
 
+      // Send Push Notification if receiver is not active in the chat room and has fcmToken
+      const receiver = await this.memberRepo.findOneBy({ _id: receiverId, isDeleted: false });
+      if (!isReceiverActive && receiver?.fcmToken) {
+        const sender = await this.memberRepo.findOneBy({ _id: senderId });
+        await insertPushNotification({
+          token: receiver.fcmToken,
+          subject: sender?.fullName || "New Message",
+          content: newMessage.content,
+          moduleName: NotificationModule.CHAT,
+          moduleId: conversation._id.toString(),
+          receiverId: receiverId.toString(),
+          senderId: senderId.toString()
+        });
+      }
+
       conversation.lastMessage = newMessage.content;
       conversation.lastMessageTime = new Date();
       conversation.lastMessageSenderId = senderId;
@@ -708,6 +725,21 @@ export class MobileChatController {
       }
 
       const savedMessage = await this.messageRepo.save(newMessage);
+
+      // Send Push Notification if receiver is not active in the chat room and has fcmToken
+      const receiver = await this.memberRepo.findOneBy({ _id: receiverId, isDeleted: false });
+      if (!isReceiverActive && receiver?.fcmToken) {
+        const sender = await this.memberRepo.findOneBy({ _id: senderId });
+        await insertPushNotification({
+          token: receiver.fcmToken,
+          subject: sender?.fullName || "New Message",
+          content: newMessage.content,
+          moduleName: NotificationModule.CHAT,
+          moduleId: conversation._id.toString(),
+          receiverId: receiverId.toString(),
+          senderId: senderId.toString()
+        });
+      }
 
       conversation.lastMessage = content;
       conversation.lastMessageTime = new Date();
