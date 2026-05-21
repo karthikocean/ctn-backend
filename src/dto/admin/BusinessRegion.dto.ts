@@ -25,9 +25,8 @@ export class CreateBusinessRegionDto {
     status?: BusinessRegionStatus = BusinessRegionStatus.ACTIVE;
 
   @IsArray()
-  @IsString({ each: true })
   @IsOptional()
-    areas?: string[];
+    areas?: any[];
 }
 
 export class UpdateBusinessRegionDto {
@@ -48,7 +47,6 @@ export class UpdateBusinessRegionDto {
     status?: BusinessRegionStatus;
 
   @IsArray()
-  @IsString({ each: true })
   @IsOptional()
-    areas?: string[];
+    areas?: any[];
 }

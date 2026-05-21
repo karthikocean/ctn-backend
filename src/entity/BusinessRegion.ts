@@ -12,6 +12,11 @@ export enum BusinessRegionStatus {
   INACTIVE = "inactive"
 }
 
+export interface Area {
+  id: string;
+  name: string;
+}
+
 @Entity("business_regions")
 export class BusinessRegion {
   @ObjectIdColumn()
@@ -26,8 +31,8 @@ export class BusinessRegion {
   @Column()
     city!: string;
 
-  @Column("simple-array", { nullable: true })
-    areas?: string[];
+  @Column("json", { nullable: true })
+    areas?: Area[];
 
   @Column({
     type: "enum",

@@ -22,130 +22,130 @@ export enum MemberStatus {
 @Index(["isDeleted"])
 export class Member {
   @ObjectIdColumn()
-    _id!: ObjectId;
+  _id!: ObjectId;
 
   // =========================================
   // BASIC INFORMATION
   // =========================================
   @Exclude()
   @Column()
-    pin!: string;
+  pin!: string;
 
   @Column()
-    fullName!: string;
+  fullName!: string;
 
   @Column({ nullable: true })
-    profilePhoto?: string;
+  profilePhoto?: string;
 
   @Column({ nullable: true })
-    profileBanner?: string;
+  profileBanner?: string;
 
   @Column()
-    mobileNumber!: string;
+  mobileNumber!: string;
 
   @Column({ default: false })
-    mobileVerified!: boolean;
+  mobileVerified!: boolean;
 
   @Column({ nullable: true })
-    email?: string;
+  email?: string;
 
   @Column({ default: false })
-    emailVerified!: boolean;
+  emailVerified!: boolean;
 
   @Column({ nullable: true })
-    about?: string;
+  about?: string;
 
   @Column({ default: "BASIC" })
-    membershipType!: string;
+  membershipType!: string;
 
   // =========================================
   // BUSINESS INFORMATION
   // =========================================
 
   @Column({ nullable: true })
-    gstNumber?: string;
+  gstNumber?: string;
 
   @Column({ default: false })
-    gstVerified!: boolean;
+  gstVerified!: boolean;
 
   @Column({ nullable: true })
-    businessName?: string;
+  businessName?: string;
 
   @Column({ nullable: true })
-    businessCategory?: ObjectId;
+  businessCategory?: ObjectId;
 
   @Column({ nullable: true })
-    industry?: string;
+  industry?: string;
 
   @Column({ nullable: true })
-    subCategory?: ObjectId;
+  subCategory?: ObjectId;
 
   @Column({ nullable: true })
-    yearsOfExperience?: number;
+  yearsOfExperience?: number;
 
   @Column({ nullable: true })
-    companySize?: string;
+  companySize?: string;
 
   // =========================================
   // LOCATION DETAILS
   // =========================================
 
   @Column({ nullable: true })
-    state?: string;
+  state?: string;
 
   @Column({ nullable: true })
-    city?: string;
+  city?: string;
 
   @Column({ nullable: true })
-    businessAddress?: string;
+  businessAddress?: string;
 
   @Column({ nullable: true })
-    areas?: string;
+  areas?: ObjectId | null;
 
   @Column("simple-array", { nullable: true })
-    serviceLocations?: string[];
+  serviceLocations?: string[];
 
   // =========================================
   // PROFESSIONAL DETAILS
   // =========================================
 
   @Column({ nullable: true })
-    productsServicesDescription?: string;
+  productsServicesDescription?: string;
 
   @Column("json", { nullable: true })
-    productsServices?: { title: string; image: string; description: string }[];
+  productsServices?: { title: string; image: string; description: string }[];
 
   @Column({ nullable: true })
-    targetAudience?: string;
+  targetAudience?: string;
 
   // =========================================
   // PORTFOLIO & PROOF
   // =========================================
 
   @Column("simple-array", { nullable: true })
-    workImages?: string[];
+  workImages?: string[];
 
   @Column("simple-array", { nullable: true })
-    certifications?: string[];
+  certifications?: string[];
 
   @Column("simple-array", { nullable: true })
-    businessDocuments?: string[];
+  businessDocuments?: string[];
 
   // =========================================
   // SOCIAL LINKS
   // =========================================
 
   @Column({ nullable: true })
-    websiteUrl?: string;
+  websiteUrl?: string;
 
   @Column({ nullable: true })
-    linkedinProfile?: string;
+  linkedinProfile?: string;
 
   @Column({ nullable: true })
-    instagramFacebook?: string;
+  instagramFacebook?: string;
 
   @Column({ nullable: true })
-    youtubeLink?: string;
+  youtubeLink?: string;
 
   // =========================================
   // SYSTEM FIELDS
@@ -156,33 +156,33 @@ export class Member {
     enum: MemberStatus,
     default: MemberStatus.ACTIVE
   })
-    status!: MemberStatus;
+  status!: MemberStatus;
 
   @Column({ default: false })
-    isDeleted!: boolean;
+  isDeleted!: boolean;
 
   @Column({ nullable: true })
-    createdBy?: ObjectId;
+  createdBy?: ObjectId;
 
   @Column({ nullable: true })
-    updatedBy?: ObjectId;
+  updatedBy?: ObjectId;
 
   @Exclude()
   @Column({ nullable: true })
-    fcmToken?: string;
+  fcmToken?: string;
 
   @Column({ default: 0 })
-    points!: number;
+  points!: number;
 
   @Column({ default: false })
-    isOnline!: boolean;
+  isOnline!: boolean;
 
   @Column({ nullable: true })
-    lastSeen?: Date;
+  lastSeen?: Date;
 
   @CreateDateColumn()
-    createdAt!: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-    updatedAt!: Date;
+  updatedAt!: Date;
 }
