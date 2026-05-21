@@ -307,6 +307,17 @@ export class MobileMemberController {
         const subCat = await this.categoryRepo.findOneBy({ _id: member.subCategory });
         data.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : member.subCategory;
       }
+      if (member.businessRegion && member.state && member.city) {
+        const region = await this.businessRegionRepo.findOne({
+          where: {
+            state: { $regex: new RegExp(`^${member.state}$`, "i") },
+            city: { $regex: new RegExp(`^${member.city}$`, "i") },
+            isDeleted: false
+          } as any
+        });
+        const matchedArea = region?.areas?.find(a => a._id?.toString() === member.businessRegion!.toString());
+        data.businessRegion = matchedArea ? { _id: matchedArea._id, name: matchedArea.name } : member.businessRegion;
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,

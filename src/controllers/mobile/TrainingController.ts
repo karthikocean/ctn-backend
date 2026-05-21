@@ -4,6 +4,7 @@ import { Training, TrainingStatus } from "../../entity/Training";
 import { Member } from "../../entity/Member";
 import { LessonProgress } from "../../entity/LessonProgress";
 import { MemberTraining } from "../../entity/MemberTraining";
+import { TrainingCategory } from "../../entity/TrainingCategory";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
@@ -17,6 +18,7 @@ export class MobileTrainingController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private progressRepo = AppDataSource.getMongoRepository(LessonProgress);
   private enrollmentRepo = AppDataSource.getMongoRepository(MemberTraining);
+  private trainingCategoryRepo = AppDataSource.getMongoRepository(TrainingCategory);
 
   /**
    * @swagger
@@ -41,13 +43,11 @@ export class MobileTrainingController {
     limit = Number(limit) || 10;
     try {
       const userId = new ObjectId(req.user.userId);
-      const [trainings, total] = await this.trainingRepo.findAndCount({
+      const trainings = await this.trainingRepo.find({
         where: {
           status: TrainingStatus.ACTIVE,
           isDeleted: false
         },
-        skip: page * limit,
-        take: limit,
         order: { createdAt: "DESC" }
       });
 
@@ -60,6 +60,13 @@ export class MobileTrainingController {
       const allProgress = await this.progressRepo.find({
         where: { memberId: userId }
       });
+
+      // Fetch categories for the trainings
+      const categoryIds = [...new Set(trainings.map(t => t.categoryId).filter((id): id is ObjectId => !!id))];
+      const categories = categoryIds.length > 0
+        ? await this.trainingCategoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : [];
+      const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
 
       const data = trainings.map(t => {
         const trainingProgress = allProgress.filter(p => p.trainingId.toString() === t._id.toString());
@@ -97,8 +104,11 @@ export class MobileTrainingController {
         // Calculate total duration
         const totalDuration = this.sumDurations(t.lessons?.map(l => l.duration) || []);
 
+        const categoryName = t.categoryId ? categoryMap.get(t.categoryId.toString()) || null : null;
+
         return {
           ...t,
+          categoryName,
           lessons: lessonsWithProgress,
           completedLessonsCount: completedCount,
           totalLessonsCount: totalLessons,
@@ -113,7 +123,28 @@ export class MobileTrainingController {
         };
       });
 
-      return pagination(total, data, limit, page, res);
+      const groupsMap = new Map<string, { categoryId: string | null; categoryName: string; trainings: any[] }>();
+
+      for (const t of data) {
+        const catIdStr = t.categoryId ? t.categoryId.toString() : "uncategorized";
+        const catName = t.categoryName || "General";
+
+        if (!groupsMap.has(catIdStr)) {
+          groupsMap.set(catIdStr, {
+            categoryId: t.categoryId ? t.categoryId.toString() : null,
+            categoryName: catName,
+            trainings: []
+          });
+        }
+        groupsMap.get(catIdStr)!.trainings.push(t);
+      }
+
+      const groupedData = Array.from(groupsMap.values());
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: groupedData
+      });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
@@ -184,6 +215,12 @@ export class MobileTrainingController {
       });
       if (!training) throw new NotFoundError("Training not found");
 
+      let categoryName = null;
+      if (training.categoryId) {
+        const cat = await this.trainingCategoryRepo.findOneBy({ _id: training.categoryId });
+        categoryName = cat ? cat.name : null;
+      }
+
       const member = await this.memberRepo.findOneBy({ _id: userId });
       if (!member) throw new NotFoundError("Member not found");
 
@@ -221,6 +258,7 @@ export class MobileTrainingController {
         success: true,
         data: {
           ...training,
+          categoryName,
           lessons: lessonsWithProgress,
           totalDuration: this.sumDurations(training.lessons?.map(l => l.duration) || [])
         },
