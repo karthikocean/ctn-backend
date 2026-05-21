@@ -72,20 +72,7 @@ export class BusinessRegionController {
       region.state = data.state;
       region.city = data.city;
       region.status = data.status || region.status;
-      region.areas = data.areas ? data.areas.map((area: any) => {
-        if (typeof area === "string") {
-          return {
-            id: new ObjectId().toString(),
-            name: area.trim()
-          };
-        } else if (area && typeof area === "object") {
-          return {
-            id: area.id || new ObjectId().toString(),
-            name: (area.name || "").trim()
-          };
-        }
-        return null;
-      }).filter((a): a is { id: string; name: string } => !!a) : [];
+      region.areas = data.areas?.map((e) => ({ _id: new ObjectId(), name: e.name })) ?? [];
       region.isDeleted = false;
 
       const saved = await this.regionRepo.save(region);
@@ -256,33 +243,8 @@ export class BusinessRegionController {
       if (data.city) region.city = data.city;
       if (data.status) region.status = data.status;
       if (data.areas !== undefined) {
-        const existingAreas = region.areas || [];
-        region.areas = data.areas.map((area: any) => {
-          if (typeof area === "string") {
-            const trimmed = area.trim();
-            const matched = existingAreas.find((a: any) => a.name && a.name.toLowerCase() === trimmed.toLowerCase());
-            return {
-              id: matched ? matched.id : new ObjectId().toString(),
-              name: trimmed
-            };
-          } else if (area && typeof area === "object") {
-            const trimmed = (area.name || "").trim();
-            if (area.id) {
-              return {
-                id: area.id,
-                name: trimmed
-              };
-            }
-            const matched = existingAreas.find((a: any) => a.name && a.name.toLowerCase() === trimmed.toLowerCase());
-            return {
-              id: matched ? matched.id : new ObjectId().toString(),
-              name: trimmed
-            };
-          }
-          return null;
-        }).filter((a): a is { id: string; name: string } => !!a);
+        region.areas = data.areas ?? []
       }
-
       const saved = await this.regionRepo.save(region);
       return res.status(StatusCodes.OK).json({
         message: "Business region updated successfully",

@@ -17,7 +17,7 @@ import { AppDataSource } from "../../data-source";
 import { Member, MemberStatus } from "../../entity/Member";
 import { Category } from "../../entity/Category";
 import { CreateMemberDto, UpdateProfileDto, SetPinDto } from "../../dto/mobile/Member.dto";
-import { BusinessRegion } from "../../entity/BusinessRegion";
+import { BusinessRegion, Area } from "../../entity/BusinessRegion";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
@@ -348,6 +348,13 @@ export class MobileMemberController {
 
       if (data.businessCategory) member.businessCategory = new ObjectId(data.businessCategory);
       if (data.subCategory) member.subCategory = new ObjectId(data.subCategory);
+      if (data.areas) {
+        if (ObjectId.isValid(data.areas)) {
+          member.areas = new ObjectId(data.areas);
+        } else {
+          member.areas = null;
+        }
+      }
 
       const saved = await this.memberRepo.save(member);
       return res.status(StatusCodes.OK).json({
@@ -685,8 +692,8 @@ export class MobileMemberController {
             isDeleted: false
           }
         });
-        const matchedArea = region?.areas?.find(a => a.id === member.areas!.toString());
-        populated.areas = matchedArea ? { _id: new ObjectId(matchedArea.id), name: matchedArea.name } : null;
+        const matchedArea = region?.areas?.find(a => a._id?.toString() === member.areas!.toString());
+        populated.areas = matchedArea ? { _id: matchedArea._id, name: matchedArea.name } : null;
       } else {
         populated.areas = null;
       }
@@ -828,7 +835,7 @@ export class MobileMemberController {
       ? await this.businessRegionRepo.find({ where: { $or: regionQueries } as any })
       : [];
 
-    const regionMap = new Map<string, { id: string; name: string }[]>();
+    const regionMap = new Map<string, Area[]>();
     for (const r of regions) {
       regionMap.set(`${r.state.toLowerCase()}|${r.city.toLowerCase()}`, r.areas || []);
     }
@@ -838,9 +845,9 @@ export class MobileMemberController {
       let areaInfo = null;
       if (m.areas && m.state && m.city) {
         const areasList = regionMap.get(`${m.state.toLowerCase()}|${m.city.toLowerCase()}`) || [];
-        const matchedArea = areasList.find(a => a.id === m.areas!.toString());
+        const matchedArea = areasList.find(a => a._id?.toString() === m.areas!.toString());
         if (matchedArea) {
-          areaInfo = { _id: new ObjectId(matchedArea.id), name: matchedArea.name };
+          areaInfo = { _id: matchedArea._id, name: matchedArea.name };
         }
       }
       areasMap.set(m._id.toString(), areaInfo);

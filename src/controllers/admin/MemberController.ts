@@ -16,7 +16,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Member, MemberStatus } from "../../entity/Member";
 import { Category } from "../../entity/Category";
-import { BusinessRegion } from "../../entity/BusinessRegion";
+import { BusinessRegion, Area } from "../../entity/BusinessRegion";
 import { CreateMemberDto } from "../../dto/mobile/Member.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -155,7 +155,7 @@ export class AdminMemberController {
         ? await this.businessRegionRepo.find({ where: { $or: regionQueries } as any })
         : [];
 
-      const regionMap = new Map<string, { id: string; name: string }[]>();
+      const regionMap = new Map<string, Area[]>();
       for (const r of regions) {
         regionMap.set(`${r.state.toLowerCase()}|${r.city.toLowerCase()}`, r.areas || []);
       }
@@ -164,9 +164,9 @@ export class AdminMemberController {
         let areaInfo = null;
         if (m.areas && m.state && m.city) {
           const areasList = regionMap.get(`${m.state.toLowerCase()}|${m.city.toLowerCase()}`) || [];
-          const matchedArea = areasList.find(a => a.id === m.areas!.toString());
+          const matchedArea = areasList.find(a => a._id?.toString() === m.areas!.toString());
           if (matchedArea) {
-            areaInfo = { _id: new ObjectId(matchedArea.id), name: matchedArea.name };
+            areaInfo = { _id: matchedArea._id, name: matchedArea.name };
           }
         }
         return {
@@ -219,8 +219,8 @@ export class AdminMemberController {
             isDeleted: false
           }
         });
-        const matchedArea = region?.areas?.find(a => a.id === member.areas!.toString());
-        populated.areas = matchedArea ? { _id: new ObjectId(matchedArea.id), name: matchedArea.name } : null;
+        const matchedArea = region?.areas?.find(a => a._id?.toString() === member.areas!.toString());
+        populated.areas = matchedArea ? { _id: matchedArea._id, name: matchedArea.name } : null;
       }
 
       return res.status(StatusCodes.OK).json({
