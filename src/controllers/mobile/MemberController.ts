@@ -82,10 +82,10 @@ export class MobileMemberController {
 
       if (data.businessCategory) member.businessCategory = new ObjectId(data.businessCategory);
       if (data.subCategory) member.subCategory = new ObjectId(data.subCategory);
-      if (data.areas && ObjectId.isValid(data.areas)) {
-        member.areas = new ObjectId(data.areas);
+      if (data.businessRegion && ObjectId.isValid(data.businessRegion)) {
+        member.businessRegion = new ObjectId(data.businessRegion);
       } else {
-        member.areas = null;
+        member.businessRegion = null;
       }
 
       member.isDeleted = false;
@@ -348,11 +348,11 @@ export class MobileMemberController {
 
       if (data.businessCategory) member.businessCategory = new ObjectId(data.businessCategory);
       if (data.subCategory) member.subCategory = new ObjectId(data.subCategory);
-      if (data.areas) {
-        if (ObjectId.isValid(data.areas)) {
-          member.areas = new ObjectId(data.areas);
+      if (data.businessRegion) {
+        if (ObjectId.isValid(data.businessRegion)) {
+          member.businessRegion = new ObjectId(data.businessRegion);
         } else {
-          member.areas = null;
+          member.businessRegion = null;
         }
       }
 
@@ -631,7 +631,7 @@ export class MobileMemberController {
         city: m.city,
         businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null,
         subCategory: m.subCategory ? categoryMap.get(m.subCategory.toString()) : null,
-        areas: areasMap.get(m._id.toString()) || null
+        businessRegion: areasMap.get(m._id.toString()) || null
       }));
 
       return pagination(total, data, limit, page, res);
@@ -684,7 +684,7 @@ export class MobileMemberController {
         const subCat = await this.categoryRepo.findOneBy({ _id: member.subCategory });
         populated.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : null;
       }
-      if (member.areas && member.state && member.city) {
+      if (member.businessRegion && member.state && member.city) {
         const region = await this.businessRegionRepo.findOne({
           where: {
             state: { $regex: new RegExp(`^${member.state}$`, "i") },
@@ -692,10 +692,10 @@ export class MobileMemberController {
             isDeleted: false
           }
         });
-        const matchedArea = region?.areas?.find(a => a._id?.toString() === member.areas!.toString());
-        populated.areas = matchedArea ? { _id: matchedArea._id, name: matchedArea.name } : null;
+        const matchedArea = region?.areas?.find(a => a._id?.toString() === member.businessRegion!.toString());
+        populated.businessRegion = matchedArea ? { _id: matchedArea._id, name: matchedArea.name } : null;
       } else {
-        populated.areas = null;
+        populated.businessRegion = null;
       }
 
       // Add Connection Status if authenticated
@@ -816,7 +816,7 @@ export class MobileMemberController {
 
   private async getAreasMap(members: Member[]) {
     const stateCities = members
-      .filter(m => m.state && m.city && m.areas)
+      .filter(m => m.state && m.city && m.businessRegion)
       .map(m => ({ state: m.state!, city: m.city! }));
 
     const uniqueStateCitiesMap = new Map<string, { state: string, city: string }>();
@@ -843,9 +843,9 @@ export class MobileMemberController {
     const areasMap = new Map<string, { _id: ObjectId, name: string } | null>();
     for (const m of members) {
       let areaInfo = null;
-      if (m.areas && m.state && m.city) {
+      if (m.businessRegion && m.state && m.city) {
         const areasList = regionMap.get(`${m.state.toLowerCase()}|${m.city.toLowerCase()}`) || [];
-        const matchedArea = areasList.find(a => a._id?.toString() === m.areas!.toString());
+        const matchedArea = areasList.find(a => a._id?.toString() === m.businessRegion!.toString());
         if (matchedArea) {
           areaInfo = { _id: matchedArea._id, name: matchedArea.name };
         }
