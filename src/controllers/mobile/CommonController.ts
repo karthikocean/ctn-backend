@@ -11,6 +11,7 @@ import { ObjectId } from "mongodb";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { BusinessRegion } from "../../entity/BusinessRegion";
+import { Member, MemberStatus } from "../../entity/Member";
 
 @JsonController("/common")
 export class CommonController {
@@ -197,18 +198,58 @@ export class CommonController {
       if (!state || !city) {
         return res.status(400).json({
           status: false,
-          message: "status and city are required"
+          message: "state and city are required"
         });
       }
 
       const businessRegionRepository = AppDataSource.getMongoRepository(BusinessRegion);
+      const memberRepository = AppDataSource.getMongoRepository(Member);
 
-      const businessRegion = await businessRegionRepository.findOne({
-        where: {
-          state: { $regex: new RegExp(`^${state}$`, "i") },
-          city: { $regex: new RegExp(`^${city}$`, "i") },
-          isDeleted: false
-        }
+      const [businessRegion, areaCounts] = await Promise.all([
+        businessRegionRepository.findOne({
+          where: {
+            state: { $regex: new RegExp(`^${state}$`, "i") },
+            city: { $regex: new RegExp(`^${city}$`, "i") },
+            isDeleted: false
+          }
+        }),
+
+        memberRepository.aggregate([
+          {
+            $match: {
+              state: { $regex: new RegExp(`^${state}$`, "i") },
+              city: { $regex: new RegExp(`^${city}$`, "i") },
+              status: MemberStatus.ACTIVE,
+              isDeleted: false,
+              businessRegion: { $ne: null }
+            }
+          },
+          {
+            $group: {
+              _id: "$businessRegion",
+              count: { $sum: 1 }
+            }
+          }
+        ]).toArray()
+      ]);
+
+      const countMap = new Map<string, number>();
+      if (areaCounts) {
+        areaCounts.forEach((item: any) => {
+          if (item._id) {
+            countMap.set(item._id.toString(), item.count);
+          }
+        });
+      }
+
+      const areas = businessRegion?.areas || [];
+      const areasWithCounts = areas.map((area: any) => {
+        const areaIdStr = area._id ? area._id.toString() : "";
+        return {
+          _id: area._id,
+          name: area.name,
+          memberCount: countMap.get(areaIdStr) || 0
+        };
       });
 
       return res.status(200).json({
@@ -219,7 +260,8 @@ export class CommonController {
         data: {
           state,
           city,
-          areas: businessRegion?.areas || []
+          areas: areasWithCounts,
+
         }
       });
 

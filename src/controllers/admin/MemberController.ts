@@ -16,6 +16,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Member, MemberStatus } from "../../entity/Member";
 import { Category } from "../../entity/Category";
+import { BusinessRegion, Area } from "../../entity/BusinessRegion";
 import { CreateMemberDto } from "../../dto/mobile/Member.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -27,6 +28,7 @@ import bcrypt from "bcryptjs";
 export class AdminMemberController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
+  private businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
 
   /**
    * @swagger
@@ -57,6 +59,11 @@ export class AdminMemberController {
 
       if (data.businessCategory) member.businessCategory = new ObjectId(data.businessCategory);
       if (data.subCategory) member.subCategory = new ObjectId(data.subCategory);
+      if (data.businessRegion && ObjectId.isValid(data.businessRegion)) {
+        member.businessRegion = new ObjectId(data.businessRegion);
+      } else if ((data as any).areas && ObjectId.isValid((data as any).areas)) {
+        member.businessRegion = new ObjectId((data as any).areas);
+      }
 
       member.isDeleted = false;
       member.status = MemberStatus.ACTIVE;
@@ -129,11 +136,48 @@ export class AdminMemberController {
 
       const categoryMap = new Map(categories.map(c => [c._id.toString(), { _id: c._id, name: c.name }]));
 
-      const data = members.map(m => ({
-        ...m,
-        businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null,
-        subCategory: m.subCategory ? categoryMap.get(m.subCategory.toString()) : null,
+      // Populate Areas
+      const stateCities = members
+        .filter(m => m.state && m.city && m.businessRegion)
+        .map(m => ({ state: m.state!, city: m.city! }));
+
+      const uniqueStateCitiesMap = new Map<string, { state: string, city: string }>();
+      for (const sc of stateCities) {
+        uniqueStateCitiesMap.set(`${sc.state.toLowerCase()}|${sc.city.toLowerCase()}`, sc);
+      }
+      const uniqueStateCities = Array.from(uniqueStateCitiesMap.values());
+
+      const regionQueries = uniqueStateCities.map(sc => ({
+        state: { $regex: new RegExp(`^${sc.state}$`, "i") },
+        city: { $regex: new RegExp(`^${sc.city}$`, "i") },
+        isDeleted: false
       }));
+
+      const regions = regionQueries.length > 0
+        ? await this.businessRegionRepo.find({ where: { $or: regionQueries } as any })
+        : [];
+
+      const regionMap = new Map<string, Area[]>();
+      for (const r of regions) {
+        regionMap.set(`${r.state.toLowerCase()}|${r.city.toLowerCase()}`, r.areas || []);
+      }
+
+      const data = members.map(m => {
+        let areaInfo = null;
+        if (m.businessRegion && m.state && m.city) {
+          const areasList = regionMap.get(`${m.state.toLowerCase()}|${m.city.toLowerCase()}`) || [];
+          const matchedArea = areasList.find(a => a._id?.toString() === m.businessRegion!.toString());
+          if (matchedArea) {
+            areaInfo = { _id: matchedArea._id, name: matchedArea.name };
+          }
+        }
+        return {
+          ...m,
+          businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null,
+          subCategory: m.subCategory ? categoryMap.get(m.subCategory.toString()) : null,
+          businessRegion: areaInfo || m.businessRegion
+        };
+      });
 
       return pagination(total, data, limit, page, res);
     } catch (error: any) {
@@ -165,6 +209,21 @@ export class AdminMemberController {
         const cat = await this.categoryRepo.findOneBy({ _id: member.businessCategory });
         populated.businessCategory = cat ? { _id: cat._id, name: cat.name } : null;
       }
+      if (member.subCategory) {
+        const subCat = await this.categoryRepo.findOneBy({ _id: member.subCategory });
+        populated.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : null;
+      }
+      if (member.businessRegion && member.state && member.city) {
+        const region = await this.businessRegionRepo.findOne({
+          where: {
+            state: { $regex: new RegExp(`^${member.state}$`, "i") },
+            city: { $regex: new RegExp(`^${member.city}$`, "i") },
+            isDeleted: false
+          }
+        });
+        const matchedArea = region?.areas?.find(a => a._id?.toString() === member.businessRegion!.toString());
+        populated.businessRegion = matchedArea ? { _id: matchedArea._id, name: matchedArea.name } : null;
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -191,6 +250,21 @@ export class AdminMemberController {
 
       if (data.businessCategory) data.businessCategory = new ObjectId(data.businessCategory);
       if (data.subCategory) data.subCategory = new ObjectId(data.subCategory);
+      if (data.hasOwnProperty("businessRegion")) {
+        if (data.businessRegion && ObjectId.isValid(data.businessRegion)) {
+          data.businessRegion = new ObjectId(data.businessRegion);
+        } else {
+          data.businessRegion = null;
+        }
+      }
+      if (data.hasOwnProperty("areas")) {
+        if (data.areas && ObjectId.isValid(data.areas)) {
+          data.businessRegion = new ObjectId(data.areas);
+        } else {
+          data.businessRegion = null;
+        }
+        delete data.areas;
+      }
 
       Object.assign(member, data);
 

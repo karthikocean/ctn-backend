@@ -276,9 +276,9 @@ export class MobilePostController {
       }
 
       const memberCity = currentMember.city;
-      const memberAreas = currentMember.areas;
+      const memberBusinessRegion = currentMember.businessRegion;
 
-      if (!memberCity && !memberAreas) {
+      if (!memberCity && !memberBusinessRegion) {
         // If member has no location, return empty list
         return pagination(0, [], limit, page, res);
       }
@@ -286,7 +286,7 @@ export class MobilePostController {
       // 2. Find members in the same region
       const locationCondition: any = { isDeleted: false };
       if (memberCity) locationCondition.city = memberCity;
-      if (memberAreas) locationCondition.areas = memberAreas;
+      if (memberBusinessRegion) locationCondition.businessRegion = memberBusinessRegion;
 
       const regionMembers = await this.memberRepo.find({ where: locationCondition });
       const regionMemberIds = regionMembers
@@ -331,7 +331,7 @@ export class MobilePostController {
         profilePhoto: m.profilePhoto,
         businessName: m.businessName,
         city: m.city,
-        areas: m.areas
+        businessRegion: m.businessRegion
       }]));
 
       // // 5. Check which posts are saved by current user

@@ -12,36 +12,41 @@ export enum BusinessRegionStatus {
   INACTIVE = "inactive"
 }
 
+export interface Area {
+  _id: ObjectId;
+  name: string;
+}
+
 @Entity("business_regions")
 export class BusinessRegion {
   @ObjectIdColumn()
-    _id!: ObjectId;
+  _id!: ObjectId;
 
   @Column()
-    country!: string;
+  country!: string;
 
   @Column()
-    state!: string;
+  state!: string;
 
   @Column()
-    city!: string;
+  city!: string;
 
-  @Column("simple-array", { nullable: true })
-    areas?: string[];
+  @Column("json", { nullable: true })
+  areas?: Area[];
 
   @Column({
     type: "enum",
     enum: BusinessRegionStatus,
     default: BusinessRegionStatus.ACTIVE
   })
-    status!: BusinessRegionStatus;
+  status!: BusinessRegionStatus;
 
   @Column({ default: false })
-    isDeleted!: boolean;
+  isDeleted!: boolean;
 
   @CreateDateColumn()
-    createdAt!: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-    updatedAt!: Date;
+  updatedAt!: Date;
 }
