@@ -243,7 +243,13 @@ export class BusinessRegionController {
       if (data.city) region.city = data.city;
       if (data.status) region.status = data.status;
       if (data.areas !== undefined) {
-        region.areas = data.areas ?? []
+        region.areas = data.areas ? data.areas.map((e: any) => {
+          const idVal = e._id || e.id;
+          return {
+            _id: idVal && ObjectId.isValid(idVal) ? new ObjectId(idVal) : new ObjectId(),
+            name: e.name
+          };
+        }) : [];
       }
       const saved = await this.regionRepo.save(region);
       return res.status(StatusCodes.OK).json({
