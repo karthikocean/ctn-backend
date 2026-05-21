@@ -221,12 +221,12 @@ export class CommonController {
               city: { $regex: new RegExp(`^${city}$`, "i") },
               status: MemberStatus.ACTIVE,
               isDeleted: false,
-              areas: { $ne: null }
+              businessRegion: { $ne: null }
             }
           },
           {
             $group: {
-              _id: "$areas",
+              _id: "$businessRegion",
               count: { $sum: 1 }
             }
           }

@@ -132,7 +132,7 @@ export class CreateMemberDto {
 
   @IsString()
   @IsOptional()
-    areas?: string;
+    businessRegion?: string;
 
   @IsArray()
   @IsString({ each: true })
@@ -238,7 +238,7 @@ export class UpdateProfileDto {
 
   @IsString()
   @IsOptional()
-    areas?: string;
+    businessRegion?: string;
 
   @IsArray()
   @IsString({ each: true })

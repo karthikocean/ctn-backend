@@ -20,33 +20,33 @@ export interface Area {
 @Entity("business_regions")
 export class BusinessRegion {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   @Column()
-  country!: string;
+    country!: string;
 
   @Column()
-  state!: string;
+    state!: string;
 
   @Column()
-  city!: string;
+    city!: string;
 
   @Column("json", { nullable: true })
-  areas?: Area[];
+    areas?: Area[];
 
   @Column({
     type: "enum",
     enum: BusinessRegionStatus,
     default: BusinessRegionStatus.ACTIVE
   })
-  status!: BusinessRegionStatus;
+    status!: BusinessRegionStatus;
 
   @Column({ default: false })
-  isDeleted!: boolean;
+    isDeleted!: boolean;
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }

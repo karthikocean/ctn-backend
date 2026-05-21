@@ -100,7 +100,7 @@ export class Member {
     businessAddress?: string;
 
   @Column({ nullable: true })
-    areas?: ObjectId | null;
+    businessRegion?: ObjectId | null;
 
   @Column("simple-array", { nullable: true })
     serviceLocations?: string[];
