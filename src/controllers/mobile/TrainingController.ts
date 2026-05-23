@@ -9,7 +9,6 @@ import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import handleErrorResponse from "../../utils/commonFunction";
-import pagination from "../../utils/pagination";
 
 @JsonController("/trainings")
 @UseBefore(MobileAuthMiddleware)
