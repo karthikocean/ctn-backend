@@ -43,12 +43,12 @@ export class MediaController {
 
       const targetFolder = folder || "general";
       const files = Array.isArray(req.files.files) ? req.files.files : [req.files.files];
-      const maxSize = 15 * 1024 * 1024; // 15MB
+      const maxSize = 20 * 1024 * 1024; // 20MB
       const uploadedData = [];
 
       for (const file of files) {
         if (file.size > maxSize) {
-          throw new BadRequestError(`File ${file.name} exceeds 15MB limit`);
+          throw new BadRequestError(`File ${file.name} exceeds 20MB limit`);
         }
 
         const fileExt = path.extname(file.name);
