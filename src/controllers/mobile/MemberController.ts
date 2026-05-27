@@ -14,9 +14,9 @@ import {
   UseBefore
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
-import { Member, MemberStatus } from "../../entity/Member";
+import { Member, MemberStatus, LocationVisibility } from "../../entity/Member";
 import { Category } from "../../entity/Category";
-import { CreateMemberDto, UpdateProfileDto, SetPinDto } from "../../dto/mobile/Member.dto";
+import { CreateMemberDto, UpdateProfileDto, SetPinDto, UpdateLocationDto, CheckLocationDto } from "../../dto/mobile/Member.dto";
 import { BusinessRegion, Area } from "../../entity/BusinessRegion";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -380,6 +380,97 @@ export class MobileMemberController {
 
   /**
    * @swagger
+   * /mobile-api/members/location:
+   *   put:
+   *     summary: Update location and visibility settings
+   *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/UpdateLocationDto'
+   */
+  @Put("/location")
+  @UseBefore(MobileAuthMiddleware)
+  async updateLocation(@Req() req: any, @Body() data: UpdateLocationDto, @Res() res: any) {
+    try {
+      const userId = req.user.userId;
+      const member = await this.memberRepo.findOneBy({ _id: new ObjectId(userId), isDeleted: false });
+      if (!member) throw new NotFoundError("Member not found");
+
+      member.latitude = Number(data.latitude);
+      member.longitude = Number(data.longitude);
+      member.locationVisibility = data.locationVisibility;
+
+      const saved = await this.memberRepo.save(member);
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Location updated successfully",
+        data: {
+          latitude: saved.latitude,
+          longitude: saved.longitude,
+          locationVisibility: saved.locationVisibility
+        }
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/members/check-location:
+   *   post:
+   *     summary: Check if current coordinates match the saved profile location coordinates
+   *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/CheckLocationDto'
+   */
+  @Post("/check-location")
+  @UseBefore(MobileAuthMiddleware)
+  async checkLocation(@Req() req: any, @Body() data: CheckLocationDto, @Res() res: any) {
+    try {
+      const userId = req.user.userId;
+      const currentUser = await this.memberRepo.findOneBy({ _id: new ObjectId(userId), isDeleted: false });
+      if (!currentUser) throw new NotFoundError("Member not found");
+
+      if (
+        currentUser.latitude === undefined ||
+        currentUser.longitude === undefined ||
+        currentUser.latitude === null ||
+        currentUser.longitude === null
+      ) {
+        throw new BadRequestError("Need to update current location");
+      }
+
+      // Check if coordinate is equal to saved coordinate (within 10m / 0.0001 degrees tolerance)
+      const latDiff = Math.abs(data.latitude - currentUser.latitude);
+      const lngDiff = Math.abs(data.longitude - currentUser.longitude);
+
+      if (latDiff > 0.0001 || lngDiff > 0.0001) {
+        throw new BadRequestError("Need to update current location");
+      }
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Location matches"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
    * /mobile-api/members/suggestions:
    *   get:
    *     summary: Get member suggestions based on category referral mapping
@@ -564,6 +655,8 @@ export class MobileMemberController {
    *   get:
    *     summary: Get member directory
    *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
    *     parameters:
    *       - in: query
    *         name: page
@@ -585,21 +678,35 @@ export class MobileMemberController {
    *         name: category
    *         schema:
    *           type: string
+   *       - in: query
+   *         name: state
+   *         schema:
+   *           type: string
+   *       - in: query
+   *         name: region
+   *         schema:
+   *           type: string
    */
   @Get("/")
+  @UseBefore(MobileAuthMiddleware)
   async getDirectory(
+    @Req() req: any,
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
     @QueryParam("search") search: string,
     @QueryParam("city") city: string,
     @QueryParam("category") category: string,
+    @QueryParam("state") state: string,
+    @QueryParam("region") region: string,
     @Res() res: any
   ) {
+    const userId = req.user.userId;
     page = Number(page) || 0;
     limit = Number(limit) || 10;
 
     try {
       const where: any = {
+        _id: { $ne: new ObjectId(userId) },
         isDeleted: false,
         status: MemberStatus.ACTIVE
       };
@@ -613,6 +720,8 @@ export class MobileMemberController {
       }
       if (city) where.city = city;
       if (category) where.businessCategory = new ObjectId(category);
+      if (state) where.state = state;
+      if (region && ObjectId.isValid(region)) where.businessRegion = new ObjectId(region);
 
       const [members, total] = await this.memberRepo.findAndCount({
         where,
@@ -634,21 +743,264 @@ export class MobileMemberController {
 
       const areasMap = await this.getAreasMap(members);
 
-      const data = members.map(m => ({
-        _id: m._id,
-        fullName: m.fullName,
-        profilePhoto: m.profilePhoto,
-        businessName: m.businessName,
-        city: m.city,
-        businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null,
-        subCategory: m.subCategory ? categoryMap.get(m.subCategory.toString()) : null,
-        businessRegion: areasMap.get(m._id.toString()) || null
-      }));
+      // Fetch outgoing and incoming connections to map relationship status
+      const memberIds = members.map(m => m._id);
+
+      const outgoingConnections = memberIds.length > 0
+        ? await this.connectionRepo.find({
+          where: {
+            senderId: new ObjectId(userId),
+            receiverId: { $in: memberIds }
+          } as any
+        })
+        : [];
+      const outgoingMap = new Map(outgoingConnections.map(c => [c.receiverId.toString(), c]));
+
+      const incomingConnections = memberIds.length > 0
+        ? await this.connectionRepo.find({
+          where: {
+            receiverId: new ObjectId(userId),
+            senderId: { $in: memberIds }
+          } as any
+        })
+        : [];
+      const incomingMap = new Map(incomingConnections.map(c => [c.senderId.toString(), c]));
+
+      const data = members.map(m => {
+        const myRequest = outgoingMap.get(m._id.toString());
+        const theirRequest = incomingMap.get(m._id.toString());
+
+        return {
+          _id: m._id,
+          fullName: m.fullName,
+          profilePhoto: m.profilePhoto,
+          businessName: m.businessName,
+          city: m.city,
+          businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null,
+          subCategory: m.subCategory ? categoryMap.get(m.subCategory.toString()) : null,
+          businessRegion: areasMap.get(m._id.toString()) || null,
+          connection: {
+            myRequestStatus: myRequest?.status || null,
+            theirRequestStatus: theirRequest?.status || null,
+            isFollowing: myRequest?.status === ConnectionStatus.ACCEPTED,
+            isFollower: theirRequest?.status === ConnectionStatus.ACCEPTED,
+            isMutual: myRequest?.status === ConnectionStatus.ACCEPTED && theirRequest?.status === ConnectionStatus.ACCEPTED
+          },
+          status: myRequest?.status === ConnectionStatus.ACCEPTED
+            ? "Following"
+            : myRequest?.status === ConnectionStatus.PENDING
+              ? "Requested"
+              : theirRequest?.status === ConnectionStatus.ACCEPTED
+                ? "Follow back"
+                : "Connect"
+        };
+      });
 
       return pagination(total, data, limit, page, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/members/nearby:
+   *   get:
+   *     summary: Get nearby members within 10 km using latitude and longitude
+   *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: lat
+   *         schema:
+   *           type: number
+   *       - in: query
+   *         name: lng
+   *         schema:
+   *           type: number
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   */
+  @Get("/nearby")
+  @UseBefore(MobileAuthMiddleware)
+  async getNearbyMembers(
+    @Req() req: any,
+    @QueryParam("lat") latParam: number,
+    @QueryParam("lng") lngParam: number,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @Res() res: any
+  ) {
+    const userId = req.user.userId;
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+
+    try {
+      let lat = Number(latParam);
+      let lng = Number(lngParam);
+
+      // If coords are not provided in query, fall back to current user's profile coords
+      if (isNaN(lat) || isNaN(lng)) {
+        const currentUser = await this.memberRepo.findOneBy({ _id: new ObjectId(userId), isDeleted: false });
+        if (!currentUser || currentUser.latitude === undefined || currentUser.longitude === undefined || currentUser.latitude === null || currentUser.longitude === null) {
+          throw new BadRequestError("Current GPS coordinates are required to find nearby members. Please provide lat/lng in query or update your location profile.");
+        }
+        lat = currentUser.latitude;
+        lng = currentUser.longitude;
+      }
+
+      // Calculate Bounding Box for 10 km (1 degree latitude is ~111km, 1 degree longitude is ~111km * cos(lat))
+      const latBound = 10 / 111;
+      const lonBound = 10 / (111 * Math.cos(lat * Math.PI / 180));
+
+      // Query members within the bounding box
+      const boundingBoxWhere: any = {
+        _id: { $ne: new ObjectId(userId) },
+        isDeleted: false,
+        status: MemberStatus.ACTIVE,
+        latitude: { $gte: lat - latBound, $lte: lat + latBound },
+        longitude: { $gte: lng - lonBound, $lte: lng + lonBound }
+      };
+
+      const membersInBox = await this.memberRepo.find({
+        where: boundingBoxWhere
+      });
+
+      // Gather boxMemberIds to fetch connections in bulk
+      const boxMemberIds = membersInBox.map(m => m._id);
+
+      const outgoingConnections = boxMemberIds.length > 0
+        ? await this.connectionRepo.find({
+          where: {
+            senderId: new ObjectId(userId),
+            receiverId: { $in: boxMemberIds }
+          } as any
+        })
+        : [];
+      const outgoingMap = new Map(outgoingConnections.map(c => [c.receiverId.toString(), c]));
+
+      const incomingConnections = boxMemberIds.length > 0
+        ? await this.connectionRepo.find({
+          where: {
+            receiverId: new ObjectId(userId),
+            senderId: { $in: boxMemberIds }
+          } as any
+        })
+        : [];
+      const incomingMap = new Map(incomingConnections.map(c => [c.senderId.toString(), c]));
+
+      // Exact Haversine distance and locationVisibility filters
+      const membersWithDistance = membersInBox
+        .map(m => {
+          if (m.latitude === undefined || m.longitude === undefined || m.latitude === null || m.longitude === null) return null;
+          const dist = this.calculateDistance(lat, lng, m.latitude, m.longitude);
+
+          const myRequest = outgoingMap.get(m._id.toString());
+          const theirRequest = incomingMap.get(m._id.toString());
+
+          const isFollowing = myRequest?.status === ConnectionStatus.ACCEPTED;
+          const isFollower = theirRequest?.status === ConnectionStatus.ACCEPTED;
+          const isMutual = isFollowing && isFollower;
+
+          // Location Visibility Check
+          let isVisible = false;
+          if (!m.locationVisibility || m.locationVisibility === LocationVisibility.EVERYONE) {
+            isVisible = true;
+          } else if (m.locationVisibility === LocationVisibility.FOLLOWERS) {
+            isVisible = isFollowing;
+          } else if (m.locationVisibility === LocationVisibility.MUTUAL) {
+            isVisible = isMutual;
+          }
+
+          if (!isVisible) return null;
+
+          return {
+            ...m,
+            distance: Number(dist.toFixed(2)),
+            myRequest,
+            theirRequest,
+            isFollowing,
+            isFollower,
+            isMutual
+          };
+        })
+        .filter((m): m is any => m !== null && m.distance <= 10);
+
+      // Sort closest first
+      membersWithDistance.sort((a, b) => a.distance - b.distance);
+
+      const total = membersWithDistance.length;
+      const paginatedMembers = membersWithDistance.slice(page * limit, (page + 1) * limit);
+
+      if (paginatedMembers.length === 0) {
+        return pagination(total, [], limit, page, res);
+      }
+
+      // Populate Categories & Areas for paginated members
+      const categoryIds = paginatedMembers
+        .flatMap(m => [m.businessCategory, m.subCategory])
+        .filter((id): id is ObjectId => !!id);
+
+      const categories = categoryIds.length > 0
+        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : [];
+
+      const categoryMap = new Map(categories.map(c => [c._id.toString(), { _id: c._id, name: c.name }]));
+      const areasMap = await this.getAreasMap(paginatedMembers);
+
+      const data = paginatedMembers.map(m => {
+        return {
+          _id: m._id,
+          fullName: m.fullName,
+          profilePhoto: m.profilePhoto,
+          businessName: m.businessName,
+          city: m.city,
+          distance: m.distance,
+          latitude: m.latitude,
+          longitude: m.longitude,
+          businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null,
+          subCategory: m.subCategory ? categoryMap.get(m.subCategory.toString()) : null,
+          businessRegion: areasMap.get(m._id.toString()) || null,
+          connection: {
+            myRequestStatus: m.myRequest?.status || null,
+            theirRequestStatus: m.theirRequest?.status || null,
+            isFollowing: m.isFollowing,
+            isFollower: m.isFollower,
+            isMutual: m.isMutual
+          },
+          status: m.myRequest?.status === ConnectionStatus.ACCEPTED
+            ? "Following"
+            : m.myRequest?.status === ConnectionStatus.PENDING
+              ? "Requested"
+              : m.theirRequest?.status === ConnectionStatus.ACCEPTED
+                ? "Follow back"
+                : "Connect"
+        };
+      });
+
+      return pagination(total, data, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371; // Radius of the earth in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in km
   }
 
   /**

@@ -15,6 +15,12 @@ export enum MemberStatus {
   BLOCKED = "blocked"
 }
 
+export enum LocationVisibility {
+  EVERYONE = "EVERYONE",
+  FOLLOWERS = "FOLLOWERS",
+  MUTUAL = "MUTUAL"
+}
+
 @Entity("members")
 @Index(["mobileNumber"], { unique: true })
 @Index(["email"], { unique: true, sparse: true })
@@ -185,4 +191,17 @@ export class Member {
 
   @UpdateDateColumn()
     updatedAt!: Date;
+
+  @Column({ nullable: true })
+    latitude?: number;
+
+  @Column({ nullable: true })
+    longitude?: number;
+
+  @Column({
+    type: "enum",
+    enum: LocationVisibility,
+    default: LocationVisibility.EVERYONE
+  })
+    locationVisibility!: LocationVisibility;
 }

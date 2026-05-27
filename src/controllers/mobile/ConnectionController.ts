@@ -16,7 +16,7 @@ import {
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Connection, ConnectionStatus } from "../../entity/Connection";
-import { Member } from "../../entity/Member";
+import { Member, MemberStatus } from "../../entity/Member";
 import { CreateConnectionDto, UpdateConnectionStatusDto } from "../../dto/mobile/Connection.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -228,7 +228,7 @@ export class MobileConnectionController {
    *         required: true
    *         schema:
    *           type: string
-   *           enum: [FOLLOWERS, FOLLOWING, MUTUAL]
+   *           enum: [FOLLOWERS, FOLLOWING, MUTUAL, ALL]
    *       - in: query
    *         name: page
    *         schema:
@@ -237,13 +237,33 @@ export class MobileConnectionController {
    *         name: limit
    *         schema:
    *           type: integer
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *       - in: query
+   *         name: category
+   *         schema:
+   *           type: string
+   *       - in: query
+   *         name: state
+   *         schema:
+   *           type: string
+   *       - in: query
+   *         name: region
+   *         schema:
+   *           type: string
    */
   @Get("/relationship-list")
   async getRelationshipList(
     @Req() req: any,
-    @QueryParam("type") type: "FOLLOWERS" | "FOLLOWING" | "MUTUAL",
+    @QueryParam("type") type: "FOLLOWERS" | "FOLLOWING" | "MUTUAL" | "ALL",
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
+    @QueryParam("search") search: string,
+    @QueryParam("category") category: string,
+    @QueryParam("state") state: string,
+    @QueryParam("region") region: string,
     @Res() res: any
   ) {
     const userId = req.user.userId;
@@ -255,22 +275,16 @@ export class MobileConnectionController {
       let total = 0;
 
       if (type === "FOLLOWING") {
-        const [followings, count] = await this.connectionRepo.findAndCount({
-          where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED },
-          skip: page * limit,
-          take: limit
+        const followings = await this.connectionRepo.find({
+          where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
         });
         targetMemberIds = followings.map(f => f.receiverId);
-        total = count;
       }
       else if (type === "FOLLOWERS") {
-        const [followers, count] = await this.connectionRepo.findAndCount({
-          where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED },
-          skip: page * limit,
-          take: limit
+        const followers = await this.connectionRepo.find({
+          where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
         });
         targetMemberIds = followers.map(f => f.senderId);
-        total = count;
       }
       else if (type === "MUTUAL") {
         // Mutual: Both followings and followers exist
@@ -283,37 +297,81 @@ export class MobileConnectionController {
           where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
         });
 
-        const mutualIds = followers
+        targetMemberIds = followers
           .filter(f => followingIds.has(f.senderId.toString()))
           .map(f => f.senderId);
+      }
+      else if (type === "ALL") {
+        // All: combined, unique list of both followings and followers
+        const followings = await this.connectionRepo.find({
+          where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        });
+        const followingIds = followings.map(f => f.receiverId.toString());
 
-        total = mutualIds.length;
-        targetMemberIds = mutualIds.slice(page * limit, (page + 1) * limit);
+        const followers = await this.connectionRepo.find({
+          where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        });
+        const followerIds = followers.map(f => f.senderId.toString());
+
+        targetMemberIds = Array.from(new Set([...followingIds, ...followerIds]))
+          .map(id => new ObjectId(id));
       }
 
       if (targetMemberIds.length === 0) {
-        return pagination(total, [], limit, page, res);
+        return pagination(0, [], limit, page, res);
       }
 
-      // Fetch Member Details
-      const members = await this.memberRepo.find({
-        where: { _id: { $in: targetMemberIds } } as any
-      });
+      // Build filter for Member repository
+      const memberWhere: any = {
+        _id: { $in: targetMemberIds },
+        isDeleted: false,
+        status: MemberStatus.ACTIVE
+      };
 
-      // Fetch ALL my outgoing connections to these members to determine follow-back status
-      const myOutgoingConnections = await this.connectionRepo.find({
-        where: {
-          senderId: new ObjectId(userId),
-          receiverId: { $in: targetMemberIds }
-        } as any
+      if (search) {
+        memberWhere.$or = [
+          { fullName: { $regex: search, $options: "i" } },
+          { businessName: { $regex: search, $options: "i" } },
+          { city: { $regex: search, $options: "i" } }
+        ];
+      }
+
+      if (category) {
+        memberWhere.businessCategory = new ObjectId(category);
+      }
+
+      if (state) {
+        memberWhere.state = state;
+      }
+
+      if (region && ObjectId.isValid(region)) {
+        memberWhere.businessRegion = new ObjectId(region);
+      }
+
+      // Fetch Paginated Member Details applying filters
+      const [members, filteredCount] = await this.memberRepo.findAndCount({
+        where: memberWhere,
+        skip: page * limit,
+        take: limit,
+        order: { fullName: "ASC" }
       });
+      total = filteredCount;
+
+      const paginatedMemberIds = members.map(m => m._id);
+
+      // Fetch only outgoing connections to these specific members to determine follow-back status
+      const myOutgoingConnections = paginatedMemberIds.length > 0
+        ? await this.connectionRepo.find({
+          where: {
+            senderId: new ObjectId(userId),
+            receiverId: { $in: paginatedMemberIds }
+          } as any
+        })
+        : [];
       const outgoingMap = new Map(myOutgoingConnections.map(c => [c.receiverId.toString(), c.status]));
 
-      // Maintain order and map data
-      const data = targetMemberIds.map(id => {
-        const m = members.find(member => member._id.toString() === id.toString());
-        if (!m) return null;
-
+      // Map data
+      const data = members.map(m => {
         return {
           _id: m._id,
           fullName: m.fullName,
@@ -326,7 +384,7 @@ export class MobileConnectionController {
               ? "Requested"
               : "Follow back"
         };
-      }).filter(item => item !== null);
+      });
 
       return pagination(total, data, limit, page, res);
     } catch (error: any) {
