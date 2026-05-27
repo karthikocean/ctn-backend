@@ -5,8 +5,10 @@ import {
   IsNumber,
   IsArray,
   Length,
-  IsNotEmpty
+  IsNotEmpty,
+  IsEnum
 } from "class-validator";
+import { LocationVisibility } from "../../entity/Member";
 
 /**
  * @swagger
@@ -81,6 +83,35 @@ import {
  *         pin:
  *           type: string
  *           example: "1234"
+ *     UpdateLocationDto:
+ *       type: object
+ *       required:
+ *         - latitude
+ *         - longitude
+ *         - locationVisibility
+ *       properties:
+ *         latitude:
+ *           type: number
+ *           example: 12.9237
+ *         longitude:
+ *           type: number
+ *           example: 80.1428
+ *         locationVisibility:
+ *           type: string
+ *           enum: [EVERYONE, FOLLOWERS, MUTUAL]
+ *           example: "EVERYONE"
+ *     CheckLocationDto:
+ *       type: object
+ *       required:
+ *         - latitude
+ *         - longitude
+ *       properties:
+ *         latitude:
+ *           type: number
+ *           example: 12.9237
+ *         longitude:
+ *           type: number
+ *           example: 80.1428
  */
 
 export class CreateMemberDto {
@@ -310,4 +341,28 @@ export class SetPinDto {
   @IsNotEmpty()
   @Length(4, 4)
     pin!: string;
+}
+
+export class UpdateLocationDto {
+  @IsNumber()
+  @IsNotEmpty()
+    latitude!: number;
+
+  @IsNumber()
+  @IsNotEmpty()
+    longitude!: number;
+
+  @IsEnum(LocationVisibility)
+  @IsNotEmpty()
+    locationVisibility!: LocationVisibility;
+}
+
+export class CheckLocationDto {
+  @IsNumber()
+  @IsNotEmpty()
+    latitude!: number;
+
+  @IsNumber()
+  @IsNotEmpty()
+    longitude!: number;
 }
