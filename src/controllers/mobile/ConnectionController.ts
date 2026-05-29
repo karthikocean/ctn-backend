@@ -82,10 +82,17 @@ export class MobileConnectionController {
           data: existing
         });
       }
+      // auto following
+      const connectionFOllow = new Connection();
+      connectionFOllow.senderId = new ObjectId(senderId);
+      connectionFOllow.receiverId = new ObjectId(receiverId);
+      connectionFOllow.status = ConnectionStatus.ACCEPTED;
+      await this.connectionRepo.save(connectionFOllow);
 
+      // pending request for follow back
       const connection = new Connection();
-      connection.senderId = new ObjectId(senderId);
-      connection.receiverId = new ObjectId(receiverId);
+      connection.senderId = new ObjectId(receiverId);
+      connection.receiverId = new ObjectId(senderId);
       connection.status = ConnectionStatus.PENDING;
 
       const saved = await this.connectionRepo.save(connection);
@@ -172,6 +179,8 @@ export class MobileConnectionController {
         // For any other status (PENDING, REJECTED, CANCELLED), directly accept/follow
         connection.status = ConnectionStatus.ACCEPTED;
       } else {
+        console.log("inisssssssssss");
+
         // Create new accepted connection
         connection = new Connection();
         connection.senderId = new ObjectId(senderId);
@@ -199,6 +208,56 @@ export class MobileConnectionController {
         success: true,
         message: "You are now following this member",
         data: saved
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/connections/unfollow:
+   *   post:
+   *     summary: Unfollow a member
+   *     tags: [Mobile Connection]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/CreateConnectionDto'
+   */
+  @Post("/unfollow")
+  @HttpCode(StatusCodes.OK)
+  async unfollowMember(@Req() req: any, @Body() data: CreateConnectionDto, @Res() res: any) {
+    try {
+      const senderId = req.user.userId;
+      const { receiverId } = data;
+
+      if (!ObjectId.isValid(receiverId)) {
+        throw new BadRequestError("Invalid receiver ID");
+      }
+
+      // Check if connection exists in this direction
+      const connection = await this.connectionRepo.findOne({
+        where: {
+          senderId: new ObjectId(senderId),
+          receiverId: new ObjectId(receiverId),
+          status: ConnectionStatus.ACCEPTED
+        } as any
+      });
+
+      if (!connection) {
+        throw new NotFoundError("You are not following this member");
+      }
+
+      await this.connectionRepo.remove(connection);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "You have unfollowed this member successfully"
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -250,20 +309,28 @@ export class MobileConnectionController {
       const where: any = {};
 
       if (type === "SENT") {
-        where.senderId = new ObjectId(userId);
-      } else if (type === "RECEIVED") {
+        // SENT connection requests are where I initiated them.
+        // In our model, my initiated request is stored as a pending record
+        // where receiverId = myId and status = PENDING.
         where.receiverId = new ObjectId(userId);
+        where.status = ConnectionStatus.PENDING;
+      } else if (type === "RECEIVED") {
+        // RECEIVED connection requests are where I need to accept them.
+        // In our model, this is stored as a pending record
+        // where senderId = myId and status = PENDING.
+        where.senderId = new ObjectId(userId);
+        where.status = ConnectionStatus.PENDING;
       } else {
         where.$or = [
           { senderId: new ObjectId(userId) },
           { receiverId: new ObjectId(userId) }
         ];
-      }
 
-      if (status) {
-        where.status = status;
-      } else {
-        where.status = { $ne: ConnectionStatus.CANCELLED };
+        if (status) {
+          where.status = status;
+        } else {
+          where.status = { $ne: ConnectionStatus.CANCELLED };
+        }
       }
 
       const [connections, total] = await this.connectionRepo.findAndCount({
@@ -292,10 +359,20 @@ export class MobileConnectionController {
 
       const data = connections.map(c => {
         const otherMemberId = c.senderId.toString() === userId ? c.receiverId.toString() : c.senderId.toString();
+
+        let direction = "SENT";
+        if (c.status === ConnectionStatus.PENDING) {
+          // In the PENDING connection request, the initiator is the receiverId.
+          // So if receiverId is the logged-in user, the direction is SENT.
+          direction = c.receiverId.toString() === userId ? "SENT" : "RECEIVED";
+        } else {
+          direction = c.senderId.toString() === userId ? "SENT" : "RECEIVED";
+        }
+
         return {
           ...c,
           member: memberMap.get(otherMemberId) || null,
-          direction: c.senderId.toString() === userId ? "SENT" : "RECEIVED"
+          direction
         };
       });
 
@@ -520,12 +597,13 @@ export class MobileConnectionController {
 
       // Permission Logic
       if (data.status === ConnectionStatus.CANCELLED) {
-        if (connection.senderId.toString() !== userId) {
-          throw new BadRequestError("Only the sender can cancel a connection request");
+        // Only the initiator (receiverId of the pending follow-back record) can cancel the request
+        if (connection.receiverId.toString() !== userId) {
+          throw new BadRequestError("Only the initiator can cancel this connection request");
         }
       } else {
-        // Only receiver can accept/reject/block a pending request
-        if (connection.receiverId.toString() !== userId) {
+        // Only the requested person (senderId of the pending follow-back record) can accept/reject/block
+        if (connection.senderId.toString() !== userId) {
           throw new BadRequestError("You are not authorized to update this connection status");
         }
       }
@@ -537,22 +615,22 @@ export class MobileConnectionController {
       connection.status = data.status;
       const saved = await this.connectionRepo.save(connection);
 
-      // ✅ Send Notification to original Sender
+      // ✅ Send Notification to original Sender (Initiator)
       if (data.status === ConnectionStatus.ACCEPTED || data.status === ConnectionStatus.REJECTED) {
-        const originalSender = await this.memberRepo.findOneBy({ _id: connection.senderId, isDeleted: false });
-        const receiver = await this.memberRepo.findOneBy({ _id: connection.receiverId, isDeleted: false });
+        const initiator = await this.memberRepo.findOneBy({ _id: connection.receiverId, isDeleted: false });
+        const requestedPerson = await this.memberRepo.findOneBy({ _id: connection.senderId, isDeleted: false });
 
-        if (originalSender?.fcmToken) {
+        if (initiator?.fcmToken) {
           const statusText = data.status === ConnectionStatus.ACCEPTED ? "accepted" : "declined";
           const subjectText = data.status === ConnectionStatus.ACCEPTED ? "Connection Request Accepted" : "Connection Request Declined";
 
           await insertPushNotification({
-            token: originalSender.fcmToken,
+            token: initiator.fcmToken,
             subject: subjectText,
-            content: `${receiver?.fullName || "A member"} has ${statusText} your connection request.`,
+            content: `${requestedPerson?.fullName || "A member"} has ${statusText} your connection request.`,
             moduleName: NotificationModule.CONNECTION,
             moduleId: saved._id.toString(),
-            receiverId: connection.senderId.toString(),
+            receiverId: connection.receiverId.toString(),
             senderId: userId
           });
         }

@@ -28,6 +28,8 @@ export class Plan {
     modules!: {
     moduleName: string;
     countLimit: number;
+    frequency: string;
+    frequencyValue: number;
   }[];
 
   @Column({ default: false })

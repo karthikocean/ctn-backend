@@ -57,7 +57,7 @@ export class RoleController {
    *         description: Paginated list of roles
    */
   @Get("/")
-  @UseBefore(AuthMiddleware, canAccess("roles_permissions", "view"))
+  // @UseBefore(AuthMiddleware, canAccess("roles_permissions", "view"))
   async getAll(
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
@@ -141,7 +141,7 @@ export class RoleController {
    *         description: Role not found
    */
   @Get("/:id")
-  @UseBefore(AuthMiddleware, canAccess("roles_permissions", "view"))
+  // @UseBefore(AuthMiddleware, canAccess("roles_permissions", "view"))
   async getOne(@Param("id") id: string) {
     if (!ObjectId.isValid(id)) {
       throw new BadRequestError("Invalid ID format");
@@ -172,7 +172,7 @@ export class RoleController {
    *         description: Role name or code already exists
    */
   @Post("/")
-  @UseBefore(AuthMiddleware, canAccess("roles_permissions", "add"))
+  @UseBefore(AuthMiddleware, canAccess("roles_permissions", "create"))
   @HttpCode(StatusCodes.CREATED)
   async create(@Body() roleData: CreateRoleDto, @Res() res: any) {
     try {

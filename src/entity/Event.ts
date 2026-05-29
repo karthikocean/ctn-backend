@@ -1,4 +1,5 @@
-import { Entity, ObjectIdColumn, ObjectId, Column, CreateDateColumn, UpdateDateColumn } from "typeorm";
+import { Entity, ObjectIdColumn, Column, CreateDateColumn, UpdateDateColumn } from "typeorm";
+import { ObjectId } from "mongodb";
 
 export enum EventStatus {
   UPCOMING = "upcoming",
@@ -48,6 +49,12 @@ export class Event {
 
     @Column({ default: false })
       isDeleted!: boolean;
+
+    @Column({ nullable: true })
+      createdBy?: ObjectId;
+
+    @Column({ nullable: true })
+      updatedBy?: ObjectId;
 
     @CreateDateColumn()
       createdAt!: Date;

@@ -11,7 +11,8 @@ import {
   BadRequestError,
   HttpCode,
   Res,
-  Req
+  Req,
+  UseBefore
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Member, MemberStatus } from "../../entity/Member";
@@ -23,8 +24,11 @@ import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import bcrypt from "bcryptjs";
+import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
+import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 
 @JsonController("/members")
+@UseBefore(AuthMiddleware, franchiseFilter)
 export class AdminMemberController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
@@ -50,7 +54,7 @@ export class AdminMemberController {
       }
 
       if (data.gstNumber) {
-        const gstCount = await this.memberRepo.countBy({ gstNumber: data.gstNumber, isDeleted: false });
+        const gstCount = await this.memberRepo.count({ gstNumber: data.gstNumber, isDeleted: false });
         if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
       }
 
@@ -89,6 +93,7 @@ export class AdminMemberController {
    */
   @Get("/")
   async getDirectory(
+    @Req() req: any,
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
     @QueryParam("search") search: string,
@@ -102,6 +107,14 @@ export class AdminMemberController {
 
     try {
       const where: any = { isDeleted: false };
+
+      if (req.isFranchise) {
+        if (req.franchiseAreaIds && req.franchiseAreaIds.length > 0) {
+          where.businessRegion = { $in: req.franchiseAreaIds };
+        } else {
+          where.businessRegion = new ObjectId();
+        }
+      }
 
       if (status) {
         where.status = status;
@@ -122,7 +135,7 @@ export class AdminMemberController {
         where,
         skip: page * limit,
         take: limit,
-        order: { fullName: "ASC" }
+        order: { updatedAt: "DESC" }
       });
 
       // Populate Categories

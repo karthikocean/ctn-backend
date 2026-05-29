@@ -151,6 +151,11 @@ export const initSocket = (server: HttpServer) => {
       if (!userId || !ObjectId.isValid(userId)) return;
 
       try {
+        if (!AppDataSource.isInitialized) {
+          console.log(`🔌 Database is closed. Skipping offline status update for user ${userId}`);
+          return;
+        }
+
         // Delay slightly to handle quick reconnects or multi-device behavior if needed,
         // but checking io.sockets.adapter.rooms should be immediate.
         const activeSockets = io.sockets.adapter.rooms.get(userId);

@@ -11,54 +11,62 @@ import { Type } from "class-transformer";
 class ModuleConfigDto {
   @IsString()
   @IsNotEmpty()
-    moduleName!: string;
+  moduleName!: string;
 
   @IsNumber()
-    countLimit!: number;
+  countLimit!: number;
+
+  @IsString()
+  @IsOptional()
+  frequency?: string;
+
+  @IsNumber()
+  @IsOptional()
+  frequencyValue?: number;
 }
 
 export class CreatePlanDto {
   @IsString()
   @IsNotEmpty({ message: "Plan title is required" })
-    title!: string;
+  title!: string;
 
   @IsString()
   @IsNotEmpty({ message: "Description is required" })
-    description!: string;
+  description!: string;
 
   @IsNumber()
-    amount!: number;
+  amount!: number;
 
   @IsString()
   @IsOptional()
-    status?: string = "active";
+  status?: string = "active";
 
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ModuleConfigDto)
-    modules!: ModuleConfigDto[];
+  modules!: ModuleConfigDto[];
 }
 
 export class UpdatePlanDto {
   @IsString()
   @IsOptional()
-    title?: string;
+  title?: string;
 
   @IsString()
   @IsOptional()
-    description?: string;
+  description?: string;
 
   @IsNumber()
   @IsOptional()
-    amount?: number;
+  amount?: number;
 
   @IsString()
   @IsOptional()
-    status?: string;
+  status?: string;
 
   @IsArray()
   @IsOptional()
   @ValidateNested({ each: true })
   @Type(() => ModuleConfigDto)
-    modules?: ModuleConfigDto[];
+  modules?: ModuleConfigDto[];
 }
