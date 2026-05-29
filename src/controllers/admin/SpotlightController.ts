@@ -152,6 +152,280 @@ export class SpotlightController {
   }
 
   /**
+  * @swagger
+  * /api/admin/spotlights/requests:
+  *   get:
+  *     summary: List all spotlight requests (Admin)
+  *     tags: [Spotlight]
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+  *       - in: query
+  *         name: page
+  *         schema: { type: integer, default: 0 }
+  *       - in: query
+  *         name: limit
+  *         schema: { type: integer, default: 10 }
+  *       - in: query
+  *         name: status
+  *         schema: { type: string }
+  *       - in: query
+  *         name: search
+  *         schema: { type: string }
+  *     responses:
+  *       200:
+  *         description: List of spotlight requests
+  */
+  @Get("/requests")
+  @UseBefore(canAccess("spotlight", "view"))
+  async getAllRequests(
+    @Req() req: any,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @QueryParam("status") status: string,
+    @QueryParam("search") search: string,
+    @Res() res: any
+  ) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+
+    try {
+      const where: any = { isDeleted: false };
+      if (status) {
+        where.status = status;
+      }
+
+      let targetMemberIds: ObjectId[] = [];
+      let limitToMembers = false;
+
+      if (req.isFranchise) {
+        limitToMembers = true;
+        const franchiseMembers = await this.memberRepo.find({
+          where: {
+            businessRegion: { $in: req.franchiseAreaIds },
+            isDeleted: false
+          }
+        });
+        const franchiseMemberIds = franchiseMembers.map(m => m._id);
+
+        if (search) {
+          const searchedMembers = await this.memberRepo.find({
+            where: {
+              fullName: { $regex: search, $options: "i" },
+              isDeleted: false
+            }
+          });
+          const searchedMemberIds = searchedMembers.map(m => m._id.toString());
+          targetMemberIds = franchiseMemberIds.filter(id => searchedMemberIds.includes(id.toString()));
+        } else {
+          targetMemberIds = franchiseMemberIds;
+        }
+      } else if (search) {
+        limitToMembers = true;
+        const searchedMembers = await this.memberRepo.find({
+          where: {
+            fullName: { $regex: search, $options: "i" },
+            isDeleted: false
+          }
+        });
+        targetMemberIds = searchedMembers.map(m => m._id);
+      }
+
+      if (limitToMembers) {
+        if (targetMemberIds.length === 0) {
+          return pagination(0, [], limit, page, res);
+        }
+        where.memberId = { $in: targetMemberIds };
+      }
+
+      const [requests, total] = await this.spotlightRequestRepo.findAndCount({
+        where,
+        skip: page * limit,
+        take: limit,
+        order: { createdAt: "DESC" }
+      });
+
+      // Fetch member details for requests
+      const memberIds = requests.map(r => r.memberId);
+      const uniqueMemberIds = Array.from(new Set(memberIds.map(id => id.toString()))).map(id => new ObjectId(id));
+
+      let memberMap = new Map();
+      if (uniqueMemberIds.length > 0) {
+        const members = await this.memberRepo.find({
+          where: { _id: { $in: uniqueMemberIds } }
+        });
+        memberMap = new Map(members.map(m => [m._id.toString(), {
+          _id: m._id,
+          fullName: m.fullName,
+          profilePhoto: m.profilePhoto,
+          businessName: m.businessName
+        }]));
+      }
+
+      const requestsWithMembers = requests.map(r => ({
+        ...r,
+        member: memberMap.get(r.memberId.toString()) || { _id: r.memberId, fullName: "Unknown Member" }
+      }));
+
+      return pagination(total, requestsWithMembers, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/spotlights/requests/{id}/approve:
+   *   put:
+   *     summary: Approve a spotlight request and schedule it (Admin)
+   *     tags: [Spotlight]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/ApproveSpotlightRequestDto'
+   */
+  @Put("/requests/:id/approve")
+  @UseBefore(canAccess("spotlight", "edit"))
+  async approveRequest(
+    @Param("id") id: string,
+    @Res() res: any
+  ) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+
+      const request = await this.spotlightRequestRepo.findOneBy({
+        _id: new ObjectId(id),
+        isDeleted: false
+      });
+
+      if (!request) throw new NotFoundError("Spotlight request not found");
+
+      if (request.status !== SpotlightRequestStatus.PENDING) {
+        throw new BadRequestError(`Cannot approve a request with status: ${request.status}`);
+      }
+
+      // 1. Update the request status
+      request.status = SpotlightRequestStatus.APPROVED;
+      await this.spotlightRequestRepo.save(request);
+
+      // Update the member's updatedAt timestamp
+      const member = await this.memberRepo.findOneBy({
+        _id: request.memberId,
+        isDeleted: false
+      });
+      if (member) {
+        member.updatedAt = new Date();
+        await this.memberRepo.save(member);
+      }
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Spotlight request approved successfully",
+        data: {
+          request
+        }
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/spotlights/requests/{id}/reject:
+   *   put:
+   *     summary: Reject a spotlight request (Admin)
+   *     tags: [Spotlight]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   */
+  @Put("/requests/:id/reject")
+  @UseBefore(canAccess("spotlight", "edit"))
+  async rejectRequest(@Param("id") id: string, @Res() res: any) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+
+      const request = await this.spotlightRequestRepo.findOneBy({
+        _id: new ObjectId(id),
+        isDeleted: false
+      });
+
+      if (!request) throw new NotFoundError("Spotlight request not found");
+
+      if (request.status !== SpotlightRequestStatus.PENDING) {
+        throw new BadRequestError(`Cannot reject a request with status: ${request.status}`);
+      }
+
+      request.status = SpotlightRequestStatus.REJECTED;
+      await this.spotlightRequestRepo.save(request);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Spotlight request rejected successfully",
+        data: request
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/spotlights/requests/{id}:
+   *   delete:
+   *     summary: Soft delete a spotlight request (Admin)
+   *     tags: [Spotlight]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   */
+  @Delete("/requests/:id")
+  @UseBefore(canAccess("spotlight", "delete"))
+  async deleteRequest(@Param("id") id: string, @Res() res: any) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+
+      const request = await this.spotlightRequestRepo.findOneBy({
+        _id: new ObjectId(id),
+        isDeleted: false
+      });
+
+      if (!request) throw new NotFoundError("Spotlight request not found");
+
+      request.isDeleted = true;
+      await this.spotlightRequestRepo.save(request);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Spotlight request deleted successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
    * @swagger
    * /api/admin/spotlights/{id}:
    *   get:
@@ -261,256 +535,5 @@ export class SpotlightController {
     }
   }
 
-  /**
-   * @swagger
-   * /api/admin/spotlights/requests:
-   *   get:
-   *     summary: List all spotlight requests (Admin)
-   *     tags: [Spotlight]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: query
-   *         name: page
-   *         schema: { type: integer, default: 0 }
-   *       - in: query
-   *         name: limit
-   *         schema: { type: integer, default: 10 }
-   *       - in: query
-   *         name: status
-   *         schema: { type: string }
-   *       - in: query
-   *         name: search
-   *         schema: { type: string }
-   *     responses:
-   *       200:
-   *         description: List of spotlight requests
-   */
-  @Get("/requests")
-  @UseBefore(canAccess("spotlight", "view"))
-  async getAllRequests(
-    @QueryParam("page") page: number,
-    @QueryParam("limit") limit: number,
-    @QueryParam("status") status: string,
-    @QueryParam("search") search: string,
-    @Res() res: any
-  ) {
-    page = Number(page) || 0;
-    limit = Number(limit) || 10;
 
-    try {
-      const where: any = { isDeleted: false };
-      if (status) {
-        where.status = status;
-      }
-
-      // If searching by member name, we need to find members matching search
-      let targetMemberIds: ObjectId[] = [];
-      let searchActive = false;
-
-      if (search) {
-        searchActive = true;
-        const members = await this.memberRepo.find({
-          where: {
-            fullName: { $regex: search, $options: "i" },
-            isDeleted: false
-          }
-        });
-        targetMemberIds = members.map(m => m._id);
-      }
-
-      if (searchActive) {
-        if (targetMemberIds.length === 0) {
-          return pagination(0, [], limit, page, res);
-        }
-        where.memberId = { $in: targetMemberIds };
-      }
-
-      const [requests, total] = await this.spotlightRequestRepo.findAndCount({
-        where,
-        skip: page * limit,
-        take: limit,
-        order: { createdAt: "DESC" }
-      });
-
-      // Fetch member details for requests
-      const memberIds = requests.map(r => r.memberId);
-      const uniqueMemberIds = Array.from(new Set(memberIds.map(id => id.toString()))).map(id => new ObjectId(id));
-
-      let memberMap = new Map();
-      if (uniqueMemberIds.length > 0) {
-        const members = await this.memberRepo.find({
-          where: { _id: { $in: uniqueMemberIds } }
-        });
-        memberMap = new Map(members.map(m => [m._id.toString(), {
-          _id: m._id,
-          fullName: m.fullName,
-          profilePhoto: m.profilePhoto,
-          businessName: m.businessName
-        }]));
-      }
-
-      const requestsWithMembers = requests.map(r => ({
-        ...r,
-        member: memberMap.get(r.memberId.toString()) || { _id: r.memberId, fullName: "Unknown Member" }
-      }));
-
-      return pagination(total, requestsWithMembers, limit, page, res);
-    } catch (error: any) {
-      return handleErrorResponse(error, res);
-    }
-  }
-
-  /**
-   * @swagger
-   * /api/admin/spotlights/requests/{id}/approve:
-   *   put:
-   *     summary: Approve a spotlight request and schedule it (Admin)
-   *     tags: [Spotlight]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: id
-   *         required: true
-   *         schema:
-   *           type: string
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         application/json:
-   *           schema:
-   *             $ref: '#/components/schemas/ApproveSpotlightRequestDto'
-   */
-  @Put("/requests/:id/approve")
-  @UseBefore(canAccess("spotlight", "edit"))
-  async approveRequest(
-    @Param("id") id: string,
-    @Body() data: ApproveSpotlightRequestDto,
-    @Res() res: any
-  ) {
-    try {
-      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
-
-      const request = await this.spotlightRequestRepo.findOneBy({
-        _id: new ObjectId(id),
-        isDeleted: false
-      });
-
-      if (!request) throw new NotFoundError("Spotlight request not found");
-
-      if (request.status !== SpotlightRequestStatus.PENDING) {
-        throw new BadRequestError(`Cannot approve a request with status: ${request.status}`);
-      }
-
-      // 1. Update the request status
-      request.status = SpotlightRequestStatus.APPROVED;
-      await this.spotlightRequestRepo.save(request);
-
-      // 2. Create the Spotlight schedule
-      const spotlight = new Spotlight();
-      spotlight.members = [request.memberId];
-      spotlight.scheduleDate = new Date(data.scheduleDate);
-      spotlight.status = SpotlightStatus.SCHEDULE;
-      spotlight.isDeleted = false;
-
-      const savedSpotlight = await this.spotlightRepo.save(spotlight);
-
-      return res.status(StatusCodes.OK).json({
-        success: true,
-        message: "Spotlight request approved and scheduled successfully",
-        data: {
-          request,
-          spotlight: savedSpotlight
-        }
-      });
-    } catch (error: any) {
-      return handleErrorResponse(error, res);
-    }
-  }
-
-  /**
-   * @swagger
-   * /api/admin/spotlights/requests/{id}/reject:
-   *   put:
-   *     summary: Reject a spotlight request (Admin)
-   *     tags: [Spotlight]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: id
-   *         required: true
-   *         schema:
-   *           type: string
-   */
-  @Put("/requests/:id/reject")
-  @UseBefore(canAccess("spotlight", "edit"))
-  async rejectRequest(@Param("id") id: string, @Res() res: any) {
-    try {
-      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
-
-      const request = await this.spotlightRequestRepo.findOneBy({
-        _id: new ObjectId(id),
-        isDeleted: false
-      });
-
-      if (!request) throw new NotFoundError("Spotlight request not found");
-
-      if (request.status !== SpotlightRequestStatus.PENDING) {
-        throw new BadRequestError(`Cannot reject a request with status: ${request.status}`);
-      }
-
-      request.status = SpotlightRequestStatus.REJECTED;
-      await this.spotlightRequestRepo.save(request);
-
-      return res.status(StatusCodes.OK).json({
-        success: true,
-        message: "Spotlight request rejected successfully",
-        data: request
-      });
-    } catch (error: any) {
-      return handleErrorResponse(error, res);
-    }
-  }
-
-  /**
-   * @swagger
-   * /api/admin/spotlights/requests/{id}:
-   *   delete:
-   *     summary: Soft delete a spotlight request (Admin)
-   *     tags: [Spotlight]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: id
-   *         required: true
-   *         schema:
-   *           type: string
-   */
-  @Delete("/requests/:id")
-  @UseBefore(canAccess("spotlight", "delete"))
-  async deleteRequest(@Param("id") id: string, @Res() res: any) {
-    try {
-      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
-
-      const request = await this.spotlightRequestRepo.findOneBy({
-        _id: new ObjectId(id),
-        isDeleted: false
-      });
-
-      if (!request) throw new NotFoundError("Spotlight request not found");
-
-      request.isDeleted = true;
-      await this.spotlightRequestRepo.save(request);
-
-      return res.status(StatusCodes.OK).json({
-        success: true,
-        message: "Spotlight request deleted successfully"
-      });
-    } catch (error: any) {
-      return handleErrorResponse(error, res);
-    }
-  }
 }

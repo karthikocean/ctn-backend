@@ -135,7 +135,7 @@ export class AdminMemberController {
         where,
         skip: page * limit,
         take: limit,
-        order: { fullName: "ASC" }
+        order: { updatedAt: "DESC" }
       });
 
       // Populate Categories
