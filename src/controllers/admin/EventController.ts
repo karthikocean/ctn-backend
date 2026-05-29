@@ -10,7 +10,9 @@ import {
   NotFoundError,
   BadRequestError,
   HttpCode,
-  Res
+  Res,
+  Req,
+  UseBefore
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Event, EventStatus } from "../../entity/Event";
@@ -19,8 +21,11 @@ import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { CreateEventDto, UpdateEventDto } from "../../dto/admin/Event.dto";
+import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
+import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 
 @JsonController("/events")
+@UseBefore(AuthMiddleware, franchiseFilter)
 export class AdminEventController {
   private eventRepo = AppDataSource.getMongoRepository(Event);
 
@@ -33,7 +38,7 @@ export class AdminEventController {
    */
   @Post("/")
   @HttpCode(StatusCodes.CREATED)
-  async create(@Body() data: CreateEventDto, @Res() res: any) {
+  async create(@Req() req: any, @Body() data: CreateEventDto, @Res() res: any) {
     try {
       // ✅ Check for unique title
       const existing = await this.eventRepo.findOneBy({
@@ -47,6 +52,8 @@ export class AdminEventController {
 
       event.isDeleted = false;
       event.status = data.status || EventStatus.UPCOMING;
+      event.createdBy = new ObjectId(req.user.userId);
+      event.updatedBy = new ObjectId(req.user.userId);
 
       const saved = await this.eventRepo.save(event);
       return res.status(StatusCodes.CREATED).json({
@@ -68,6 +75,7 @@ export class AdminEventController {
    */
   @Get("/")
   async getAll(
+    @Req() req: any,
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
     @QueryParam("search") search: string,
@@ -78,6 +86,9 @@ export class AdminEventController {
 
     try {
       const where: any = { isDeleted: false };
+      if (req.isFranchise) {
+        where.createdBy = new ObjectId(req.user.userId);
+      }
       if (search) {
         where.title = { $regex: search, $options: "i" };
       }
@@ -103,7 +114,7 @@ export class AdminEventController {
    *     tags: [Admin Event]
    */
   @Get("/:id")
-  async getOne(@Param("id") id: string, @Res() res: any) {
+  async getOne(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
@@ -113,6 +124,12 @@ export class AdminEventController {
       });
 
       if (!event) throw new NotFoundError("Event not found");
+
+      if (req.isFranchise) {
+        if (!event.createdBy || event.createdBy.toString() !== req.user.userId) {
+          throw new NotFoundError("Event not found");
+        }
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -131,7 +148,7 @@ export class AdminEventController {
    *     tags: [Admin Event]
    */
   @Put("/:id")
-  async update(@Param("id") id: string, @Body() data: UpdateEventDto, @Res() res: any) {
+  async update(@Req() req: any, @Param("id") id: string, @Body() data: UpdateEventDto, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
@@ -142,7 +159,14 @@ export class AdminEventController {
 
       if (!event) throw new NotFoundError("Event not found");
 
+      if (req.isFranchise) {
+        if (!event.createdBy || event.createdBy.toString() !== req.user.userId) {
+          throw new BadRequestError("You are not authorized to update this event");
+        }
+      }
+
       Object.assign(event, data);
+      event.updatedBy = new ObjectId(req.user.userId);
       const saved = await this.eventRepo.save(event);
 
       return res.status(StatusCodes.OK).json({
@@ -163,7 +187,7 @@ export class AdminEventController {
    *     tags: [Admin Event]
    */
   @Delete("/:id")
-  async delete(@Param("id") id: string, @Res() res: any) {
+  async delete(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
@@ -174,7 +198,14 @@ export class AdminEventController {
 
       if (!event) throw new NotFoundError("Event not found");
 
+      if (req.isFranchise) {
+        if (!event.createdBy || event.createdBy.toString() !== req.user.userId) {
+          throw new BadRequestError("You are not authorized to delete this event");
+        }
+      }
+
       event.isDeleted = true;
+      event.updatedBy = new ObjectId(req.user.userId);
       await this.eventRepo.save(event);
 
       return res.status(StatusCodes.OK).json({

@@ -11,7 +11,8 @@ import {
   BadRequestError,
   HttpCode,
   Res,
-  UseBefore
+  UseBefore,
+  Req
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Spotlight } from "../../entity/Spotlight";
@@ -23,9 +24,10 @@ import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { canAccess } from "../../middlewares/PermissionMiddleware";
+import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 
 @JsonController("/spotlights")
-@UseBefore(AuthMiddleware)
+@UseBefore(AuthMiddleware, franchiseFilter)
 export class SpotlightController {
   private spotlightRepo = AppDataSource.getMongoRepository(Spotlight);
   private memberRepo = AppDataSource.getMongoRepository(Member);
@@ -51,13 +53,15 @@ export class SpotlightController {
   @Post("/")
   @UseBefore(canAccess("spotlight", "add"))
   @HttpCode(StatusCodes.CREATED)
-  async create(@Body() data: CreateSpotlightDto, @Res() res: any) {
+  async create(@Req() req: any, @Body() data: CreateSpotlightDto, @Res() res: any) {
     try {
       const spotlight = new Spotlight();
       spotlight.members = data.members.map(id => new ObjectId(id));
       spotlight.scheduleDate = new Date(data.scheduleDate);
       spotlight.status = data.status || spotlight.status;
       spotlight.isDeleted = false;
+      spotlight.createdBy = new ObjectId(req.user.userId);
+      spotlight.updatedBy = new ObjectId(req.user.userId);
 
       const saved = await this.spotlightRepo.save(spotlight);
       return res.status(StatusCodes.CREATED).json({
@@ -92,6 +96,7 @@ export class SpotlightController {
   @Get("/")
   @UseBefore(canAccess("spotlight", "view"))
   async getAll(
+    @Req() req: any,
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
     @QueryParam("status") status: string,
@@ -102,6 +107,9 @@ export class SpotlightController {
 
     try {
       const where: any = { isDeleted: false };
+      if (req.isFranchise) {
+        where.createdBy = new ObjectId(req.user.userId);
+      }
       if (status) {
         where.status = status;
       }
@@ -149,7 +157,7 @@ export class SpotlightController {
    */
   @Get("/:id")
   @UseBefore(canAccess("spotlight", "view"))
-  async getOne(@Param("id") id: string, @Res() res: any) {
+  async getOne(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
@@ -158,6 +166,12 @@ export class SpotlightController {
       });
 
       if (!spotlight) throw new NotFoundError("Spotlight not found");
+
+      if (req.isFranchise) {
+        if (!spotlight.createdBy || spotlight.createdBy.toString() !== req.user.userId) {
+          throw new NotFoundError("Spotlight not found");
+        }
+      }
 
       // Fetch member details
       const members = await this.memberRepo.find({
@@ -184,16 +198,23 @@ export class SpotlightController {
    */
   @Put("/:id")
   @UseBefore(canAccess("spotlight", "edit"))
-  async update(@Param("id") id: string, @Body() data: UpdateSpotlightDto, @Res() res: any) {
+  async update(@Req() req: any, @Param("id") id: string, @Body() data: UpdateSpotlightDto, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
       const spotlight = await this.spotlightRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!spotlight) throw new NotFoundError("Spotlight not found");
 
+      if (req.isFranchise) {
+        if (!spotlight.createdBy || spotlight.createdBy.toString() !== req.user.userId) {
+          throw new BadRequestError("You are not authorized to update this spotlight");
+        }
+      }
+
       if (data.members) spotlight.members = data.members.map(id => new ObjectId(id));
       if (data.scheduleDate) spotlight.scheduleDate = new Date(data.scheduleDate);
       if (data.status) spotlight.status = data.status;
+      spotlight.updatedBy = new ObjectId(req.user.userId);
 
       const saved = await this.spotlightRepo.save(spotlight);
       return res.status(StatusCodes.OK).json({
@@ -214,14 +235,21 @@ export class SpotlightController {
    */
   @Delete("/:id")
   @UseBefore(canAccess("spotlight", "delete"))
-  async delete(@Param("id") id: string, @Res() res: any) {
+  async delete(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
       const spotlight = await this.spotlightRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!spotlight) throw new NotFoundError("Spotlight not found");
 
+      if (req.isFranchise) {
+        if (!spotlight.createdBy || spotlight.createdBy.toString() !== req.user.userId) {
+          throw new BadRequestError("You are not authorized to delete this spotlight");
+        }
+      }
+
       spotlight.isDeleted = true;
+      spotlight.updatedBy = new ObjectId(req.user.userId);
       await this.spotlightRepo.save(spotlight);
 
       return res.status(StatusCodes.OK).json({ message: "Spotlight deleted successfully" });
