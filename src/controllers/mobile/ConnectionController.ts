@@ -116,6 +116,97 @@ export class MobileConnectionController {
 
   /**
    * @swagger
+   * /mobile-api/connections/follow:
+   *   post:
+   *     summary: Automatically follow a member (creates an accepted connection)
+   *     tags: [Mobile Connection]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/CreateConnectionDto'
+   */
+  @Post("/follow")
+  @HttpCode(StatusCodes.OK)
+  async followMember(@Req() req: any, @Body() data: CreateConnectionDto, @Res() res: any) {
+    try {
+      const senderId = req.user.userId;
+      const { receiverId } = data;
+
+      if (senderId === receiverId) {
+        throw new BadRequestError("You cannot follow yourself");
+      }
+
+      if (!ObjectId.isValid(receiverId)) {
+        throw new BadRequestError("Invalid receiver ID");
+      }
+
+      // Check if receiver exists
+      const receiver = await this.memberRepo.findOneBy({ _id: new ObjectId(receiverId), isDeleted: false });
+      if (!receiver) throw new NotFoundError("Receiver not found");
+
+      // Check if already connected or request exists (in THIS direction)
+      let connection = await this.connectionRepo.findOne({
+        where: {
+          senderId: new ObjectId(senderId),
+          receiverId: new ObjectId(receiverId)
+        } as any
+      });
+
+      if (connection) {
+        if (connection.status === ConnectionStatus.ACCEPTED) {
+          return res.status(StatusCodes.OK).json({
+            success: true,
+            message: "You are already following this member",
+            data: connection
+          });
+        }
+
+        if (connection.status === ConnectionStatus.BLOCKED) {
+          throw new BadRequestError("You cannot follow this member because they are blocked");
+        }
+
+        // For any other status (PENDING, REJECTED, CANCELLED), directly accept/follow
+        connection.status = ConnectionStatus.ACCEPTED;
+      } else {
+        // Create new accepted connection
+        connection = new Connection();
+        connection.senderId = new ObjectId(senderId);
+        connection.receiverId = new ObjectId(receiverId);
+        connection.status = ConnectionStatus.ACCEPTED;
+      }
+
+      const saved = await this.connectionRepo.save(connection);
+
+      // ✅ Send Notification to Receiver (custom follow message)
+      if (receiver.fcmToken) {
+        const sender = await this.memberRepo.findOneBy({ _id: new ObjectId(senderId), isDeleted: false });
+        await insertPushNotification({
+          token: receiver.fcmToken,
+          subject: "New Follower",
+          content: `${sender?.fullName || "A member"} is following you. Please follow back!`,
+          moduleName: NotificationModule.CONNECTION,
+          moduleId: saved._id.toString(),
+          receiverId: receiverId,
+          senderId: senderId
+        });
+      }
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "You are now following this member",
+        data: saved
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
    * /mobile-api/connections:
    *   get:
    *     summary: Get my connections (received or sent)
