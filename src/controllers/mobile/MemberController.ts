@@ -73,7 +73,7 @@ export class MobileMemberController {
 
       // Check GST number limit (max 2 users per GST)
       if (data.gstNumber) {
-        const gstCount = await this.memberRepo.countBy({ gstNumber: data.gstNumber, isDeleted: false });
+        const gstCount = await this.memberRepo.count({ gstNumber: data.gstNumber, isDeleted: false });
         if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
       }
 
@@ -806,7 +806,7 @@ export class MobileMemberController {
    * @swagger
    * /mobile-api/members/nearby:
    *   get:
-   *     summary: Get nearby members within 10 km using latitude and longitude
+   *     summary: Get nearby members within a radius (5 km or 10 km) using latitude and longitude
    *     tags: [Mobile Member]
    *     security:
    *       - bearerAuth: []
@@ -820,6 +820,13 @@ export class MobileMemberController {
    *         schema:
    *           type: number
    *       - in: query
+   *         name: radius
+   *         schema:
+   *           type: number
+   *           enum: [5, 10]
+   *           default: 10
+   *         description: Radius filter in kilometers (5 km or 10 km, defaults to 10 km)
+   *       - in: query
    *         name: page
    *         schema:
    *           type: integer
@@ -828,12 +835,13 @@ export class MobileMemberController {
    *         schema:
    *           type: integer
    */
-  @Get("/nearby")
+   @Get("/nearby")
   @UseBefore(MobileAuthMiddleware)
   async getNearbyMembers(
     @Req() req: any,
     @QueryParam("lat") latParam: number,
     @QueryParam("lng") lngParam: number,
+    @QueryParam("radius") radiusParam: number,
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
     @Res() res: any
@@ -846,6 +854,9 @@ export class MobileMemberController {
       let lat = Number(latParam);
       let lng = Number(lngParam);
 
+      // Support 5 km and 10 km variants. Default/fallback to 10 km.
+      const radius = Number(radiusParam) === 5 ? 5 : 10;
+
       // If coords are not provided in query, fall back to current user's profile coords
       if (isNaN(lat) || isNaN(lng)) {
         const currentUser = await this.memberRepo.findOneBy({ _id: new ObjectId(userId), isDeleted: false });
@@ -856,9 +867,9 @@ export class MobileMemberController {
         lng = currentUser.longitude;
       }
 
-      // Calculate Bounding Box for 10 km (1 degree latitude is ~111km, 1 degree longitude is ~111km * cos(lat))
-      const latBound = 10 / 111;
-      const lonBound = 10 / (111 * Math.cos(lat * Math.PI / 180));
+      // Calculate Bounding Box for selected radius (1 degree latitude is ~111km, 1 degree longitude is ~111km * cos(lat))
+      const latBound = radius / 111;
+      const lonBound = radius / (111 * Math.cos(lat * Math.PI / 180));
 
       // Query members within the bounding box
       const boundingBoxWhere: any = {
@@ -931,7 +942,7 @@ export class MobileMemberController {
             isMutual
           };
         })
-        .filter((m): m is any => m !== null && m.distance <= 10);
+        .filter((m): m is any => m !== null && m.distance <= radius);
 
       // Sort closest first
       membersWithDistance.sort((a, b) => a.distance - b.distance);
@@ -991,17 +1002,17 @@ export class MobileMemberController {
     }
   }
 
-  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371; // Radius of the earth in km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a =
+   private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+     const R = 6371; // Radius of the earth in km
+     const dLat = (lat2 - lat1) * Math.PI / 180;
+     const dLon = (lon2 - lon1) * Math.PI / 180;
+     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
       Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Distance in km
-  }
+     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+     return R * c; // Distance in km
+   }
 
   /**
    * @swagger
@@ -1023,109 +1034,109 @@ export class MobileMemberController {
    */
   @Get("/:id")
   @UseBefore(MobileAuthMiddleware)
-  async getMemberDetail(@Req() req: any, @Param("id") id: string, @Res() res: any) {
-    try {
-      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+   async getMemberDetail(@Req() req: any, @Param("id") id: string, @Res() res: any) {
+     try {
+       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
-      const currentUserId = req.user.userId;
+       const currentUserId = req.user.userId;
 
-      const member = await this.memberRepo.findOne({
-        where: { _id: new ObjectId(id), isDeleted: false, status: MemberStatus.ACTIVE }
-      });
+       const member = await this.memberRepo.findOne({
+         where: { _id: new ObjectId(id), isDeleted: false, status: MemberStatus.ACTIVE }
+       });
 
-      if (!member) throw new NotFoundError("Member not found");
+       if (!member) throw new NotFoundError("Member not found");
 
-      // Populate Categories
-      const populated: any = { ...member };
-      delete populated.pin;
-      delete populated.fcmToken;
-      if (member.businessCategory) {
-        const cat = await this.categoryRepo.findOneBy({ _id: member.businessCategory });
-        populated.businessCategory = cat ? { _id: cat._id, name: cat.name } : null;
-      }
-      if (member.subCategory) {
-        const subCat = await this.categoryRepo.findOneBy({ _id: member.subCategory });
-        populated.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : null;
-      }
-      if (member.businessRegion && member.state && member.city) {
-        const region = await this.businessRegionRepo.findOne({
-          where: {
-            state: { $regex: new RegExp(`^${member.state}$`, "i") },
-            city: { $regex: new RegExp(`^${member.city}$`, "i") },
-            isDeleted: false
-          }
-        });
-        const matchedArea = region?.areas?.find(a => a._id?.toString() === member.businessRegion!.toString());
-        populated.businessRegion = matchedArea ? { _id: matchedArea._id, name: matchedArea.name } : null;
-      } else {
-        populated.businessRegion = null;
-      }
+       // Populate Categories
+       const populated: any = { ...member };
+       delete populated.pin;
+       delete populated.fcmToken;
+       if (member.businessCategory) {
+         const cat = await this.categoryRepo.findOneBy({ _id: member.businessCategory });
+         populated.businessCategory = cat ? { _id: cat._id, name: cat.name } : null;
+       }
+       if (member.subCategory) {
+         const subCat = await this.categoryRepo.findOneBy({ _id: member.subCategory });
+         populated.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : null;
+       }
+       if (member.businessRegion && member.state && member.city) {
+         const region = await this.businessRegionRepo.findOne({
+           where: {
+             state: { $regex: new RegExp(`^${member.state}$`, "i") },
+             city: { $regex: new RegExp(`^${member.city}$`, "i") },
+             isDeleted: false
+           }
+         });
+         const matchedArea = region?.areas?.find(a => a._id?.toString() === member.businessRegion!.toString());
+         populated.businessRegion = matchedArea ? { _id: matchedArea._id, name: matchedArea.name } : null;
+       } else {
+         populated.businessRegion = null;
+       }
 
-      // Add Connection Status if authenticated
-      if (currentUserId && currentUserId !== id) {
-        const myRequest = await this.connectionRepo.findOne({
-          where: { senderId: new ObjectId(currentUserId), receiverId: new ObjectId(id) }
-        });
-        const theirRequest = await this.connectionRepo.findOne({
-          where: { senderId: new ObjectId(id), receiverId: new ObjectId(currentUserId) }
-        });
+       // Add Connection Status if authenticated
+       if (currentUserId && currentUserId !== id) {
+         const myRequest = await this.connectionRepo.findOne({
+           where: { senderId: new ObjectId(currentUserId), receiverId: new ObjectId(id) }
+         });
+         const theirRequest = await this.connectionRepo.findOne({
+           where: { senderId: new ObjectId(id), receiverId: new ObjectId(currentUserId) }
+         });
 
-        populated.connection = {
-          myRequestStatus: myRequest?.status || null,
-          theirRequestStatus: theirRequest?.status || null,
-          isFollowing: myRequest?.status === ConnectionStatus.ACCEPTED,
-          isFollower: theirRequest?.status === ConnectionStatus.ACCEPTED,
-          isMutual: myRequest?.status === ConnectionStatus.ACCEPTED && theirRequest?.status === ConnectionStatus.ACCEPTED
-        };
-      }
+         populated.connection = {
+           myRequestStatus: myRequest?.status || null,
+           theirRequestStatus: theirRequest?.status || null,
+           isFollowing: myRequest?.status === ConnectionStatus.ACCEPTED,
+           isFollower: theirRequest?.status === ConnectionStatus.ACCEPTED,
+           isMutual: myRequest?.status === ConnectionStatus.ACCEPTED && theirRequest?.status === ConnectionStatus.ACCEPTED
+         };
+       }
 
-      // Fetch Stats & Summary
-      const counts = await this.getMemberCounts(id);
-      const contributionSummary = await this.getContributionSummary(id);
+       // Fetch Stats & Summary
+       const counts = await this.getMemberCounts(id);
+       const contributionSummary = await this.getContributionSummary(id);
 
-      // Fetch categorized posts
-      const [promotionPosts, requirementPosts, givePosts, askPosts] = await Promise.all([
-        this.postRepo.find({
-          where: { memberId: new ObjectId(id), type: PostType.PROMOTION, isDeleted: false },
-          take: 5,
-          order: { createdAt: "DESC" }
-        }),
-        this.postRepo.find({
-          where: { memberId: new ObjectId(id), type: PostType.REQUIREMENT, isDeleted: false },
-          take: 5,
-          order: { createdAt: "DESC" }
-        }),
-        this.postRepo.find({
-          where: { memberId: new ObjectId(id), type: PostType.GIVE, isDeleted: false },
-          take: 5,
-          order: { createdAt: "DESC" }
-        }),
-        this.postRepo.find({
-          where: { memberId: new ObjectId(id), type: PostType.ASK, isDeleted: false },
-          take: 5,
-          order: { createdAt: "DESC" }
-        })
-      ]);
+       // Fetch categorized posts
+       const [promotionPosts, requirementPosts, givePosts, askPosts] = await Promise.all([
+         this.postRepo.find({
+           where: { memberId: new ObjectId(id), type: PostType.PROMOTION, isDeleted: false },
+           take: 5,
+           order: { createdAt: "DESC" }
+         }),
+         this.postRepo.find({
+           where: { memberId: new ObjectId(id), type: PostType.REQUIREMENT, isDeleted: false },
+           take: 5,
+           order: { createdAt: "DESC" }
+         }),
+         this.postRepo.find({
+           where: { memberId: new ObjectId(id), type: PostType.GIVE, isDeleted: false },
+           take: 5,
+           order: { createdAt: "DESC" }
+         }),
+         this.postRepo.find({
+           where: { memberId: new ObjectId(id), type: PostType.ASK, isDeleted: false },
+           take: 5,
+           order: { createdAt: "DESC" }
+         })
+       ]);
 
-      return res.status(StatusCodes.OK).json({
-        success: true,
-        data: {
-          ...populated,
-          ...counts,
-          contributionSummary,
-          posts: {
-            promotion: promotionPosts || [],
-            requirement: requirementPosts || [],
-            give: givePosts || [],
-            ask: askPosts || []
-          },
-          productsServices: member.productsServices || []
-        }
-      });
-    } catch (error: any) {
-      return handleErrorResponse(error, res);
-    }
-  }
+       return res.status(StatusCodes.OK).json({
+         success: true,
+         data: {
+           ...populated,
+           ...counts,
+           contributionSummary,
+           posts: {
+             promotion: promotionPosts || [],
+             requirement: requirementPosts || [],
+             give: givePosts || [],
+             ask: askPosts || []
+           },
+           productsServices: member.productsServices || []
+         }
+       });
+     } catch (error: any) {
+       return handleErrorResponse(error, res);
+     }
+   }
 
   private async getContributionSummary(memberId: string) {
     const id = new ObjectId(memberId);
@@ -1138,8 +1149,8 @@ export class MobileMemberController {
       responsedData
     ] = await Promise.all([
       this.oneToOneRepo.count({ $or: [{ senderId: id }, { receiverId: id }] } as any),
-      this.referralRepo.countBy({ senderId: id }),
-      this.referralRepo.countBy({ receiverId: id }),
+      this.referralRepo.count({ senderId: id }),
+      this.referralRepo.count({ receiverId: id }),
       this.tySlipRepo.find({ where: { senderId: id } }),
       this.tySlipRepo.find({ where: { receiverId: id } }),
       this.postRepo.find({ memberId: id, isDeleted: false })
@@ -1164,10 +1175,11 @@ export class MobileMemberController {
 
   private async getMemberCounts(memberId: string) {
     const id = new ObjectId(memberId);
+
     const [followersCount, followingsCount, postsCount] = await Promise.all([
-      this.connectionRepo.countBy({ receiverId: id, status: ConnectionStatus.ACCEPTED }),
-      this.connectionRepo.countBy({ senderId: id, status: ConnectionStatus.ACCEPTED }),
-      this.postRepo.countBy({ memberId: id, isDeleted: false })
+      this.connectionRepo.count({ receiverId: id, status: ConnectionStatus.ACCEPTED }),
+      this.connectionRepo.count({ senderId: id, status: ConnectionStatus.ACCEPTED }),
+      this.postRepo.count({ memberId: id, isDeleted: false })
     ]);
 
     return {

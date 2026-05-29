@@ -5,12 +5,16 @@ dotenv.config();
 
 export class MailService {
   private static transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || "",
-    port: parseInt(process.env.SMTP_PORT || "587"),
-    secure: process.env.SMTP_SECURE === "true", // true for 465, false for other ports
+    host: process.env.ZEPTO_MAIL_HOST || "smtp.zeptomail.com",
+    port: parseInt(process.env.ZEPTO_MAIL_PORT || "587"),
+    secure: process.env.ZEPTO_MAIL_PORT === "465",
     auth: {
-      user: process.env.SMTP_USER || "",
-      pass: process.env.SMTP_PASS || "",
+      user: process.env.ZEPTO_MAIL_USER && process.env.ZEPTO_MAIL_USER !== "your_username"
+        ? process.env.ZEPTO_MAIL_USER
+        : "emailapikey",
+      pass: process.env.ZEPTO_MAIL_PASSWORD && process.env.ZEPTO_MAIL_PASSWORD !== "your_password"
+        ? process.env.ZEPTO_MAIL_PASSWORD
+        : process.env.ZEPTO_MAIL_API_KEY || "",
     },
     tls: {
       rejectUnauthorized: false
@@ -23,7 +27,7 @@ export class MailService {
   static async sendEmail(to: string | string[], subject: string, html: string) {
     try {
       const info = await this.transporter.sendMail({
-        from: `"${process.env.SMTP_FROM_NAME || "Trusted Network"}" <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER}>`,
+        from: `"${process.env.ZEPTO_MAIL_FROM_NAME || "Trusted Network"}" <${process.env.ZEPTO_MAIL_FROM_EMAIL || "noreply@trustednetwork.in"}>`,
         to: Array.isArray(to) ? to.join(",") : to,
         subject: subject,
         html: html,
