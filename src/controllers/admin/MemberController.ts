@@ -54,7 +54,7 @@ export class AdminMemberController {
       }
 
       if (data.gstNumber) {
-        const gstCount = await this.memberRepo.countBy({ gstNumber: data.gstNumber, isDeleted: false });
+        const gstCount = await this.memberRepo.count({ gstNumber: data.gstNumber, isDeleted: false });
         if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
       }
 
