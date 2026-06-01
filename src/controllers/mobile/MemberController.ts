@@ -1098,22 +1098,22 @@ export class MobileMemberController {
       const [promotionPosts, requirementPosts, givePosts, askPosts] = await Promise.all([
         this.postRepo.find({
           where: { memberId: new ObjectId(id), type: PostType.PROMOTION, isDeleted: false },
-          take: 5,
+          take: 9,
           order: { createdAt: "DESC" }
         }),
         this.postRepo.find({
           where: { memberId: new ObjectId(id), type: PostType.REQUIREMENT, isDeleted: false },
-          take: 5,
+          take: 9,
           order: { createdAt: "DESC" }
         }),
         this.postRepo.find({
           where: { memberId: new ObjectId(id), type: PostType.GIVE, isDeleted: false },
-          take: 5,
+          take: 9,
           order: { createdAt: "DESC" }
         }),
         this.postRepo.find({
           where: { memberId: new ObjectId(id), type: PostType.ASK, isDeleted: false },
-          take: 5,
+          take: 9,
           order: { createdAt: "DESC" }
         })
       ]);

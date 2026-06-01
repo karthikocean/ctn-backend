@@ -15,11 +15,10 @@ import {
   Req
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
-import { Spotlight, SpotlightStatus } from "../../entity/Spotlight";
+import { Spotlight } from "../../entity/Spotlight";
 import { SpotlightRequest, SpotlightRequestStatus } from "../../entity/SpotlightRequest";
 import { Member } from "../../entity/Member";
 import { CreateSpotlightDto, UpdateSpotlightDto } from "../../dto/admin/Spotlight.dto";
-import { ApproveSpotlightRequestDto } from "../../dto/admin/SpotlightRequest.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
@@ -534,6 +533,5 @@ export class SpotlightController {
       return handleErrorResponse(error, res);
     }
   }
-
 
 }
