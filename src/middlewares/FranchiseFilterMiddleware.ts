@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from "express";
+import { Response, NextFunction } from "express";
 import { AppDataSource } from "../data-source";
 import { Franchise } from "../entity/Franchise";
 import { BusinessRegion } from "../entity/BusinessRegion";
