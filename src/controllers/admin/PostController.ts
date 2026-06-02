@@ -7,7 +7,8 @@ import {
   NotFoundError,
   BadRequestError,
   Res,
-  UseBefore
+  UseBefore,
+  Req
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { PostModel as PostEntity, PostType } from "../../entity/Post";
@@ -18,9 +19,10 @@ import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { canAccess } from "../../middlewares/PermissionMiddleware";
+import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 
 @JsonController("/posts")
-@UseBefore(AuthMiddleware)
+@UseBefore(AuthMiddleware, franchiseFilter)
 export class PostController {
   private postRepo = AppDataSource.getMongoRepository(PostEntity);
   private memberRepo = AppDataSource.getMongoRepository(Member);
@@ -53,6 +55,7 @@ export class PostController {
   @Get("/")
   @UseBefore(canAccess("posts", "view"))
   async getAll(
+    @Req() req: any,
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
     @QueryParam("type") type: PostType,
@@ -64,6 +67,21 @@ export class PostController {
 
     try {
       const where: any = { isDeleted: false };
+
+      if (req.isFranchise) {
+        const franchiseMembers = await this.memberRepo.find({
+          where: {
+            businessRegion: { $in: req.franchiseAreaIds },
+            isDeleted: false
+          }
+        });
+        const franchiseMemberIds = franchiseMembers.map(m => m._id);
+
+        if (franchiseMemberIds.length === 0) {
+          return pagination(0, [], limit, page, res);
+        }
+        where.memberId = { $in: franchiseMemberIds };
+      }
 
       if (type) {
         where.type = type;
@@ -116,7 +134,7 @@ export class PostController {
    */
   @Get("/:id")
   @UseBefore(canAccess("posts", "view"))
-  async getOne(@Param("id") id: string, @Res() res: any) {
+  async getOne(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
@@ -127,6 +145,13 @@ export class PostController {
       if (!post) throw new NotFoundError("Post not found");
 
       const member = await this.memberRepo.findOneBy({ _id: post.memberId });
+
+      if (req.isFranchise) {
+        const regionId = member?.businessRegion;
+        if (!member || !regionId || !req.franchiseAreaIds.some((areaId: ObjectId) => areaId.toString() === regionId.toString())) {
+          throw new NotFoundError("Post not found");
+        }
+      }
 
       return res.status(StatusCodes.OK).json({
         ...post,
