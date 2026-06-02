@@ -1,9 +1,13 @@
 import {
   JsonController,
   Get,
+  Post,
+  Body,
   QueryParam,
   Res
 } from "routing-controllers";
+import { SendTestEmailDto } from "../../dto/admin/Common.dto";
+import { MailService } from "../../services/mail.service";
 import axios from "axios";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AppDataSource } from "../../data-source";
@@ -116,6 +120,80 @@ export class AdminCommonController {
       });
 
     } catch (error) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/common/send-test-email:
+   *   post:
+   *     summary: Send a test email to verify configuration
+   *     tags: [Admin Common]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - email
+   *             properties:
+   *               email:
+   *                 type: string
+   *                 format: email
+   *                 example: "test@example.com"
+   *               subject:
+   *                 type: string
+   *                 example: "Test Email from Trusted Network"
+   *               html:
+   *                 type: string
+   *                 example: "<h3>Test Email</h3><p>If you receive this, the email configuration is working perfectly!</p>"
+   *     responses:
+   *       200:
+   *         description: Test email sent successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 status:
+   *                   type: boolean
+   *                   example: true
+   *                 message:
+   *                   type: string
+   *                   example: "Test email sent successfully"
+   *                 data:
+   *                   type: object
+   *       400:
+   *         description: Invalid request parameters
+   *       500:
+   *         description: Failed to send email
+   */
+  @Post("/send-test-email")
+  async sendTestEmail(@Body() body: SendTestEmailDto, @Res() res: any) {
+    const { email, subject, html } = body;
+    try {
+      const emailSubject = subject || "Test Email - Trusted Network";
+      const emailHtml = html || `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 5px;">
+          <h2 style="color: #14532D;">Trusted Network Email Configuration Test</h2>
+          <p>Hello,</p>
+          <p>This is a test email sent from the <strong>Trusted Network Backend</strong>.</p>
+          <p>If you are reading this message, it means your ZeptoMail configuration is set up correctly and working successfully!</p>
+          <hr style="border: 0; border-top: 1px solid #eee;" />
+          <p style="color: #999; font-size: 12px;">Sent at: ${new Date().toLocaleString()}</p>
+        </div>
+      `;
+
+      const result = await MailService.sendEmail(email, emailSubject, emailHtml);
+
+      return res.status(200).json({
+        status: true,
+        message: "Test email sent successfully",
+        data: result
+      });
+    } catch (error: any) {
       return handleErrorResponse(error, res);
     }
   }
