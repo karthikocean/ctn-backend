@@ -31,11 +31,15 @@ export class CreatePlanDto {
     title!: string;
 
   @IsString()
-  @IsNotEmpty({ message: "Description is required" })
-    description!: string;
+  @IsOptional()
+    description?: string;
 
   @IsNumber()
     amount!: number;
+
+  @IsNumber()
+  @IsOptional()
+    trialDays?: number | null;
 
   @IsString()
   @IsOptional()
@@ -59,6 +63,10 @@ export class UpdatePlanDto {
   @IsNumber()
   @IsOptional()
     amount?: number;
+
+  @IsNumber()
+  @IsOptional()
+    trialDays?: number | null;
 
   @IsString()
   @IsOptional()
