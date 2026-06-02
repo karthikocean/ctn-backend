@@ -7,33 +7,25 @@ import {
 } from "typeorm";
 import { ObjectId } from "mongodb";
 
-@Entity("plans")
-export class Plan {
+@Entity("billings")
+export class Billing {
   @ObjectIdColumn()
     _id!: ObjectId;
 
   @Column()
-    title!: string;
+    memberId!: ObjectId;
 
-  @Column({ nullable: true })
-    description?: string;
+  @Column()
+    planId!: ObjectId;
+
+  @Column()
+    paymentType!: string;
 
   @Column()
     amount!: number;
 
-  @Column({ default: "active" })
-    status!: string;
-
   @Column({ nullable: true })
-    trialDays?: number | null;
-
-  @Column("simple-json")
-    modules!: {
-    moduleName: string;
-    countLimit: number;
-    frequency: string;
-    frequencyValue: number;
-  }[];
+    remarks?: string;
 
   @Column({ default: false })
     isDeleted!: boolean;
@@ -43,4 +35,10 @@ export class Plan {
 
   @UpdateDateColumn()
     updatedAt!: Date;
+
+  @Column({ nullable: true })
+    createdBy?: ObjectId;
+
+  @Column({ nullable: true })
+    updatedBy?: ObjectId;
 }

@@ -14,6 +14,7 @@ import {
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Plan } from "../../entity/Plan";
+import { Member } from "../../entity/Member";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
@@ -23,6 +24,7 @@ import { CreatePlanDto, UpdatePlanDto } from "../../dto/admin/Plan.dto";
 @JsonController("/plans")
 export class AdminPlanController {
   private planRepo = AppDataSource.getMongoRepository(Plan);
+  private memberRepo = AppDataSource.getMongoRepository(Member);
 
   /**
    * @swagger
@@ -96,7 +98,20 @@ export class AdminPlanController {
         order: { createdAt: "DESC" }
       });
 
-      return pagination(total, plans, limit, page, res);
+      const plansWithCount = await Promise.all(
+        plans.map(async (plan) => {
+          const memberCount = await this.memberRepo.count({
+            planId: plan._id,
+            isDeleted: false
+          });
+          return {
+            ...plan,
+            memberCount
+          };
+        })
+      );
+
+      return pagination(total, plansWithCount, limit, page, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
