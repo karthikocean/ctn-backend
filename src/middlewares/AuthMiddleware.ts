@@ -38,6 +38,7 @@ export class AuthMiddleware implements ExpressMiddlewareInterface {
         throw new UnauthorizedError("Token missing");
       }
       const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload;
+      console.log("Decoded JWT Payload:", decoded);
       const decodedId = decoded.id || decoded.userId;
 
       if (!decoded || typeof decoded !== "object" || !decodedId) {
@@ -91,11 +92,7 @@ export class AuthMiddleware implements ExpressMiddlewareInterface {
 
       next();
     } catch (error: any) {
-      if (error instanceof UnauthorizedError) {
-        handleErrorResponse(error, _res);
-      }
       handleErrorResponse(error, _res);
-
     }
   }
 }

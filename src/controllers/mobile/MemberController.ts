@@ -159,30 +159,7 @@ export class MobileMemberController {
       member.pin = await bcrypt.hash(pin, 10);
       await this.memberRepo.save(member);
 
-      // Generate or reuse Token
-      const tokenRepo = AppDataSource.getMongoRepository(UserToken);
-      const existingToken = await tokenRepo.findOne({
-        where: { userId: member._id }
-      });
-
-      let token: string;
-      if (existingToken) {
-        token = existingToken.token;
-      } else {
-        token = jwt.sign(
-          {
-            userId: member._id.toString(),
-            userType: "MEMBER"
-          },
-          process.env.JWT_SECRET as string,
-          { expiresIn: "30d" }
-        );
-
-        const userToken = new UserToken();
-        userToken.userId = member._id;
-        userToken.token = token;
-        await tokenRepo.save(userToken);
-      }
+      const token = await this.getOrRefreshMemberToken(member);
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -231,30 +208,7 @@ export class MobileMemberController {
         throw new BadRequestError("Invalid PIN");
       }
 
-      // Generate or reuse Token
-      const tokenRepo = AppDataSource.getMongoRepository(UserToken);
-      const existingToken = await tokenRepo.findOne({
-        where: { userId: member._id }
-      });
-
-      let token: string;
-      if (existingToken) {
-        token = existingToken.token;
-      } else {
-        token = jwt.sign(
-          {
-            userId: member._id.toString(),
-            userType: "MEMBER"
-          },
-          process.env.JWT_SECRET as string,
-          { expiresIn: "30d" }
-        );
-
-        const userToken = new UserToken();
-        userToken.userId = member._id;
-        userToken.token = token;
-        await tokenRepo.save(userToken);
-      }
+      const token = await this.getOrRefreshMemberToken(member);
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -270,6 +224,46 @@ export class MobileMemberController {
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
+  }
+
+  private async getOrRefreshMemberToken(member: Member): Promise<string> {
+    const tokenRepo = AppDataSource.getMongoRepository(UserToken);
+    const existingToken = await tokenRepo.findOne({
+      where: { userId: member._id }
+    });
+
+    if (existingToken) {
+      try {
+        jwt.verify(existingToken.token, process.env.JWT_SECRET as string);
+        return existingToken.token;
+      } catch (error: any) {
+        const token = jwt.sign(
+          {
+            userId: member._id.toString(),
+            userType: "MEMBER"
+          },
+          process.env.JWT_SECRET as string
+        );
+
+        existingToken.token = token;
+        await tokenRepo.save(existingToken);
+        return token;
+      }
+    }
+
+    const token = jwt.sign(
+      {
+        userId: member._id.toString(),
+        userType: "MEMBER"
+      },
+      process.env.JWT_SECRET as string
+    );
+
+    const userToken = new UserToken();
+    userToken.userId = member._id;
+    userToken.token = token;
+    await tokenRepo.save(userToken);
+    return token;
   }
 
   /**

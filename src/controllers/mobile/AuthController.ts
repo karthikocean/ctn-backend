@@ -283,7 +283,22 @@ export class MobileAuthController {
     });
 
     if (existingToken) {
-      return existingToken.token;
+      try {
+        jwt.verify(existingToken.token, process.env.JWT_SECRET as string);
+        return existingToken.token;
+      } catch (error: any) {
+        const token = jwt.sign(
+          {
+            userId: member._id.toString(),
+            userType: "MEMBER"
+          },
+          process.env.JWT_SECRET as string
+        );
+
+        existingToken.token = token;
+        await this.tokenRepo.save(existingToken);
+        return token;
+      }
     }
 
     const token = jwt.sign(
@@ -291,8 +306,7 @@ export class MobileAuthController {
         userId: member._id.toString(),
         userType: "MEMBER"
       },
-      process.env.JWT_SECRET as string,
-      { expiresIn: "30d" }
+      process.env.JWT_SECRET as string
     );
 
     const userToken = new UserToken();
