@@ -168,6 +168,9 @@ export class Member {
     isDeleted!: boolean;
 
   @Column({ nullable: true })
+    planId?: ObjectId;
+
+  @Column({ nullable: true })
     createdBy?: ObjectId;
 
   @Column({ nullable: true })
