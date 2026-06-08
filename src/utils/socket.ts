@@ -5,10 +5,119 @@ import { AppDataSource } from "../data-source";
 import { Training } from "../entity/Training";
 import { MemberTraining } from "../entity/MemberTraining";
 import { LessonProgress } from "../entity/LessonProgress";
-import { Member } from "../entity/Member";
+import { Member, MemberStatus } from "../entity/Member";
+import { UserToken } from "../entity/UserToken";
+import { AdminUser } from "../entity/AdminUser";
 import { ObjectId } from "mongodb";
 
 let io: SocketServer;
+
+export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => void) => {
+  const token = socket.handshake.auth.token || socket.handshake.headers.authorization;
+
+  if (!token) {
+    return next(new Error("Authentication error: Token missing"));
+  }
+
+  try {
+    const cleanToken = token.replace("Bearer ", "");
+    let decoded: any;
+    let isExpired = false;
+
+    try {
+      decoded = jwt.verify(cleanToken, process.env.JWT_SECRET as string) as any;
+    } catch (error: any) {
+      if (error.name === "TokenExpiredError") {
+        isExpired = true;
+        try {
+          decoded = jwt.verify(cleanToken, process.env.JWT_SECRET as string, { ignoreExpiration: true }) as any;
+        } catch {
+          return next(new Error("Authentication error: Invalid token"));
+        }
+      } else {
+        return next(new Error("Authentication error: Invalid token"));
+      }
+    }
+
+    const userId = decoded.userId || decoded.id;
+    if (!decoded || typeof decoded !== "object" || !userId || !ObjectId.isValid(userId)) {
+      return next(new Error("Authentication error: Invalid token payload"));
+    }
+
+    // 1. Verify User exists and is active in database
+    const userOid = new ObjectId(userId);
+    const isMember = decoded.userType === "MEMBER" || decoded.userId !== undefined;
+
+    if (isMember) {
+      const memberRepo = AppDataSource.getMongoRepository(Member);
+      const member = await memberRepo.findOneBy({ _id: userOid, isDeleted: false });
+      if (!member) {
+        return next(new Error("Authentication error: Member not found"));
+      }
+      if (member.status !== MemberStatus.ACTIVE) {
+        return next(new Error("Authentication error: Account is inactive"));
+      }
+    } else {
+      const adminRepo = AppDataSource.getMongoRepository(AdminUser);
+      const admin = await adminRepo.findOneBy({ _id: userOid, isDeleted: false });
+      if (!admin) {
+        return next(new Error("Authentication error: Admin user not found"));
+      }
+      if (!admin.isActive) {
+        return next(new Error("Authentication error: Account is inactive"));
+      }
+    }
+
+    // 2. Verify Session (UserToken) in database
+    const tokenRepo = AppDataSource.getMongoRepository(UserToken);
+    let activeTokenRecord = await tokenRepo.findOneBy({
+      userId: userOid,
+      token: cleanToken
+    });
+
+    if (!activeTokenRecord) {
+      // Handle concurrent/rotation grace period
+      const dbRecord = await tokenRepo.findOneBy({ userId: userOid });
+      if (dbRecord) {
+        try {
+          const decodedDb = jwt.decode(dbRecord.token) as any;
+          const decodedClient = jwt.decode(cleanToken) as any;
+          if (decodedDb && decodedClient && (decodedClient.iat || 0) <= (decodedDb.iat || 0)) {
+            activeTokenRecord = dbRecord;
+            socket.data.newToken = dbRecord.token;
+          }
+        } catch (e) {
+          console.error("[SocketAuth] Error during older token verification:", e);
+        }
+      }
+    }
+
+    if (!activeTokenRecord) {
+      return next(new Error("Authentication error: Session expired"));
+    }
+
+    // 3. Regenerate token if it was expired and database record was exact match
+    if (isExpired && !socket.data.newToken) {
+      const newToken = jwt.sign(
+        isMember
+          ? { userId: userId.toString(), userType: "MEMBER" }
+          : { id: userId.toString(), roleId: decoded.roleId },
+        process.env.JWT_SECRET as string
+      );
+
+      activeTokenRecord.token = newToken;
+      await tokenRepo.save(activeTokenRecord);
+      socket.data.newToken = newToken;
+      console.log(`[SocketAuth] Regenerated expired socket token for user: ${userId}`);
+    }
+
+    socket.data.userId = userId;
+    next();
+  } catch (err: any) {
+    console.error("[SocketAuth] Unexpected error during authentication:", err);
+    return next(new Error("Authentication error: Internal error"));
+  }
+};
 
 export const initSocket = (server: HttpServer) => {
   io = new SocketServer(server, {
@@ -21,26 +130,16 @@ export const initSocket = (server: HttpServer) => {
   });
 
   // ✅ JWT Authentication Middleware
-  io.use((socket, next) => {
-    const token = socket.handshake.auth.token || socket.handshake.headers.authorization;
-
-    if (!token) {
-      return next(new Error("Authentication error: Token missing"));
-    }
-
-    try {
-      const cleanToken = token.replace("Bearer ", "");
-      const decoded = jwt.verify(cleanToken, process.env.JWT_SECRET as string) as any;
-      socket.data.userId = decoded.userId || decoded.id;
-      next();
-    } catch {
-      return next(new Error("Authentication error: Invalid token"));
-    }
-  });
+  io.use(socketAuthMiddleware);
 
   io.on("connection", async (socket) => {
     const userId = socket.data.userId;
     console.log(`🔌 User connected: ${userId} (Socket ID: ${socket.id})`);
+
+    if (socket.data.newToken) {
+      socket.emit("token_regenerated", { token: socket.data.newToken });
+      console.log(`[SocketAuth] Emitted regenerated token to client: ${userId}`);
+    }
 
     if (userId && ObjectId.isValid(userId)) {
       try {

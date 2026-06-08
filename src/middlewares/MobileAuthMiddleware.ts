@@ -71,12 +71,39 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
 
       // Verify token exists in database (session management)
       const tokenRepo = AppDataSource.getMongoRepository(UserToken);
-      const activeTokenRecord = await tokenRepo.findOneBy({
+      let activeTokenRecord = await tokenRepo.findOneBy({
         userId: new ObjectId(decodedId),
         token: token
       });
 
       if (!activeTokenRecord) {
+        // If not found, check if a newer token exists for this user (grace period / concurrent request handling)
+        const dbRecord = await tokenRepo.findOneBy({ userId: new ObjectId(decodedId) });
+        if (dbRecord) {
+          try {
+            const decodedDb = jwt.decode(dbRecord.token) as JwtPayload;
+            const decodedClient = jwt.decode(token) as JwtPayload;
+
+            if (decodedDb && decodedClient && (decodedClient.iat || 0) <= (decodedDb.iat || 0)) {
+              // The client's token is a valid older token.
+              // Allow the request to proceed and send the latest DB token back to the client.
+              _res.setHeader("x-new-token", dbRecord.token);
+              _res.setHeader("Access-Control-Expose-Headers", "x-new-token");
+              console.log(`[MobileAuth] Accepted older/concurrent token for user: ${decodedId}. Sending latest token in response.`);
+
+              activeTokenRecord = dbRecord;
+            }
+          } catch (e) {
+            console.error("[MobileAuth] Error during older token verification:", e);
+          }
+        }
+      }
+
+      if (!activeTokenRecord) {
+        const dbRecord = await tokenRepo.findOneBy({ userId: new ObjectId(decodedId) });
+        console.log(`[MobileAuthDebug] Token not found in DB for user ${decodedId}.
+          Client token: ${token ? token.substring(0, 15) : "NULL"}...
+          DB token: ${dbRecord ? dbRecord.token.substring(0, 15) + "..." : "NONE"}`);
         throw new UnauthorizedError("Session expired. Please login again.");
       }
 
