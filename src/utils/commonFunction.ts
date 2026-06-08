@@ -1,4 +1,5 @@
 import ApiError from "./error";
+import { UnauthorizedError } from "routing-controllers";
 
 function handleErrorResponse(error: any, res: any) {
 
@@ -24,6 +25,13 @@ function handleErrorResponse(error: any, res: any) {
     return res.status(409).json({
       status: "error",
       message: `${field} '${value}' already exists`
+    });
+  }
+
+  if (error instanceof UnauthorizedError) {
+    return res.status(error.httpCode || 401).json({
+      status: "error",
+      message: error.message || "Unauthorized"
     });
   }
 

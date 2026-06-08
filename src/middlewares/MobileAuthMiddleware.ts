@@ -14,7 +14,7 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
     try {
       const authHeader = req.headers.authorization;
-
+      console.log("Authorization Header:", authHeader);
       if (!authHeader) {
         throw new UnauthorizedError("Authorization header missing");
       }
@@ -29,7 +29,24 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
         throw new UnauthorizedError("Token missing");
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload;
+      let decoded: JwtPayload;
+      let isExpired = false;
+      try {
+        decoded = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload;
+      } catch (error: any) {
+        if (error.name === "TokenExpiredError") {
+          isExpired = true;
+          try {
+            decoded = jwt.verify(token, process.env.JWT_SECRET as string, { ignoreExpiration: true }) as JwtPayload;
+          } catch {
+            throw new UnauthorizedError("Invalid token");
+          }
+        } else {
+          throw new UnauthorizedError("Invalid token");
+        }
+      }
+
+      console.log("Decoded JWT Payload:", decoded);
       const decodedId = decoded.userId || decoded.id;
 
       if (!decoded || typeof decoded !== "object" || !decodedId) {
@@ -61,6 +78,23 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
 
       if (!activeTokenRecord) {
         throw new UnauthorizedError("Session expired. Please login again.");
+      }
+
+      if (isExpired) {
+        const newToken = jwt.sign(
+          {
+            userId: member._id.toString(),
+            userType: "MEMBER"
+          },
+          process.env.JWT_SECRET as string
+        );
+
+        activeTokenRecord.token = newToken;
+        await tokenRepo.save(activeTokenRecord);
+
+        _res.setHeader("x-new-token", newToken);
+        _res.setHeader("Access-Control-Expose-Headers", "x-new-token");
+        console.log(`Mobile token regenerated and updated for user: ${decodedId}`);
       }
 
       (req as any).user = {
