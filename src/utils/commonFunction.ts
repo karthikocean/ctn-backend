@@ -2,10 +2,20 @@ import ApiError from "./error";
 import { UnauthorizedError } from "routing-controllers";
 
 function handleErrorResponse(error: any, res: any) {
+  console.error("Error handler caught error:", error);
 
   if (res.headersSent) {
     return;
   }
+
+  // Handle Razorpay SDK errors
+  if (error && error.error && typeof error.error.description === "string") {
+    return res.status(error.statusCode || 400).json({
+      status: "error",
+      message: `Razorpay Error: ${error.error.description}`
+    });
+  }
+
   if (error?.code === 11000) {
 
     let field = "field";

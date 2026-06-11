@@ -14,7 +14,6 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
     try {
       const authHeader = req.headers.authorization;
-      console.log("Authorization Header:", authHeader);
       if (!authHeader) {
         throw new UnauthorizedError("Authorization header missing");
       }
@@ -46,7 +45,6 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
         }
       }
 
-      console.log("Decoded JWT Payload:", decoded);
       const decodedId = decoded.userId || decoded.id;
 
       if (!decoded || typeof decoded !== "object" || !decodedId) {

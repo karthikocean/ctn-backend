@@ -32,6 +32,7 @@ import { OneToOne } from "../../entity/OneToOne";
 import { Referral } from "../../entity/Referral";
 import { ThankYouSlip } from "../../entity/ThankYouSlip";
 import { Milestone } from "../../entity/Milestone";
+import { SubscriptionService } from "../../services/subscription.service";
 
 @JsonController("/members")
 export class MobileMemberController {
@@ -313,12 +314,23 @@ export class MobileMemberController {
         data.businessRegion = matchedArea ? { _id: matchedArea._id, name: matchedArea.name } : member.businessRegion;
       }
 
+      const subService = new SubscriptionService();
+      const subscription = await subService.getActiveSubscription(userId);
+
       return res.status(StatusCodes.OK).json({
         success: true,
         data: {
           ...data,
           ...counts,
-          contributionSummary
+          contributionSummary,
+          subscription: {
+            planId: subscription.planId,
+            planName: subscription.planName,
+            type: subscription.type,
+            status: subscription.status,
+            endDate: subscription.endDate,
+            daysRemaining: subscription.daysRemaining
+          }
         }
       });
     } catch (error: any) {

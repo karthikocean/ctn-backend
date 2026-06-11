@@ -18,6 +18,7 @@ import { createServer } from "http";
 import { initSocket } from "./utils/socket";
 import cron from "node-cron";
 import axios from "axios";
+import { SubscriptionCronService } from "./services/subscriptionCron.service";
 
 AppDataSource.initialize()
   .then(async () => {
@@ -26,6 +27,8 @@ AppDataSource.initialize()
     const app = express();
     // seed default admin user
     await seedAdmin();
+    // seed default subscription plans
+    // await seedPlans();
     app.use(express.json());
 
     app.use(
@@ -112,6 +115,9 @@ AppDataSource.initialize()
     const server = httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📄 Swagger: http://localhost:${PORT}/api-docs`);
+
+      // Initialize Subscription Daily Cron Job
+      SubscriptionCronService.init();
 
       // ✅ Cron job to call the production URL every 5 minutes to keep it alive
       cron.schedule("*/5 * * * *", async () => {
