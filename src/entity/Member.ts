@@ -173,6 +173,12 @@ export class Member {
   @Column({ nullable: true })
     subscriptionId?: ObjectId;
 
+  @Column({ nullable: true })
+    subscriptionStartDate?: Date;
+
+  @Column({ nullable: true })
+    subscriptionEndDate?: Date;
+
   @Column({ default: false })
     hasUsedTrial!: boolean;
 

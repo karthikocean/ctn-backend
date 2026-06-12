@@ -11,6 +11,28 @@ import { AdminUser } from "../entity/AdminUser";
 import { ObjectId } from "mongodb";
 
 let io: SocketServer;
+let activeDisconnects = 0;
+
+const isDbClosedError = (err: any): boolean => {
+  if (!err) return false;
+  const name = err.name || "";
+  const message = err.message || "";
+  return (
+    name === "MongoExpiredSessionError" ||
+    name === "MongoNotConnectedError" ||
+    name === "MongoTopologyClosedError" ||
+    message.includes("session that has ended") ||
+    message.includes("topology is closed") ||
+    message.includes("connection is closed")
+  );
+};
+
+export const waitForDisconnects = async (timeoutMs: number = 2000): Promise<void> => {
+  const start = Date.now();
+  while (activeDisconnects > 0 && Date.now() - start < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+};
 
 export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => void) => {
   const token = socket.handshake.auth.token || socket.handshake.headers.authorization;
@@ -150,7 +172,11 @@ export const initSocket = (server: HttpServer) => {
         );
         io.emit("user_status_changed", { userId, isOnline: true, lastSeen: new Date() });
       } catch (err) {
-        console.error("Failed to update user online status", err);
+        if (isDbClosedError(err)) {
+          console.log(`🔌 Database is closed/closing. Skipping online status update for user ${userId}`);
+        } else {
+          console.error("Failed to update user online status", err);
+        }
       }
     }
 
@@ -173,7 +199,11 @@ export const initSocket = (server: HttpServer) => {
         );
         io.emit("user_status_changed", { userId, isOnline: data.isOnline, lastSeen });
       } catch (err) {
-        console.error("Failed to manual update user online status", err);
+        if (isDbClosedError(err)) {
+          console.log(`🔌 Database is closed/closing. Skipping manual user status update for user ${userId}`);
+        } else {
+          console.error("Failed to manual update user online status", err);
+        }
       }
     });
 
@@ -249,6 +279,7 @@ export const initSocket = (server: HttpServer) => {
       console.log(`❌ User disconnected: ${userId}`);
       if (!userId || !ObjectId.isValid(userId)) return;
 
+      activeDisconnects++;
       try {
         if (!AppDataSource.isInitialized) {
           console.log(`🔌 Database is closed. Skipping offline status update for user ${userId}`);
@@ -271,7 +302,13 @@ export const initSocket = (server: HttpServer) => {
           io.emit("user_status_changed", { userId, isOnline: false, lastSeen });
         }
       } catch (err) {
-        console.error("Failed to update user offline status", err);
+        if (isDbClosedError(err)) {
+          console.log(`🔌 Database is closed/closing. Skipping offline status update for user ${userId}`);
+        } else {
+          console.error("Failed to update user offline status", err);
+        }
+      } finally {
+        activeDisconnects--;
       }
     });
   });

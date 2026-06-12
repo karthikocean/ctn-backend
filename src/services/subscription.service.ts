@@ -63,8 +63,8 @@ export class SubscriptionService {
       activeSub.status = "EXPIRED";
       await this.subRepo.save(activeSub);
 
-      // Remove subscriptionId reference from member
-      await this.memberRepo.update(memberObjectId, { subscriptionId: null as any });
+      // Remove subscriptionId and planId reference from member
+      await this.memberRepo.update(memberObjectId, { subscriptionId: null as any, planId: null as any });
       return this.getVirtualGuestSubscription(now);
     }
 
@@ -172,6 +172,7 @@ export class SubscriptionService {
     // Update member record
     member.hasUsedTrial = true;
     member.subscriptionId = savedSub._id;
+    member.planId = trialPlan._id;
     await this.memberRepo.save(member);
 
     return savedSub;
@@ -272,8 +273,8 @@ export class SubscriptionService {
     // 3. Update payment history with linked subscriptionId
     await this.paymentRepo.update(paymentId, { subscriptionId: savedSub._id });
 
-    // 4. Update member.subscriptionId
-    await this.memberRepo.update(memberId, { subscriptionId: savedSub._id });
+    // 4. Update member.subscriptionId and planId
+    await this.memberRepo.update(memberId, { subscriptionId: savedSub._id, planId: planId });
 
     return savedSub;
   }
@@ -298,8 +299,8 @@ export class SubscriptionService {
     activeSub.status = "CANCELLED";
     await this.subRepo.save(activeSub);
 
-    // Update member subscriptionId
-    await this.memberRepo.update(memberObjectId, { subscriptionId: null as any });
+    // Update member subscriptionId and planId
+    await this.memberRepo.update(memberObjectId, { subscriptionId: null as any, planId: null as any });
 
     return {
       message: "Subscription cancelled successfully.",

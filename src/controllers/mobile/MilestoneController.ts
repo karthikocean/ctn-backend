@@ -29,6 +29,9 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { pagination } from "../../utils";
 import { getIO, isUserInConversation } from "../../utils/socket";
+import { validateModuleUsage } from "../../services/moduleUsage.service";
+import { PointService } from "../../services/point.service";
+import { PointConfigType } from "../../entity/PointConfig";
 
 @JsonController("/milestones")
 @UseBefore(MobileAuthMiddleware)
@@ -60,19 +63,39 @@ export class MobileMilestoneController {
   async create(@Req() req: any, @Body() data: CreateMilestoneDto, @Res() res: any) {
     try {
       const userId = req.user.userId;
+      const memberObjectId = new ObjectId(userId);
+
+      // 1. Validate module usage limit before saving the document
+      await validateModuleUsage(memberObjectId, "Milestones");
 
       const milestone = new Milestone();
       Object.assign(milestone, data);
-      milestone.memberId = new ObjectId(userId);
+      milestone.memberId = memberObjectId;
       milestone.viewCount = 0;
       milestone.clapsCount = 0;
       milestone.isDeleted = false;
 
       const saved = await this.milestoneRepo.save(milestone);
+
+      let pointsResult = { awarded: 0, balance: 0 };
+      // 2. Award Points
+      try {
+        const pointService = new PointService();
+        pointsResult = await pointService.awardPoints({
+          memberId: memberObjectId,
+          moduleName: "Milestones",
+          type: PointConfigType.CREATION,
+          referenceId: saved._id
+        });
+      } catch (pointError) {
+        console.error("Failed to award points for milestone creation:", pointError);
+      }
+
       return res.status(StatusCodes.CREATED).json({
         success: true,
         message: "Milestone created successfully",
-        data: saved
+        data: saved,
+        points: pointsResult
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -427,13 +450,27 @@ export class MobileMilestoneController {
         unreadCount
       });
 
+      let pointsResult = { awarded: 0, balance: 0 };
+      try {
+        const pointService = new PointService();
+        pointsResult = await pointService.awardPoints({
+          memberId: userId,
+          moduleName: "Milestones",
+          type: PointConfigType.RESPONSE,
+          referenceId: savedMessage._id
+        });
+      } catch (pointError) {
+        console.error("Failed to award points for milestone reply:", pointError);
+      }
+
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Reply sent successfully",
         data: {
           conversationId: conversation._id,
           message: savedMessage
-        }
+        },
+        points: pointsResult
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
