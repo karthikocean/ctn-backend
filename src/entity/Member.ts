@@ -171,6 +171,12 @@ export class Member {
     planId?: ObjectId;
 
   @Column({ nullable: true })
+    subscriptionId?: ObjectId;
+
+  @Column({ default: false })
+    hasUsedTrial!: boolean;
+
+  @Column({ nullable: true })
     createdBy?: ObjectId;
 
   @Column({ nullable: true })

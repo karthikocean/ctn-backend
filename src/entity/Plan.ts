@@ -27,6 +27,28 @@ export class Plan {
   @Column({ nullable: true })
     trialDays?: number | null;
 
+  @Column({ nullable: true })
+    type?: string; // "FREE" | "TRIAL" | "PREMIUM" | "BUSINESS"
+
+  @Column({ nullable: true, default: "yearly" })
+    billingCycle?: string = "yearly"; // "monthly" | "yearly" | "none"
+
+  @Column("json", { nullable: true })
+    features?: {
+      maxConnections: number; // -1 for unlimited
+      maxMessages: number;    // -1 for unlimited
+      searchType: string;     // "basic" | "advanced"
+      requirementsAccess: string; // "public" | "premium"
+      featuredProfile: boolean;
+      priorityVisibility: boolean;
+      trustAnalytics: boolean;
+      businessInsights: boolean;
+      teamManagement: boolean;
+      leadGeneration: boolean;
+      dashboard: boolean;
+      premiumBranding: boolean;
+    };
+
   @Column("simple-json")
     modules!: {
     moduleName: string;

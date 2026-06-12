@@ -1,9 +1,16 @@
 import { Interceptor, InterceptorInterface, Action } from "routing-controllers";
+import { Stream } from "stream";
+import { IncomingMessage, ServerResponse } from "http";
 
 @Interceptor()
 export class ResponseInterceptor implements InterceptorInterface {
   intercept(action: Action, content: any) {
-    if (action.response.headersSent || (content && content.headersSent)) {
+    if (
+      content === action.response ||
+      content === action.request ||
+      action.response.headersSent ||
+      (content && content.headersSent)
+    ) {
       return content;
     }
     return this.transform(content, new WeakSet());
@@ -14,6 +21,17 @@ export class ResponseInterceptor implements InterceptorInterface {
 
     // Handle primitive types early
     if (typeof obj !== "object") return obj;
+
+    // Skip streams, request/response objects, and buffers
+    if (
+      obj instanceof Stream ||
+      obj instanceof IncomingMessage ||
+      obj instanceof ServerResponse ||
+      Buffer.isBuffer(obj) ||
+      typeof obj.pipe === "function"
+    ) {
+      return obj;
+    }
 
     // Handle Date
     if (obj instanceof Date) return obj;
