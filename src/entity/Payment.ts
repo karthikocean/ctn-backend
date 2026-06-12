@@ -36,6 +36,18 @@ export class Payment {
   @Column({ default: false })
     isDeleted!: boolean;
 
+  @Column({ default: "app" })
+    source!: string; // "app" | "admin"
+
+  @Column({ nullable: true })
+    remarks?: string;
+
+  @Column({ nullable: true })
+    createdBy?: ObjectId;
+
+  @Column({ nullable: true })
+    updatedBy?: ObjectId;
+
   @CreateDateColumn()
     createdAt!: Date;
 

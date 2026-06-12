@@ -33,6 +33,9 @@ export class Plan {
   @Column({ nullable: true, default: "yearly" })
     billingCycle?: string = "yearly"; // "monthly" | "yearly" | "none"
 
+  @Column({ nullable: true })
+    billingType?: string; // "basic" | "standard" | "premium"
+
   @Column("json", { nullable: true })
     features?: {
       maxConnections: number; // -1 for unlimited

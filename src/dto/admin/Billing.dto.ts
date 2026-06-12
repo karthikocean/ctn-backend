@@ -15,12 +15,16 @@ export class CreateBillingDto {
     planId!: string;
 
   @IsString()
-  @IsNotEmpty({ message: "Payment type is required" })
-    paymentType!: string;
+  @IsNotEmpty({ message: "Payment method is required" })
+    paymentMethod!: string;
 
   @IsNumber()
   @IsNotEmpty({ message: "Amount is required" })
     amount!: number;
+
+  @IsString()
+  @IsNotEmpty({ message: "Transaction ID is required" })
+    transactionId!: string;
 
   @IsString()
   @IsOptional()
@@ -38,11 +42,15 @@ export class UpdateBillingDto {
 
   @IsString()
   @IsOptional()
-    paymentType?: string;
+    paymentMethod?: string;
 
   @IsNumber()
   @IsOptional()
     amount?: number;
+
+  @IsString()
+  @IsOptional()
+    transactionId?: string;
 
   @IsString()
   @IsOptional()

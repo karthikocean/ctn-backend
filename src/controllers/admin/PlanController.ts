@@ -37,10 +37,13 @@ export class AdminPlanController {
   @HttpCode(StatusCodes.CREATED)
   async create(@Body() data: CreatePlanDto, @Res() res: any) {
     try {
-      // ✅ Check for unique title
-      const existing = await this.planRepo.findOneBy({
-        title: data.title,
-        isDeleted: false
+      // ✅ Check for unique title (case-insensitive and trimmed)
+      const trimmedTitle = data.title.trim();
+      const existing = await this.planRepo.findOne({
+        where: {
+          title: { $regex: `^${trimmedTitle}$`, $options: "i" },
+          isDeleted: false
+        }
       });
       if (existing) throw new BadRequestError("A plan with this title already exists");
 
@@ -164,12 +167,15 @@ export class AdminPlanController {
 
       if (!plan) throw new NotFoundError("Plan not found");
 
-      // Check if title is being changed and if new title already exists
-      if (data.title && data.title !== plan.title) {
-        const existing = await this.planRepo.findOneBy({
-          title: data.title,
-          isDeleted: false,
-          _id: { $ne: new ObjectId(id) }
+      // Check if title is being changed and if new title already exists (case-insensitive and trimmed)
+      if (data.title && data.title.trim().toLowerCase() !== plan.title.toLowerCase()) {
+        const trimmedTitle = data.title.trim();
+        const existing = await this.planRepo.findOne({
+          where: {
+            title: { $regex: `^${trimmedTitle}$`, $options: "i" },
+            isDeleted: false,
+            _id: { $ne: new ObjectId(id) }
+          }
         });
         if (existing) throw new BadRequestError("A plan with this title already exists");
       }

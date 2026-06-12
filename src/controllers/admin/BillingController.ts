@@ -15,7 +15,7 @@ import {
   UseBefore
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
-import { Billing } from "../../entity/Billing";
+import { Payment } from "../../entity/Payment";
 import { Member } from "../../entity/Member";
 import { Plan } from "../../entity/Plan";
 import { ObjectId } from "mongodb";
@@ -28,7 +28,7 @@ import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 @JsonController("/billings")
 @UseBefore(AuthMiddleware)
 export class AdminBillingController {
-  private billingRepo = AppDataSource.getMongoRepository(Billing);
+  private paymentRepo = AppDataSource.getMongoRepository(Payment);
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private planRepo = AppDataSource.getMongoRepository(Plan);
 
@@ -52,20 +52,23 @@ export class AdminBillingController {
       const plan = await this.planRepo.findOneBy({ _id: new ObjectId(data.planId), isDeleted: false });
       if (!plan) throw new NotFoundError("Plan not found");
 
-      const billing = new Billing();
-      billing.memberId = new ObjectId(data.memberId);
-      billing.planId = new ObjectId(data.planId);
-      billing.paymentType = data.paymentType;
-      billing.amount = data.amount;
-      billing.remarks = data.remarks;
-      billing.isDeleted = false;
+      const payment = new Payment();
+      payment.memberId = new ObjectId(data.memberId);
+      payment.planId = new ObjectId(data.planId);
+      payment.paymentMethod = data.paymentMethod;
+      payment.amount = data.amount;
+      payment.remarks = data.remarks;
+      payment.transactionId = data.transactionId;
+      payment.source = "admin";
+      payment.status = "COMPLETED";
+      payment.isDeleted = false;
 
       if (req.user && req.user.userId) {
-        billing.createdBy = new ObjectId(req.user.userId);
-        billing.updatedBy = new ObjectId(req.user.userId);
+        payment.createdBy = new ObjectId(req.user.userId);
+        payment.updatedBy = new ObjectId(req.user.userId);
       }
 
-      const saved = await this.billingRepo.save(billing);
+      const saved = await this.paymentRepo.save(payment);
       return res.status(StatusCodes.CREATED).json({
         success: true,
         message: "Billing record created successfully",
@@ -118,12 +121,13 @@ export class AdminBillingController {
         where.$or = [
           { memberId: { $in: matchingMemberIds } },
           { planId: { $in: matchingPlanIds } },
-          { paymentType: { $regex: search, $options: "i" } },
+          { paymentMethod: { $regex: search, $options: "i" } },
+          { transactionId: { $regex: search, $options: "i" } },
           { remarks: { $regex: search, $options: "i" } }
         ];
       }
 
-      const [billings, total] = await this.billingRepo.findAndCount({
+      const [payments, total] = await this.paymentRepo.findAndCount({
         where,
         skip: page * limit,
         take: limit,
@@ -131,22 +135,23 @@ export class AdminBillingController {
       });
 
       // Bulk populate member and plan details
-      const memberIds = billings.map(b => b.memberId).filter((id): id is ObjectId => !!id);
+      const memberIds = payments.map(p => p.memberId).filter((id): id is ObjectId => !!id);
       const members = memberIds.length > 0
         ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
         : [];
       const memberMap = new Map(members.map(m => [m._id.toString(), { _id: m._id, fullName: m.fullName, email: m.email }]));
 
-      const planIds = billings.map(b => b.planId).filter((id): id is ObjectId => !!id);
+      const planIds = payments.map(p => p.planId).filter((id): id is ObjectId => !!id);
       const plans = planIds.length > 0
         ? await this.planRepo.find({ where: { _id: { $in: planIds } } as any })
         : [];
       const planMap = new Map(plans.map(p => [p._id.toString(), { _id: p._id, title: p.title, amount: p.amount }]));
 
-      const data = billings.map(b => ({
-        ...b,
-        member: b.memberId ? memberMap.get(b.memberId.toString()) : null,
-        plan: b.planId ? planMap.get(b.planId.toString()) : null
+      const data = payments.map(p => ({
+        ...p,
+        paymentType: p.paymentMethod || "", // for backward compatibility
+        member: p.memberId ? memberMap.get(p.memberId.toString()) : null,
+        plan: p.planId ? planMap.get(p.planId.toString()) : null
       }));
 
       return pagination(total, data, limit, page, res);
@@ -167,18 +172,19 @@ export class AdminBillingController {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
-      const billing = await this.billingRepo.findOneBy({
+      const payment = await this.paymentRepo.findOneBy({
         _id: new ObjectId(id),
         isDeleted: false
       });
 
-      if (!billing) throw new NotFoundError("Billing record not found");
+      if (!payment) throw new NotFoundError("Billing record not found");
 
-      const member = billing.memberId ? await this.memberRepo.findOneBy({ _id: billing.memberId }) : null;
-      const plan = billing.planId ? await this.planRepo.findOneBy({ _id: billing.planId }) : null;
+      const member = payment.memberId ? await this.memberRepo.findOneBy({ _id: payment.memberId }) : null;
+      const plan = payment.planId ? await this.planRepo.findOneBy({ _id: payment.planId }) : null;
 
       const data = {
-        ...billing,
+        ...payment,
+        paymentType: payment.paymentMethod || "", // for backward compatibility
         member: member ? { _id: member._id, fullName: member.fullName, email: member.email } : null,
         plan: plan ? { _id: plan._id, title: plan.title, amount: plan.amount } : null
       };
@@ -204,36 +210,41 @@ export class AdminBillingController {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
-      const billing = await this.billingRepo.findOneBy({
+      const payment = await this.paymentRepo.findOneBy({
         _id: new ObjectId(id),
         isDeleted: false
       });
 
-      if (!billing) throw new NotFoundError("Billing record not found");
+      if (!payment) throw new NotFoundError("Billing record not found");
 
       if (data.memberId) {
         if (!ObjectId.isValid(data.memberId)) throw new BadRequestError("Invalid Member ID");
         const member = await this.memberRepo.findOneBy({ _id: new ObjectId(data.memberId), isDeleted: false });
         if (!member) throw new NotFoundError("Member not found");
-        billing.memberId = new ObjectId(data.memberId);
+        payment.memberId = new ObjectId(data.memberId);
       }
 
       if (data.planId) {
         if (!ObjectId.isValid(data.planId)) throw new BadRequestError("Invalid Plan ID");
         const plan = await this.planRepo.findOneBy({ _id: new ObjectId(data.planId), isDeleted: false });
         if (!plan) throw new NotFoundError("Plan not found");
-        billing.planId = new ObjectId(data.planId);
+        payment.planId = new ObjectId(data.planId);
       }
 
-      if (data.paymentType !== undefined) billing.paymentType = data.paymentType;
-      if (data.amount !== undefined) billing.amount = data.amount;
-      if (data.remarks !== undefined) billing.remarks = data.remarks;
+      if (data.paymentMethod !== undefined) {
+        payment.paymentMethod = data.paymentMethod;
+      }
+      if (data.transactionId !== undefined) {
+        payment.transactionId = data.transactionId;
+      }
+      if (data.amount !== undefined) payment.amount = data.amount;
+      if (data.remarks !== undefined) payment.remarks = data.remarks;
 
       if (req.user && req.user.userId) {
-        billing.updatedBy = new ObjectId(req.user.userId);
+        payment.updatedBy = new ObjectId(req.user.userId);
       }
 
-      const saved = await this.billingRepo.save(billing);
+      const saved = await this.paymentRepo.save(payment);
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -257,19 +268,19 @@ export class AdminBillingController {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
-      const billing = await this.billingRepo.findOneBy({
+      const payment = await this.paymentRepo.findOneBy({
         _id: new ObjectId(id),
         isDeleted: false
       });
 
-      if (!billing) throw new NotFoundError("Billing record not found");
+      if (!payment) throw new NotFoundError("Billing record not found");
 
-      billing.isDeleted = true;
+      payment.isDeleted = true;
       if (req.user && req.user.userId) {
-        billing.updatedBy = new ObjectId(req.user.userId);
+        payment.updatedBy = new ObjectId(req.user.userId);
       }
 
-      await this.billingRepo.save(billing);
+      await this.paymentRepo.save(payment);
 
       return res.status(StatusCodes.OK).json({
         success: true,
