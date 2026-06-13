@@ -14,7 +14,6 @@ export enum PointConfigType {
   SPENT = "spent"
 }
 
-
 @Entity("point_configs")
 @Index(["moduleName", "type"], { unique: true })
 export class PointConfig {

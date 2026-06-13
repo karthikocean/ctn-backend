@@ -285,7 +285,17 @@ export class MobileAuthController {
     if (existingToken) {
       try {
         jwt.verify(existingToken.token, process.env.JWT_SECRET as string);
-        return existingToken.token;
+        const token = jwt.sign(
+          {
+            userId: member._id.toString(),
+            userType: "MEMBER"
+          },
+          process.env.JWT_SECRET as string
+        );
+
+        existingToken.token = token;
+        await this.tokenRepo.save(existingToken);
+        return token;
       } catch (error: any) {
         const token = jwt.sign(
           {

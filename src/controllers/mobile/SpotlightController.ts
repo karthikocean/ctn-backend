@@ -20,6 +20,8 @@ import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import handleErrorResponse from "../../utils/commonFunction";
+import { PointService } from "../../services/point.service";
+import { PointConfig, PointConfigType } from "../../entity/PointConfig";
 
 @JsonController("/spotlights")
 @UseBefore(MobileAuthMiddleware)
@@ -28,6 +30,7 @@ export class MobileSpotlightController {
   private spotlightRequestRepo = AppDataSource.getMongoRepository(SpotlightRequest);
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
+  private configRepo = AppDataSource.getMongoRepository(PointConfig);
 
   /**
    * @swagger
@@ -131,6 +134,21 @@ export class MobileSpotlightController {
         throw new BadRequestError("You already have a pending spotlight request");
       }
 
+      const pointService = new PointService();
+      const config = await pointService.getPointConfig("Spotlight", PointConfigType.CREATION);
+      const pointsToDeduct = config ? config.points : 0;
+
+      let member = null;
+      if (pointsToDeduct > 0) {
+        member = await this.memberRepo.findOneBy({ _id: new ObjectId(memberId) });
+        if (!member) {
+          throw new NotFoundError("Member not found");
+        }
+        if ((member.points || 0) < pointsToDeduct) {
+          throw new BadRequestError(`Insufficient points. You need ${pointsToDeduct} points.`);
+        }
+      }
+
       const request = new SpotlightRequest();
       request.memberId = new ObjectId(memberId);
       request.status = SpotlightRequestStatus.PENDING;
@@ -138,10 +156,34 @@ export class MobileSpotlightController {
 
       const saved = await this.spotlightRequestRepo.save(request);
 
+      let remainingPoints = 0;
+      if (pointsToDeduct > 0 && member) {
+        try {
+          const deductResult = await pointService.deductPoints({
+            memberId: new ObjectId(memberId),
+            moduleName: "Spotlight",
+            points: pointsToDeduct,
+            referenceId: saved._id,
+            actionType: "spent"
+          });
+          remainingPoints = deductResult.balance;
+        } catch (pointError) {
+          console.error("Failed to record spotlight points deduction in history:", pointError);
+          member.points = Math.max(0, (member.points || 0) - pointsToDeduct);
+          await this.memberRepo.save(member);
+          remainingPoints = member.points;
+        }
+      } else {
+        const balance = await pointService.getMemberBalance(new ObjectId(memberId));
+        remainingPoints = balance;
+      }
+
       return res.status(StatusCodes.CREATED).json({
         success: true,
         message: "Spotlight request submitted successfully",
-        data: saved
+        data: saved,
+        remainingPoints,
+        pointsSpent: pointsToDeduct
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -226,6 +268,39 @@ export class MobileSpotlightController {
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Spotlight request cancelled successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/spotlights/point-config:
+   *   get:
+   *     summary: Get point configurations for Spotlight module (Mobile)
+   *     tags: [Mobile Spotlight]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Point configuration details for Spotlight
+   */
+  @Get("/point-config")
+  async getPointConfig(@Res() res: any) {
+    try {
+      const configs = await this.configRepo.find({
+        where: {
+          moduleName: { $regex: new RegExp("^Spotlight$", "i") },
+          isDeleted: false,
+          type: PointConfigType.SPENT
+        }
+      });
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: configs
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
