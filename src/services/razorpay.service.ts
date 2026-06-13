@@ -10,10 +10,24 @@ import crypto from "crypto";
 
 const Razorpay = require("razorpay");
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || "",
-  key_secret: process.env.RAZORPAY_KEY_SECRET || "",
-});
+let razorpayInstance: any = null;
+
+const getRazorpayInstance = () => {
+  if (!razorpayInstance) {
+    const key_id = process.env.RAZORPAY_KEY_ID;
+    const key_secret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!key_id || !key_secret) {
+      throw new BadRequestError("Razorpay credentials are not configured in the environment variables.");
+    }
+
+    razorpayInstance = new Razorpay({
+      key_id,
+      key_secret,
+    });
+  }
+  return razorpayInstance;
+};
 
 export class RazorpayUpgradeService {
   private memberRepo = AppDataSource.getMongoRepository(Member);
@@ -50,15 +64,24 @@ export class RazorpayUpgradeService {
         throw new BadRequestError("Cannot upgrade to a lower or equal value plan. Use the buy API to downgrade.");
       }
 
-      const totalDuration = activeSub.endDate.getTime() - activeSub.startDate.getTime();
-      const timeRemaining = activeSub.endDate.getTime() - Date.now();
+      const start = new Date(activeSub.startDate);
+      start.setHours(0, 0, 0, 0);
+
+      const end = new Date(activeSub.endDate);
+      end.setHours(0, 0, 0, 0);
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const totalDuration = end.getTime() - start.getTime();
 
       if (totalDuration > 0) {
-        totalDays = Math.ceil(totalDuration / (1000 * 60 * 60 * 24));
-        daysRemaining = Math.max(0, Math.ceil(timeRemaining / (1000 * 60 * 60 * 24)));
-        daysUsed = Math.max(0, totalDays - daysRemaining);
+        totalDays = Math.max(0, Math.round(totalDuration / (1000 * 60 * 60 * 24)));
+        const daysUsedRaw = Math.round((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        daysUsed = Math.min(totalDays, Math.max(1, daysUsedRaw + 1));
+        daysRemaining = Math.max(0, totalDays - daysUsed);
 
-        if (timeRemaining > 0) {
+        if (daysRemaining > 0) {
           const cycle = currentPlan?.billingCycle || "yearly";
           const daysInCycle = cycle === "monthly" ? 30 : 365;
           const perDayCost = currentPrice / daysInCycle;
@@ -106,7 +129,7 @@ export class RazorpayUpgradeService {
     // Razorpay amounts are in paise (e.g. ₹1 = 100 paise)
     const amountInPaise = Math.round(breakdown.amountToPay * 100);
 
-    const rzpOrder = await razorpay.orders.create({
+    const rzpOrder = await getRazorpayInstance().orders.create({
       amount: amountInPaise,
       currency: "INR",
       receipt: `upgrade_rcpt_${Date.now()}`,
@@ -155,7 +178,7 @@ export class RazorpayUpgradeService {
     // Create Razorpay Order
     const amountInPaise = Math.round(amountToCharge * 100);
 
-    const rzpOrder = await razorpay.orders.create({
+    const rzpOrder = await getRazorpayInstance().orders.create({
       amount: amountInPaise,
       currency: "INR",
       receipt: `buy_rcpt_${Date.now()}`,
@@ -282,8 +305,8 @@ export class RazorpayUpgradeService {
 
     const savedSub = await subRepo.save(newSub);
 
-    // 3. Update member subscriptionId
-    await this.memberRepo.update(memberObjectId, { subscriptionId: savedSub._id });
+    // 3. Update member subscriptionId and planId
+    await this.memberRepo.update(memberObjectId, { subscriptionId: savedSub._id, planId: planObjectId });
 
     // 4. Store a payment record of $0 for tracking
     const payment = new Payment();

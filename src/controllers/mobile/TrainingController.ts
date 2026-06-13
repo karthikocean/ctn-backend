@@ -9,6 +9,8 @@ import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import handleErrorResponse from "../../utils/commonFunction";
+import { validateModuleUsage } from "../../services/moduleUsage.service";
+import { PointService } from "../../services/point.service";
 
 @JsonController("/trainings")
 @UseBefore(MobileAuthMiddleware)
@@ -283,6 +285,9 @@ export class MobileTrainingController {
       const userId = new ObjectId(req.user.userId);
       const { points: inputPoints } = body;
 
+      // Validate module usage limit before unlocking/enrolling
+      await validateModuleUsage(userId, "Trainings");
+
       const training = await this.trainingRepo.findOneBy({
         _id: new ObjectId(id),
         isDeleted: false
@@ -310,8 +315,25 @@ export class MobileTrainingController {
         throw new BadRequestError(`Insufficient points. You need ${pointsToDeduct} points.`);
       }
 
-      member.points -= pointsToDeduct;
-      await this.memberRepo.save(member);
+      // Deduct points using PointService to keep member_points and history in sync
+      let remainingPoints = member.points;
+      try {
+        const pointService = new PointService();
+        const deductResult = await pointService.deductPoints({
+          memberId: userId,
+          moduleName: "Trainings",
+          points: pointsToDeduct,
+          referenceId: training._id,
+          actionType: "unlock"
+        });
+        remainingPoints = deductResult.balance;
+      } catch (pointError) {
+        console.error("Failed to record points deduction in history:", pointError);
+        // Fallback to manual deduction if PointService fails
+        member.points = Math.max(0, member.points - pointsToDeduct);
+        await this.memberRepo.save(member);
+        remainingPoints = member.points;
+      }
 
       // Create new enrollment record
       const enrollment = new MemberTraining();
@@ -322,7 +344,7 @@ export class MobileTrainingController {
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Training unlocked successfully",
-        remainingPoints: member.points,
+        remainingPoints: remainingPoints,
         isUnlocked: true
       });
     } catch (error: any) {
@@ -373,6 +395,9 @@ export class MobileTrainingController {
         // If not enrolled, check if the training is FREE
         const training = await this.trainingRepo.findOneBy({ _id: trainingOid });
         if (!training) throw new NotFoundError("Training not found");
+
+        // Validate module usage limit before auto-enrolling
+        await validateModuleUsage(userId, "Trainings");
 
         // Auto-enroll for free trainings
         enrollment = new MemberTraining();

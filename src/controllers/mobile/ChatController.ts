@@ -18,7 +18,7 @@ import { AppDataSource } from "../../data-source";
 import { Conversation } from "../../entity/Conversation";
 import { Message, MessageType } from "../../entity/Message";
 import { Member } from "../../entity/Member";
-import { PostModel } from "../../entity/Post";
+import { PostModel, PostType } from "../../entity/Post";
 import { Category } from "../../entity/Category";
 import { OneToOne } from "../../entity/OneToOne";
 import { Referral } from "../../entity/Referral";
@@ -32,6 +32,9 @@ import { getIO, isUserInConversation } from "../../utils/socket";
 import { pagination } from "../../utils";
 import { insertPushNotification } from "../../services/pushnotification.service";
 import { NotificationModule } from "../../entity/PushNotifications";
+import { validateModuleUsage } from "../../services/moduleUsage.service";
+import { PointService } from "../../services/point.service";
+import { PointConfigType } from "../../entity/PointConfig";
 
 @JsonController("/chats")
 @UseBefore(MobileAuthMiddleware)
@@ -583,13 +586,32 @@ export class MobileChatController {
         unreadCount
       });
 
+      let pointsResult = { awarded: 0, balance: 0 };
+      try {
+        let moduleName = post.type.charAt(0).toUpperCase() + post.type.slice(1).toLowerCase();
+        let pointModuleName = moduleName;
+        if (post.type === PostType.PROMOTION) {
+          pointModuleName = "Post";
+        }
+        const pointService = new PointService();
+        pointsResult = await pointService.awardPoints({
+          memberId: senderId,
+          moduleName: pointModuleName,
+          type: PointConfigType.RESPONSE,
+          referenceId: savedMessage._id
+        });
+      } catch (pointError) {
+        console.error("Failed to award points for post response:", pointError);
+      }
+
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Message sent successfully",
         data: {
           conversationId: conversation._id,
           message: savedMessage
-        }
+        },
+        points: pointsResult
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -646,6 +668,7 @@ export class MobileChatController {
   ) {
     try {
       const senderId = new ObjectId(req.user.userId);
+      let pointsResult = { awarded: 0, balance: 0 };
       let { conversationId, content, type = MessageType.TEXT, replyToMessageId, media, businessActionId, actionData } = data;
 
       if (!ObjectId.isValid(conversationId)) throw new BadRequestError("Invalid Conversation ID");
@@ -679,6 +702,13 @@ export class MobileChatController {
 
       // Handle Automatic Business Action Creation
       if ([MessageType.ONE_TO_ONE, MessageType.REFERRAL, MessageType.THANK_YOU_SLIP].includes(type)) {
+        let moduleName = "";
+        if (type === MessageType.ONE_TO_ONE) moduleName = "One to One";
+        else if (type === MessageType.REFERRAL) moduleName = "Referral";
+        else if (type === MessageType.THANK_YOU_SLIP) moduleName = "Thank you Slip";
+
+        await validateModuleUsage(senderId, moduleName);
+
         console.log(type === MessageType.ONE_TO_ONE, "type === MessageType.ONE_TO_ONE");
 
         if (type === MessageType.ONE_TO_ONE) {
@@ -692,6 +722,19 @@ export class MobileChatController {
           console.log(savedOto, "savedOto");
 
           newMessage.businessActionId = savedOto._id;
+
+          // Award Points (Response type for One to One)
+          try {
+            const pointService = new PointService();
+            pointsResult = await pointService.awardPoints({
+              memberId: senderId,
+              moduleName: "One to One",
+              type: PointConfigType.RESPONSE,
+              referenceId: savedOto._id
+            });
+          } catch (pointError) {
+            console.error("Failed to award points for One to One:", pointError);
+          }
         } else if (type === MessageType.REFERRAL) {
           const ref = new Referral();
           ref.senderId = senderId;
@@ -703,6 +746,19 @@ export class MobileChatController {
           ref.comments = actionData.comments;
           const savedRef = await this.referralRepo.save(ref);
           newMessage.businessActionId = savedRef._id;
+
+          // Award Points (Creation type for Referral)
+          try {
+            const pointService = new PointService();
+            pointsResult = await pointService.awardPoints({
+              memberId: senderId,
+              moduleName: "Referral",
+              type: PointConfigType.CREATION,
+              referenceId: savedRef._id
+            });
+          } catch (pointError) {
+            console.error("Failed to award points for Referral:", pointError);
+          }
         } else if (type === MessageType.THANK_YOU_SLIP) {
           const ty = new ThankYouSlip();
           ty.senderId = senderId;
@@ -711,6 +767,19 @@ export class MobileChatController {
           ty.businessDetails = actionData.businessDetails || actionData.remarks || content;
           const savedTy = await this.tySlipRepo.save(ty);
           newMessage.businessActionId = savedTy._id;
+
+          // Award Points (Creation type for Thank you Slip)
+          try {
+            const pointService = new PointService();
+            pointsResult = await pointService.awardPoints({
+              memberId: senderId,
+              moduleName: "Thank you Slip",
+              type: PointConfigType.CREATION,
+              referenceId: savedTy._id
+            });
+          } catch (pointError) {
+            console.error("Failed to award points for Thank you Slip:", pointError);
+          }
         }
       } else if (businessActionId && ObjectId.isValid(businessActionId)) {
         newMessage.businessActionId = new ObjectId(businessActionId);
@@ -807,7 +876,8 @@ export class MobileChatController {
 
       return res.status(StatusCodes.OK).json({
         success: true,
-        data: savedMessage
+        data: savedMessage,
+        points: pointsResult
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

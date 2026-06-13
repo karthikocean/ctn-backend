@@ -29,6 +29,9 @@ import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { getIO, isUserInConversation } from "../../utils/socket";
+import { validateModuleUsage } from "../../services/moduleUsage.service";
+import { PointService } from "../../services/point.service";
+import { PointConfigType } from "../../entity/PointConfig";
 
 @JsonController("/posts")
 @UseBefore(MobileAuthMiddleware)
@@ -61,17 +64,43 @@ export class MobilePostController {
   async create(@Req() req: any, @Body() data: CreatePostDto, @Res() res: any) {
     try {
       const userId = req.user.userId;
+      const memberObjectId = new ObjectId(userId);
+      // Map post type to module name: ASK -> Ask, GIVE -> Give, PROMOTION -> Promotion, REQUIREMENT -> Requirement
+      const moduleName = data.type.charAt(0).toUpperCase() + data.type.slice(1).toLowerCase();
+
+      // 1. Validate module usage limit before saving the document
+      await validateModuleUsage(memberObjectId, moduleName);
 
       const post = new PostEntity();
       Object.assign(post, data);
-      post.memberId = new ObjectId(userId);
+      post.memberId = memberObjectId;
       post.isDeleted = false;
 
-      const saved = await this.postRepo.save(post);
+      const savedPost = await this.postRepo.save(post);
+
+      let pointsResult = { awarded: 0, balance: 0 };
+      // 2. Award Points
+      try {
+        let pointModuleName = moduleName;
+        if (data.type === PostType.PROMOTION) {
+          pointModuleName = "Post";
+        }
+        const pointService = new PointService();
+        pointsResult = await pointService.awardPoints({
+          memberId: memberObjectId,
+          moduleName: pointModuleName,
+          type: PointConfigType.CREATION,
+          referenceId: savedPost._id
+        });
+      } catch (pointError) {
+        console.error("Failed to award points for post creation:", pointError);
+      }
+
       return res.status(StatusCodes.CREATED).json({
         success: true,
         message: "Post created successfully",
-        data: saved
+        data: savedPost,
+        points: pointsResult
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

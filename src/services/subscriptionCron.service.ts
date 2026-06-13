@@ -56,8 +56,9 @@ export class SubscriptionCronService {
         const member = await this.memberRepo.findOneBy({ _id: sub.memberId, isDeleted: false });
         if (!member) continue;
 
-        // Downgrade member to Guest access by clearing subscriptionId
+        // Downgrade member to Guest access by clearing subscriptionId and planId
         member.subscriptionId = null as any;
+        member.planId = null as any;
         await this.memberRepo.save(member);
 
         // Notify member

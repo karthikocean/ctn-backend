@@ -15,7 +15,7 @@ import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
 import { seedAdmin } from "./seed/seedAdmin";
 import { createServer } from "http";
-import { initSocket } from "./utils/socket";
+import { initSocket, getIO, waitForDisconnects } from "./utils/socket";
 import cron from "node-cron";
 import axios from "axios";
 import { SubscriptionCronService } from "./services/subscriptionCron.service";
@@ -192,6 +192,19 @@ AppDataSource.initialize()
     // ✅ Graceful Shutdown Handlers
     const closeServer = async () => {
       console.log("Shutting down server...");
+
+      try {
+        const io = getIO();
+        if (io) {
+          console.log("Closing Socket.io server and disconnecting clients...");
+          io.close();
+          // Wait for any active disconnect DB writes to complete before closing the DB
+          await waitForDisconnects(2000);
+        }
+      } catch (err) {
+        console.log("Socket.io server was not initialized or already closed.");
+      }
+
       server.close(async () => {
         console.log("Server closed.");
         if (AppDataSource.isInitialized) {

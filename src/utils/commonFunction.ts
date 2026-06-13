@@ -1,5 +1,4 @@
 import ApiError from "./error";
-import { UnauthorizedError } from "routing-controllers";
 
 function handleErrorResponse(error: any, res: any) {
   console.error("Error handler caught error:", error);
@@ -38,17 +37,18 @@ function handleErrorResponse(error: any, res: any) {
     });
   }
 
-  if (error instanceof UnauthorizedError) {
-    return res.status(error.httpCode || 401).json({
-      status: "error",
-      message: error.message || "Unauthorized"
-    });
-  }
-
   if (error instanceof ApiError) {
     return res
       .status(error.statusCode)
       .json(error.toResponse());
+  }
+
+  if (error && (typeof error.httpCode === "number" || typeof error.statusCode === "number")) {
+    const statusCode = error.httpCode || error.statusCode;
+    return res.status(statusCode).json({
+      status: "error",
+      message: error.message || "An error occurred"
+    });
   }
 
   return res.status(500).json({
