@@ -45,6 +45,14 @@ export class CreatePlanDto {
   @IsOptional()
     status?: string = "active";
 
+  @IsString()
+  @IsOptional()
+    billingCycle?: string = "yearly";
+
+  @IsString()
+  @IsOptional()
+    billingType?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ModuleConfigDto)
@@ -71,6 +79,14 @@ export class UpdatePlanDto {
   @IsString()
   @IsOptional()
     status?: string;
+
+  @IsString()
+  @IsOptional()
+    billingCycle?: string;
+
+  @IsString()
+  @IsOptional()
+    billingType?: string;
 
   @IsArray()
   @IsOptional()
