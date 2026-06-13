@@ -23,6 +23,7 @@ export async function seedAdmin() {
     "categories",
     "announcements",
     "events",
+    "blogs",
     "trainings",
     "points",
     "awards",
@@ -74,6 +75,9 @@ export async function seedAdmin() {
     });
 
     adminRole = await roleRepo.save(adminRole);
+  } else {
+    adminRole.permissions = fullPermissions;
+    await roleRepo.save(adminRole);
   }
 
   // ✅ USER
