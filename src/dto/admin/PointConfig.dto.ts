@@ -6,7 +6,7 @@ export class CreatePointConfigDto {
   @IsNotEmpty({ message: "Module name is required" })
     moduleName!: string;
 
-  @IsEnum(PointConfigType, { message: "Type must be either creation or response" })
+  @IsEnum(PointConfigType, { message: "Type must be either creation, response or spent" })
   @IsNotEmpty({ message: "Type is required" })
     type!: PointConfigType;
 
@@ -20,7 +20,7 @@ export class UpdatePointConfigDto {
   @IsOptional()
     moduleName?: string;
 
-  @IsEnum(PointConfigType, { message: "Type must be either creation or response" })
+  @IsEnum(PointConfigType, { message: "Type must be either creation, response or spent" })
   @IsOptional()
     type?: PointConfigType;
 

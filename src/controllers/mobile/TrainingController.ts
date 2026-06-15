@@ -11,6 +11,7 @@ import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import handleErrorResponse from "../../utils/commonFunction";
 import { validateModuleUsage } from "../../services/moduleUsage.service";
 import { PointService } from "../../services/point.service";
+import { PointConfig, PointConfigType } from "../../entity/PointConfig";
 
 @JsonController("/trainings")
 @UseBefore(MobileAuthMiddleware)
@@ -20,6 +21,7 @@ export class MobileTrainingController {
   private progressRepo = AppDataSource.getMongoRepository(LessonProgress);
   private enrollmentRepo = AppDataSource.getMongoRepository(MemberTraining);
   private trainingCategoryRepo = AppDataSource.getMongoRepository(TrainingCategory);
+  private configRepo = AppDataSource.getMongoRepository(PointConfig);
 
   /**
    * @swagger
@@ -345,7 +347,8 @@ export class MobileTrainingController {
         success: true,
         message: "Training unlocked successfully",
         remainingPoints: remainingPoints,
-        isUnlocked: true
+        isUnlocked: true,
+        pointsSpent: pointsToDeduct
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -432,6 +435,38 @@ export class MobileTrainingController {
       return res.status(StatusCodes.OK).json({
         success: true,
         data: progress
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/trainings/point-config:
+   *   get:
+   *     summary: Get point configurations for Trainings module (Mobile)
+   *     tags: [Mobile Training]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Point configuration details for Trainings
+   */
+  @Get("/point-config")
+  async getPointConfig(@Res() res: any) {
+    try {
+      const configs = await this.configRepo.find({
+        where: {
+          moduleName: { $regex: new RegExp("^Trainings$", "i") },
+          isDeleted: false,
+          type: PointConfigType.SPENT
+        }
+      });
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: configs
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

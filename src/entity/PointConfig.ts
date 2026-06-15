@@ -10,7 +10,8 @@ import { ObjectId } from "mongodb";
 
 export enum PointConfigType {
   CREATION = "creation",
-  RESPONSE = "response"
+  RESPONSE = "response",
+  SPENT = "spent"
 }
 
 @Entity("point_configs")

@@ -383,6 +383,261 @@ export class MobilePostController {
 
   /**
    * @swagger
+   * /mobile-api/posts/overall:
+   *   get:
+   *     summary: Get overall ASK and PROMOTION posts with filters and pagination
+   *     tags: [Mobile Post]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: type
+   *         schema:
+   *           type: string
+   *           enum: [PROMOTION, ASK]
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   */
+  @Get("/overall")
+  async getOverallPromotions(
+    @Req() req: any,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @QueryParam("type") type: PostType,
+    @QueryParam("search") search: string,
+    @Res() res: any
+  ) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+    const userId = req.user.userId;
+
+    try {
+      const allowedTypes = [PostType.PROMOTION, PostType.ASK];
+      const where: any = {
+        isDeleted: false,
+        memberId: { $ne: new ObjectId(userId) }
+      };
+
+      if (type) {
+        if (!allowedTypes.includes(type)) {
+          throw new BadRequestError("Invalid type. Must be either ASK or PROMOTION.");
+        }
+        where.type = type;
+      } else {
+        where.type = { $in: allowedTypes };
+      }
+
+      if (search) {
+        where.$or = [
+          { title: { $regex: search, $options: "i" } },
+          { description: { $regex: search, $options: "i" } },
+          { location: { $regex: search, $options: "i" } }
+        ];
+      }
+
+      const [posts, total] = await this.postRepo.findAndCount({
+        where,
+        skip: page * limit,
+        take: limit,
+        order: { createdAt: "DESC" }
+      });
+
+      // Populate Member Info
+      const memberIds = [...new Set(posts.map(p => p.memberId))];
+      const members = memberIds.length > 0
+        ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
+        : [];
+
+      // Fetch Category Info for Members
+      const categoryIds = [...new Set(members.map(m => m.businessCategory).filter((id): id is ObjectId => !!id))];
+      const categories = categoryIds.length > 0
+        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : [];
+
+      const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
+
+      const memberMap = new Map(members.map(m => [m._id.toString(), {
+        _id: m._id,
+        fullName: m.fullName,
+        profilePhoto: m.profilePhoto,
+        businessName: m.businessName,
+        categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null
+      }]));
+
+      // Check which posts are saved by current user
+      const savedPosts = await this.savedPostRepo.find({
+        where: { memberId: new ObjectId(userId), postId: { $in: posts.map(p => p._id) } } as any
+      });
+      const savedPostIds = new Set(savedPosts.map(s => s.postId.toString()));
+
+      const data = posts.map(p => ({
+        ...p,
+        member: memberMap.get(p.memberId.toString()) || null,
+        isSaved: savedPostIds.has(p._id.toString())
+      }));
+
+      return pagination(total, data, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/posts/region:
+   *   get:
+   *     summary: Get ASK and PROMOTION posts based on member's region (city/state)
+   *     tags: [Mobile Post]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: type
+   *         schema:
+   *           type: string
+   *           enum: [PROMOTION, ASK]
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   */
+  @Get("/region")
+  async getRegionPromotions(
+    @Req() req: any,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @QueryParam("type") type: PostType,
+    @QueryParam("search") search: string,
+    @Res() res: any
+  ) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+
+    try {
+      const userId = req.user.userId;
+
+      // 1. Get logged-in member's location
+      const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
+      if (!currentMember) {
+        throw new BadRequestError("Member not found");
+      }
+
+      const memberCity = currentMember.city;
+      const memberBusinessRegion = currentMember.businessRegion;
+
+      if (!memberCity && !memberBusinessRegion) {
+        // If member has no location, return empty list
+        return pagination(0, [], limit, page, res);
+      }
+
+      // 2. Find members in the same region
+      const locationCondition: any = { isDeleted: false };
+      if (memberCity) locationCondition.city = memberCity;
+      if (memberBusinessRegion) locationCondition.businessRegion = memberBusinessRegion;
+
+      const regionMembers = await this.memberRepo.find({ where: locationCondition });
+      // Exclude current user
+      const regionMemberIds = regionMembers
+        .filter(m => m._id.toString() !== userId)
+        .map(m => m._id);
+
+      if (regionMemberIds.length === 0) {
+        return pagination(0, [], limit, page, res);
+      }
+
+      // 3. Find ASK / PROMOTION posts from these members
+      const allowedTypes = [PostType.PROMOTION, PostType.ASK];
+      const where: any = {
+        memberId: { $in: regionMemberIds },
+        isDeleted: false
+      };
+
+      if (type) {
+        if (!allowedTypes.includes(type)) {
+          throw new BadRequestError("Invalid type. Must be either ASK or PROMOTION.");
+        }
+        where.type = type;
+      } else {
+        where.type = { $in: allowedTypes };
+      }
+
+      if (search) {
+        where.$or = [
+          { title: { $regex: search, $options: "i" } },
+          { description: { $regex: search, $options: "i" } },
+          { location: { $regex: search, $options: "i" } }
+        ];
+      }
+
+      const [posts, total] = await this.postRepo.findAndCount({
+        where,
+        skip: page * limit,
+        take: limit,
+        order: { createdAt: "DESC" }
+      });
+
+      // 4. Populate Member Info
+      const memberIds = [...new Set(posts.map(p => p.memberId))];
+      const members = memberIds.length > 0
+        ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
+        : [];
+
+      // Fetch Category Info for Members
+      const categoryIds = [...new Set(members.map(m => m.businessCategory).filter((id): id is ObjectId => !!id))];
+      const categories = categoryIds.length > 0
+        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : [];
+
+      const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
+
+      const memberMap = new Map(members.map(m => [m._id.toString(), {
+        _id: m._id,
+        fullName: m.fullName,
+        profilePhoto: m.profilePhoto,
+        businessName: m.businessName,
+        city: m.city,
+        businessRegion: m.businessRegion,
+        categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null
+      }]));
+
+      // 5. Check which posts are saved by current user
+      const savedPosts = await this.savedPostRepo.find({
+        where: { memberId: new ObjectId(userId), postId: { $in: posts.map(p => p._id) } } as any
+      });
+      const savedPostIds = new Set(savedPosts.map(s => s.postId.toString()));
+
+      const data = posts.map(p => ({
+        ...p,
+        member: memberMap.get(p.memberId.toString()) || null,
+        isSaved: savedPostIds.has(p._id.toString())
+      }));
+
+      return pagination(total, data, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
    * /mobile-api/posts:
    *   get:
    *     summary: Get all posts with filters and pagination

@@ -27,7 +27,12 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
       if (!token) {
         throw new UnauthorizedError("Token missing");
       }
-
+      const checkTokenExist = await AppDataSource.getMongoRepository(UserToken).findOneBy({
+        token: token
+      });
+      if (!checkTokenExist) {
+        throw new UnauthorizedError("Invalid token");
+      }
       let decoded: JwtPayload;
       let isExpired = false;
       try {
