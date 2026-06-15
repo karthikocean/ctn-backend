@@ -195,6 +195,9 @@ export class Member {
   @Column({ default: 0 })
     points!: number;
 
+  @Column({ default: 0 })
+    dailyScore!: number;
+
   @Column({ default: false })
     isOnline!: boolean;
 

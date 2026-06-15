@@ -10,6 +10,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Member } from "../../entity/Member";
 import { PointHistory } from "../../entity/PointHistory";
+import { DailyScoreHistory } from "../../entity/DailyScoreHistory";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
@@ -21,6 +22,7 @@ import { pagination } from "../../utils";
 export class MobilePointController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private historyRepo = AppDataSource.getMongoRepository(PointHistory);
+  private dailyScoreHistoryRepo = AppDataSource.getMongoRepository(DailyScoreHistory);
 
   /**
    * @swagger
@@ -55,13 +57,168 @@ export class MobilePointController {
       });
       const earnedThisMonth = historyThisMonth.reduce((sum, h) => sum + (h.points || 0), 0);
 
+      // Get local date string YYYY-MM-DD
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      const dateStr = `${year}-${month}-${day}`;
+
+      const todayScoreHistory = await this.dailyScoreHistoryRepo.find({
+        where: {
+          memberId,
+          date: dateStr
+        } as any
+      });
+
+      const checklistModules = ["Post", "Ask", "Give", "Requirement", "Milestone"];
+      const todayHistory = checklistModules.map(moduleName => {
+        const found = todayScoreHistory.find(h => h.moduleName === moduleName);
+        return {
+          moduleName,
+          score: found ? found.score : 0,
+          createdAt: found ? found.createdAt : null
+        };
+      });
+
       return res.status(StatusCodes.OK).json({
         success: true,
         data: {
           activeBalance,
           earnedThisMonth,
+          dailyScore: member.dailyScore || 0,
+          todayHistory
         }
       });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/points/daily-history:
+   *   get:
+   *     summary: Get member daily score checklist history by date or month
+   *     tags: [Mobile Points]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: month
+   *         description: Month filter in YYYY-MM format
+   *         schema:
+   *           type: string
+   *       - in: query
+   *         name: date
+   *         description: Date filter in YYYY-MM-DD format
+   *         schema:
+   *           type: string
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   */
+  @Get("/daily-history")
+  async getDailyHistory(
+    @Req() req: any,
+    @QueryParam("month") month: string,
+    @QueryParam("date") date: string,
+    @QueryParam("page") pageParam: number,
+    @QueryParam("limit") limitParam: number,
+    @Res() res: any
+  ) {
+    try {
+      const memberId = new ObjectId(req.user.userId);
+      const page = Number(pageParam) || 0;
+      const limit = Number(limitParam) || 30;
+
+      let dateStrings: string[] = [];
+      let total = 0;
+
+      if (date) {
+        // Single date filter
+        dateStrings = [date];
+        total = 1;
+      } else if (month) {
+        // Month filter (e.g. YYYY-MM)
+        const parts = month.split("-");
+        if (parts.length !== 2) {
+          return res.status(StatusCodes.BAD_REQUEST).json({
+            success: false,
+            message: "Invalid month format. Expected YYYY-MM."
+          });
+        }
+        const yr = parseInt(parts[0]);
+        const mn = parseInt(parts[1]) - 1;
+        if (isNaN(yr) || isNaN(mn) || mn < 0 || mn > 11) {
+          return res.status(StatusCodes.BAD_REQUEST).json({
+            success: false,
+            message: "Invalid month value."
+          });
+        }
+
+        const daysInMonth = new Date(yr, mn + 1, 0).getDate();
+        const allMonthDates: string[] = [];
+        for (let i = daysInMonth; i >= 1; i--) {
+          const dayStr = String(i).padStart(2, "0");
+          allMonthDates.push(`${parts[0]}-${parts[1]}-${dayStr}`);
+        }
+
+        total = allMonthDates.length;
+        dateStrings = allMonthDates.slice(page * limit, (page + 1) * limit);
+      } else {
+        // Default past days starting from today (up to 1 year back)
+        const today = new Date();
+        total = 365;
+
+        const offsetStart = page * limit;
+        for (let i = 0; i < limit; i++) {
+          const targetDate = new Date();
+          targetDate.setDate(today.getDate() - (offsetStart + i));
+
+          const yr = targetDate.getFullYear();
+          const mn = String(targetDate.getMonth() + 1).padStart(2, "0");
+          const dy = String(targetDate.getDate()).padStart(2, "0");
+          dateStrings.push(`${yr}-${mn}-${dy}`);
+        }
+      }
+
+      // Fetch histories for this member for the calculated dateStrings
+      const histories = await this.dailyScoreHistoryRepo.find({
+        where: {
+          memberId,
+          date: { $in: dateStrings }
+        } as any
+      });
+
+      const checklistModules = ["Post", "Ask", "Give", "Requirement", "Milestone"];
+
+      const results = dateStrings.map(dateStr => {
+        const dayLogs = histories.filter(h => h.date === dateStr);
+        const dailyScore = dayLogs.reduce((sum, h) => sum + (h.score || 0), 0);
+
+        const history = checklistModules.map(moduleName => {
+          const found = dayLogs.find(h => h.moduleName === moduleName);
+          return {
+            moduleName,
+            score: found ? found.score : 0,
+            createdAt: found ? found.createdAt : null
+          };
+        });
+
+        return {
+          date: dateStr,
+          dailyScore,
+          history
+        };
+      });
+
+      return pagination(total, results, limit, page, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
