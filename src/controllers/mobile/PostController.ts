@@ -15,13 +15,14 @@ import {
   UseBefore
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
-import { PostModel as PostEntity, PostType } from "../../entity/Post";
+import { PostModel as PostEntity, PostType, RequirementVisibility } from "../../entity/Post";
 import { Member } from "../../entity/Member";
 import { Connection, ConnectionStatus } from "../../entity/Connection";
 import { Category } from "../../entity/Category";
 import { Conversation } from "../../entity/Conversation";
 import { Message, MessageType } from "../../entity/Message";
 import { SavedPost } from "../../entity/SavedPost";
+import { PostReport } from "../../entity/PostReport";
 import { CreatePostDto, UpdatePostDto } from "../../dto/mobile/Post.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -32,6 +33,7 @@ import { getIO, isUserInConversation } from "../../utils/socket";
 import { validateModuleUsage } from "../../services/moduleUsage.service";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
+import { DailyScoreService } from "../../services/dailyScore.service";
 
 @JsonController("/posts")
 @UseBefore(MobileAuthMiddleware)
@@ -66,10 +68,24 @@ export class MobilePostController {
       const userId = req.user.userId;
       const memberObjectId = new ObjectId(userId);
       // Map post type to module name: ASK -> Ask, GIVE -> Give, PROMOTION -> Promotion, REQUIREMENT -> Requirement
-      const moduleName = data.type.charAt(0).toUpperCase() + data.type.slice(1).toLowerCase();
+      const moduleName = data.type === PostType.PROMOTION ? "Post" : data.type.charAt(0).toUpperCase() + data.type.slice(1).toLowerCase();
 
       // 1. Validate module usage limit before saving the document
       await validateModuleUsage(memberObjectId, moduleName);
+
+      // 1.5. Validate requirement visibility target if post type is REQUIREMENT
+      if (data.type === PostType.REQUIREMENT) {
+        if (!data.requirementVisibility) {
+          throw new BadRequestError("requirementVisibility is required when post type is REQUIREMENT");
+        }
+        const visibilityInput = data.requirementVisibility.toUpperCase().trim().replace(/_|\s+/g, "-");
+        if (visibilityInput !== RequirementVisibility.MUTUAL_FRIEND && visibilityInput !== RequirementVisibility.REGION) {
+          throw new BadRequestError("Invalid requirementVisibility. Must be either 'mutual-friend' or 'region'");
+        }
+        data.requirementVisibility = visibilityInput as RequirementVisibility;
+      } else {
+        data.requirementVisibility = undefined;
+      }
 
       const post = new PostEntity();
       Object.assign(post, data);
@@ -94,6 +110,18 @@ export class MobilePostController {
         });
       } catch (pointError) {
         console.error("Failed to award points for post creation:", pointError);
+      }
+
+      // 2.5 Award Daily Score Checklist Points
+      try {
+        const dailyScoreService = new DailyScoreService();
+        await dailyScoreService.awardDailyScore(
+          memberObjectId,
+          moduleName,
+          savedPost._id
+        );
+      } catch (dailyScoreError) {
+        console.error("Failed to award daily score for post creation:", dailyScoreError);
       }
 
       return res.status(StatusCodes.CREATED).json({
@@ -326,6 +354,21 @@ export class MobilePostController {
         return pagination(0, [], limit, page, res);
       }
 
+      // Fetch mutual friends to evaluate MUTUAL_FRIEND requirement visibility
+      const following = await this.connectionRepo.find({
+        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+      });
+      const followingIds = following.map(f => f.receiverId.toString());
+
+      const followers = await this.connectionRepo.find({
+        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+      });
+      const followerIds = followers.map(f => f.senderId.toString());
+
+      const mutualIds = followingIds
+        .filter(id => followerIds.includes(id))
+        .map(id => new ObjectId(id));
+
       // 3. Find REQUIREMENT posts from these members
       const where: any = {
         type: PostType.REQUIREMENT,
@@ -333,12 +376,25 @@ export class MobilePostController {
         isDeleted: false
       };
 
+      const visibilityOrArray = [
+        { requirementVisibility: { $exists: false } },
+        { requirementVisibility: null },
+        { requirementVisibility: RequirementVisibility.REGION },
+        { requirementVisibility: RequirementVisibility.MUTUAL_FRIEND, memberId: { $in: mutualIds } }
+      ];
+
       if (search) {
-        where.$or = [
+        const searchOrArray = [
           { title: { $regex: search, $options: "i" } },
           { description: { $regex: search, $options: "i" } },
           { location: { $regex: search, $options: "i" } }
         ];
+        where.$and = [
+          { $or: visibilityOrArray },
+          { $or: searchOrArray }
+        ];
+      } else {
+        where.$or = visibilityOrArray;
       }
 
       const [posts, total] = await this.postRepo.findAndCount({
@@ -684,38 +740,78 @@ export class MobilePostController {
 
       if (type) where.type = type;
 
-      // Special logic for GIVE posts: Only show from mutual friends
+      // 1. Find who current user follows (needed for GIVE and REQUIREMENT target filters)
+      const following = await this.connectionRepo.find({
+        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+      });
+      const followingIds = following.map(f => f.receiverId.toString());
+
+      // 2. Find who follows current user
+      const followers = await this.connectionRepo.find({
+        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+      });
+      const followerIds = followers.map(f => f.senderId.toString());
+
+      // 3. Mutual = Intersection
+      const mutualIds = followingIds
+        .filter(id => followerIds.includes(id))
+        .map(id => new ObjectId(id));
+
+      // 4. Find members in the same region
+      const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
+      let regionMemberIds: ObjectId[] = [];
+      if (currentMember) {
+        const locationCondition: any = { isDeleted: false };
+        if (currentMember.city) locationCondition.city = currentMember.city;
+        if (currentMember.businessRegion) locationCondition.businessRegion = currentMember.businessRegion;
+
+        const regionMembers = await this.memberRepo.find({ where: locationCondition });
+        regionMemberIds = regionMembers.map(m => m._id);
+      }
+
+      const visibilityOrArray: any[] = [];
       if (type === PostType.GIVE) {
-        // 1. Find who current user follows
-        const following = await this.connectionRepo.find({
-          where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
-        });
-        const followingIds = following.map(f => f.receiverId.toString());
-
-        // 2. Find who follows current user
-        const followers = await this.connectionRepo.find({
-          where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
-        });
-        const followerIds = followers.map(f => f.senderId.toString());
-
-        // 3. Mutual = Intersection
-        const mutualIds = followingIds
-          .filter(id => followerIds.includes(id))
-          .map(id => new ObjectId(id));
-
-        // If no mutual friends, return empty list (or maybe show own posts too?)
-        // The user said "only mutual friends posts"
         where.memberId = { $in: mutualIds };
-      } else if (memberId && ObjectId.isValid(memberId)) {
+      } else if (type === PostType.REQUIREMENT) {
+        visibilityOrArray.push(
+          { requirementVisibility: { $exists: false } },
+          { requirementVisibility: null },
+          { memberId: new ObjectId(userId) },
+          { requirementVisibility: RequirementVisibility.MUTUAL_FRIEND, memberId: { $in: mutualIds } },
+          { requirementVisibility: RequirementVisibility.REGION, memberId: { $in: regionMemberIds } }
+        );
+      } else if (!type) {
+        visibilityOrArray.push(
+          { type: { $ne: PostType.REQUIREMENT } },
+          { type: PostType.REQUIREMENT, requirementVisibility: { $exists: false } },
+          { type: PostType.REQUIREMENT, requirementVisibility: null },
+          { type: PostType.REQUIREMENT, memberId: new ObjectId(userId) },
+          { type: PostType.REQUIREMENT, requirementVisibility: RequirementVisibility.MUTUAL_FRIEND, memberId: { $in: mutualIds } },
+          { type: PostType.REQUIREMENT, requirementVisibility: RequirementVisibility.REGION, memberId: { $in: regionMemberIds } }
+        );
+      }
+
+      if (memberId && ObjectId.isValid(memberId)) {
         where.memberId = new ObjectId(memberId);
       }
 
       if (search) {
-        where.$or = [
+        const searchOrArray = [
           { title: { $regex: search, $options: "i" } },
           { description: { $regex: search, $options: "i" } },
           { location: { $regex: search, $options: "i" } }
         ];
+
+        if (visibilityOrArray.length > 0) {
+          where.$and = [
+            { $or: visibilityOrArray },
+            { $or: searchOrArray }
+          ];
+        } else {
+          where.$or = searchOrArray;
+        }
+      } else if (visibilityOrArray.length > 0) {
+        where.$or = visibilityOrArray;
       }
 
       const [posts, total] = await this.postRepo.findAndCount({
@@ -842,6 +938,21 @@ export class MobilePostController {
       // Only owner can update
       if (post.memberId.toString() !== userId) {
         throw new BadRequestError("You are not authorized to update this post");
+      }
+
+      const targetType = data.type !== undefined ? data.type : post.type;
+      if (targetType === PostType.REQUIREMENT) {
+        const visibilityInput = data.requirementVisibility !== undefined ? data.requirementVisibility : post.requirementVisibility;
+        if (!visibilityInput) {
+          throw new BadRequestError("requirementVisibility is required when post type is REQUIREMENT");
+        }
+        const normalized = visibilityInput.toUpperCase().trim().replace(/_|\s+/g, "-");
+        if (normalized !== RequirementVisibility.MUTUAL_FRIEND && normalized !== RequirementVisibility.REGION) {
+          throw new BadRequestError("Invalid requirementVisibility. Must be either 'mutual-friend' or 'region'");
+        }
+        data.requirementVisibility = normalized as RequirementVisibility;
+      } else {
+        data.requirementVisibility = undefined;
       }
 
       Object.assign(post, data);
@@ -1195,6 +1306,94 @@ export class MobilePostController {
       }));
 
       return pagination(total, data, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/posts/{id}/report:
+   *   post:
+   *     summary: Report a post
+   *     tags: [Mobile Post]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - reason
+   *             properties:
+   *               reason:
+   *                 type: string
+   *                 example: "Spam or misleading"
+   *               comments:
+   *                 type: string
+   *                 example: "This post is selling fake items."
+   */
+  @Post("/:id/report")
+  async reportPost(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { reason: string; comments?: string },
+    @Res() res: any
+  ) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+      const userId = new ObjectId(req.user.userId);
+      const postId = new ObjectId(id);
+      const { reason, comments } = body;
+
+      if (!reason || typeof reason !== "string" || reason.trim() === "") {
+        throw new BadRequestError("Reason is required and must be a non-empty string");
+      }
+
+      // 1. Check if post exists and is not deleted
+      const post = await this.postRepo.findOneBy({ _id: postId, isDeleted: false });
+      if (!post) throw new NotFoundError("Post not found");
+
+      // 2. Prevent self-reporting
+      if (post.memberId.equals(userId)) {
+        throw new BadRequestError("You cannot report your own post");
+      }
+
+      // 3. Prevent duplicate reports
+      const postReportRepo = AppDataSource.getMongoRepository(PostReport);
+      const existingReport = await postReportRepo.findOne({
+        where: {
+          reporterId: userId,
+          postId: postId
+        } as any
+      });
+
+      if (existingReport) {
+        throw new BadRequestError("You have already reported this post");
+      }
+
+      // 4. Save reported history
+      const report = new PostReport();
+      report.reporterId = userId;
+      report.postId = postId;
+      report.reason = reason;
+      report.comments = comments;
+
+      const savedReport = await postReportRepo.save(report);
+
+      return res.status(StatusCodes.CREATED).json({
+        success: true,
+        message: "Post reported successfully",
+        data: savedReport
+      });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

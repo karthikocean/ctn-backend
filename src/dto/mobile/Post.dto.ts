@@ -1,5 +1,5 @@
 import { IsString, IsNotEmpty, IsEnum, IsOptional, IsArray } from "class-validator";
-import { PostType } from "../../entity/Post";
+import { PostType, RequirementVisibility } from "../../entity/Post";
 
 /**
  * @swagger
@@ -33,6 +33,10 @@ import { PostType } from "../../entity/Post";
  *           items:
  *             type: string
  *           example: ["/uploads/post1.jpg"]
+ *         requirementVisibility:
+ *           type: string
+ *           enum: [MUTUAL-FRIEND, REGION]
+ *           example: "REGION"
  *     UpdatePostDto:
  *       type: object
  *       properties:
@@ -51,6 +55,9 @@ import { PostType } from "../../entity/Post";
  *           type: array
  *           items:
  *             type: string
+ *         requirementVisibility:
+ *           type: string
+ *           enum: [MUTUAL-FRIEND, REGION]
  */
 
 export class CreatePostDto {
@@ -77,6 +84,10 @@ export class CreatePostDto {
   @IsArray()
   @IsOptional()
     media?: string[];
+
+  @IsEnum(RequirementVisibility)
+  @IsOptional()
+    requirementVisibility?: RequirementVisibility;
 }
 
 export class UpdatePostDto {
@@ -103,4 +114,8 @@ export class UpdatePostDto {
   @IsArray()
   @IsOptional()
     media?: string[];
+
+  @IsEnum(RequirementVisibility)
+  @IsOptional()
+    requirementVisibility?: RequirementVisibility;
 }

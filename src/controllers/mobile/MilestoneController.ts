@@ -32,6 +32,7 @@ import { getIO, isUserInConversation } from "../../utils/socket";
 import { validateModuleUsage } from "../../services/moduleUsage.service";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
+import { DailyScoreService } from "../../services/dailyScore.service";
 
 @JsonController("/milestones")
 @UseBefore(MobileAuthMiddleware)
@@ -89,6 +90,18 @@ export class MobileMilestoneController {
         });
       } catch (pointError) {
         console.error("Failed to award points for milestone creation:", pointError);
+      }
+
+      // 2.5 Award Daily Score Checklist Points
+      try {
+        const dailyScoreService = new DailyScoreService();
+        await dailyScoreService.awardDailyScore(
+          memberObjectId,
+          "Milestone",
+          saved._id
+        );
+      } catch (dailyScoreError) {
+        console.error("Failed to award daily score for milestone creation:", dailyScoreError);
       }
 
       return res.status(StatusCodes.CREATED).json({

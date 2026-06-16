@@ -15,6 +15,11 @@ export enum PostType {
   REQUIREMENT = "REQUIREMENT"
 }
 
+export enum RequirementVisibility {
+  MUTUAL_FRIEND = "MUTUAL-FRIEND",
+  REGION = "REGION"
+}
+
 @Entity("posts")
 @Index(["memberId"])
 @Index(["type"])
@@ -57,6 +62,13 @@ export class PostModel {
 
   @Column({ default: false })
     isDeleted!: boolean;
+
+  @Column({
+    type: "enum",
+    enum: RequirementVisibility,
+    nullable: true
+  })
+    requirementVisibility?: RequirementVisibility;
 
   @CreateDateColumn()
     createdAt!: Date;

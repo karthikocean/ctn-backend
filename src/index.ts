@@ -19,6 +19,7 @@ import { initSocket, getIO, waitForDisconnects } from "./utils/socket";
 import cron from "node-cron";
 import axios from "axios";
 import { SubscriptionCronService } from "./services/subscriptionCron.service";
+import { DailyScoreCronService } from "./services/dailyScoreCron.service";
 
 AppDataSource.initialize()
   .then(async () => {
@@ -118,6 +119,9 @@ AppDataSource.initialize()
 
       // Initialize Subscription Daily Cron Job
       SubscriptionCronService.init();
+
+      // Initialize Daily Score Cron Jobs
+      DailyScoreCronService.init();
 
       // ✅ Cron job to call the production URL every 5 minutes to keep it alive
       cron.schedule("*/5 * * * *", async () => {
