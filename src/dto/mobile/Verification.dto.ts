@@ -1,21 +1,17 @@
-import { IsNotEmpty, IsString, Length } from "class-validator";
+import { IsNotEmpty, IsString, Length, IsOptional } from "class-validator";
 /**
  * @swagger
  * components:
  *   schemas:
  *     SendOtpDto:
  *       type: object
- *       required:
- *         - identifier
- *         - type
  *       properties:
- *         identifier:
+ *         phone:
+ *           type: string
+ *           example: "9876543210"
+ *         email:
  *           type: string
  *           example: "user@example.com"
- *         type:
- *           type: string
- *           enum: [email, phone]
- *           example: "email"
  *     VerifyOtpDto:
  *       type: object
  *       required:
@@ -37,12 +33,12 @@ import { IsNotEmpty, IsString, Length } from "class-validator";
 
 export class SendOtpDto {
   @IsString()
-  @IsNotEmpty()
-    identifier!: string; // Can be email or phone
+  @IsOptional()
+    phone?: string;
 
   @IsString()
-  @IsNotEmpty()
-    type!: "email" | "phone";
+  @IsOptional()
+    email?: string;
 }
 
 export class VerifyOtpDto {

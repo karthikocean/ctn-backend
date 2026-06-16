@@ -7,6 +7,9 @@ import { PostModel, PostType } from "../entity/Post";
 import { Referral } from "../entity/Referral";
 import { MemberTraining } from "../entity/MemberTraining";
 import { Milestone } from "../entity/Milestone";
+import { AnnouncementBooking } from "../entity/AnnouncementBooking";
+import { OnlineStallProduct } from "../entity/OnlineStallProduct";
+import { StallBooking } from "../entity/StallBooking";
 
 export interface ModuleUsageConfigItem {
   entity: any;
@@ -87,6 +90,54 @@ export const MODULE_USAGE_CONFIG: Record<string, ModuleUsageConfigItem> = {
     getFilter: (memberId: ObjectId) => ({
       memberId: memberId,
       isDeleted: false
+    }),
+    dateField: "createdAt"
+  },
+  Event: {
+    entity: AnnouncementBooking,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      status: "booked"
+    }),
+    dateField: "createdAt"
+  },
+  event: {
+    entity: AnnouncementBooking,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      status: "booked"
+    }),
+    dateField: "createdAt"
+  },
+  "Online Stall": {
+    entity: OnlineStallProduct,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      isDeleted: false
+    }),
+    dateField: "createdAt"
+  },
+  "online stall": {
+    entity: OnlineStallProduct,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      isDeleted: false
+    }),
+    dateField: "createdAt"
+  },
+  "Offline Stall": {
+    entity: StallBooking,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      status: "booked"
+    }),
+    dateField: "createdAt"
+  },
+  "offline stall": {
+    entity: StallBooking,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      status: "booked"
     }),
     dateField: "createdAt"
   }

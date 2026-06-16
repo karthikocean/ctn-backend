@@ -11,6 +11,7 @@ import { ObjectId } from "mongodb";
 @Entity("conversations")
 @Index(["participants"])
 @Index(["postId"])
+@Index(["productId"])
 export class Conversation {
   @ObjectIdColumn()
     _id!: ObjectId;
@@ -20,6 +21,9 @@ export class Conversation {
 
   @Column({ nullable: true })
     postId?: ObjectId; // Reference to the specific post this chat is about
+
+  @Column({ nullable: true })
+    productId?: ObjectId; // Reference to the specific online stall product this chat is about
 
   @Column({ nullable: true })
     milestoneId?: ObjectId; // Reference to the specific milestone this chat is about

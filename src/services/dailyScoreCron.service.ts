@@ -19,10 +19,10 @@ export class DailyScoreCronService {
       }
     });
 
-    // Cron job for 12:00 AM (midnight): "0 0 * * *"
-    cron.schedule("0 0 * * *", async () => {
+    // Cron job for 11:59 PM: "59 23 * * *"
+    cron.schedule("59 23 * * *", async () => {
       try {
-        console.log("🕒 Running Daily Score Reset Cron (12:00 AM)...");
+        console.log("🕒 Running Daily Score Reset Cron (11:59 PM)...");
         const dailyScoreService = new DailyScoreService();
         await dailyScoreService.resetDailyScores();
       } catch (error: any) {
