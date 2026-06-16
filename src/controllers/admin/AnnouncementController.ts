@@ -19,10 +19,50 @@ import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { CreateAnnouncementDto, UpdateAnnouncementDto } from "../../dto/admin/Announcement.dto";
+import { Member } from "../../entity/Member";
+import { AnnouncementBooking } from "../../entity/AnnouncementBooking";
+import { StallBooking } from "../../entity/StallBooking";
 
 @JsonController("/announcements")
 export class AdminAnnouncementController {
   private announcementRepo = AppDataSource.getMongoRepository(Announcement);
+
+  private validateStallConfig(data: any) {
+    if (data.isOfflineStallExist) {
+      if (!data.stallConfig) {
+        throw new BadRequestError("Stall configuration is required when offline stalls are enabled");
+      }
+      const { totalStallCount, stalls } = data.stallConfig;
+      if (totalStallCount === undefined || totalStallCount === null) {
+        throw new BadRequestError("Total stall count is required");
+      }
+      if (totalStallCount < 0) {
+        throw new BadRequestError("Total stall count cannot be negative");
+      }
+      if (!stalls || !Array.isArray(stalls)) {
+        throw new BadRequestError("Stalls list is required and must be an array");
+      }
+      if (stalls.length !== totalStallCount) {
+        throw new BadRequestError(`Total stall count (${totalStallCount}) does not match the actual number of configured stalls (${stalls.length})`);
+      }
+      const names = stalls.map((s: any) => s.name?.trim());
+      if (names.some((n: any) => !n)) {
+        throw new BadRequestError("All stalls must have a name");
+      }
+      // Check for duplicate stall names case-insensitive
+      const lowercaseNames = names.map((n: string) => n.toLowerCase());
+      const uniqueNames = new Set(lowercaseNames);
+      if (uniqueNames.size !== lowercaseNames.length) {
+        throw new BadRequestError("Stall names must be unique within an event");
+      }
+      if (stalls.some((s: any) => s.points === undefined || s.points === null || s.points === "" || isNaN(Number(s.points)))) {
+        throw new BadRequestError("All stalls must have points configured");
+      }
+      if (stalls.some((s: any) => Number(s.points) < 0)) {
+        throw new BadRequestError("Stall points cannot be negative");
+      }
+    }
+  }
 
   /**
    * @swagger
@@ -35,6 +75,7 @@ export class AdminAnnouncementController {
   @HttpCode(StatusCodes.CREATED)
   async create(@Body() data: CreateAnnouncementDto, @Res() res: any) {
     try {
+      this.validateStallConfig(data);
       // ✅ Check for unique title
       const existing = await this.announcementRepo.findOneBy({
         title: data.title,
@@ -44,6 +85,22 @@ export class AdminAnnouncementController {
 
       const announcement = new Announcement();
       Object.assign(announcement, data);
+
+      if (announcement.stallConfig && Array.isArray(announcement.stallConfig.stalls)) {
+        announcement.stallConfig.stalls = announcement.stallConfig.stalls.map((s: any) => {
+          let stallId: ObjectId;
+          if (s._id && ObjectId.isValid(s._id)) {
+            stallId = new ObjectId(s._id);
+          } else {
+            stallId = new ObjectId();
+          }
+          return {
+            ...s,
+            _id: stallId,
+            points: Number(s.points)
+          };
+        });
+      }
 
       announcement.isDeleted = false;
       announcement.status = data.status || AnnouncementStatus.DRAFT;
@@ -134,6 +191,7 @@ export class AdminAnnouncementController {
   async update(@Param("id") id: string, @Body() data: UpdateAnnouncementDto, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+      this.validateStallConfig(data);
 
       const announcement = await this.announcementRepo.findOneBy({
         _id: new ObjectId(id),
@@ -143,6 +201,23 @@ export class AdminAnnouncementController {
       if (!announcement) throw new NotFoundError("Announcement not found");
 
       Object.assign(announcement, data);
+
+      if (announcement.stallConfig && Array.isArray(announcement.stallConfig.stalls)) {
+        announcement.stallConfig.stalls = announcement.stallConfig.stalls.map((s: any) => {
+          let stallId: ObjectId;
+          if (s._id && ObjectId.isValid(s._id)) {
+            stallId = new ObjectId(s._id);
+          } else {
+            stallId = new ObjectId();
+          }
+          return {
+            ...s,
+            _id: stallId,
+            points: Number(s.points)
+          };
+        });
+      }
+
       const saved = await this.announcementRepo.save(announcement);
 
       return res.status(StatusCodes.OK).json({
@@ -180,6 +255,131 @@ export class AdminAnnouncementController {
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Announcement deleted successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/announcements/{id}/bookings:
+   *   get:
+   *     summary: Get all bookings (event and stalls) for a specific announcement
+   *     tags: [Admin Announcement]
+   */
+  @Get("/:id/bookings")
+  async getBookings(@Param("id") id: string, @Res() res: any) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+      const announcementOid = new ObjectId(id);
+
+      const announcement = await this.announcementRepo.findOneBy({
+        _id: announcementOid,
+        isDeleted: false
+      });
+
+      if (!announcement) throw new NotFoundError("Announcement not found");
+
+      // 1. Get event bookings
+      const eventBookingRepo = AppDataSource.getMongoRepository(AnnouncementBooking);
+      const eventBookings = await eventBookingRepo.find({
+        where: {
+          announcementId: announcementOid,
+          status: "booked"
+        }
+      });
+
+      // 2. Get stall bookings
+      const stallBookingRepo = AppDataSource.getMongoRepository(StallBooking);
+      const stallBookings = await stallBookingRepo.find({
+        where: {
+          announcementId: announcementOid,
+          status: "booked"
+        }
+      });
+
+      // 3. Get unique member IDs from both booking types
+      const memberIds = Array.from(new Set([
+        ...eventBookings.map(b => b.memberId.toString()),
+        ...stallBookings.map(b => b.memberId.toString())
+      ])).map(mId => new ObjectId(mId));
+
+      const memberRepo = AppDataSource.getMongoRepository(Member);
+      const members = memberIds.length > 0
+        ? await memberRepo.find({
+          where: {
+            _id: { $in: memberIds },
+            isDeleted: false
+          } as any
+        })
+        : [];
+
+      const memberMap = new Map<string, Member>(
+        members.map(m => [m._id.toString(), m])
+      );
+
+      // 4. Build event bookings response
+      const eventBookedMembers = eventBookings.map(b => {
+        const member = memberMap.get(b.memberId.toString());
+        return {
+          bookingId: b._id,
+          pointsSpent: b.pointsSpent,
+          createdAt: b.createdAt,
+          member: member ? {
+            _id: member._id,
+            fullName: member.fullName,
+            mobileNumber: member.mobileNumber,
+            email: member.email,
+            profilePhoto: member.profilePhoto,
+            businessName: member.businessName
+          } : null
+        };
+      });
+
+      // 5. Build stall bookings response
+      const stallBookedMembers = stallBookings.map(b => {
+        const member = memberMap.get(b.memberId.toString());
+        const stallInfo = announcement.stallConfig?.stalls?.find(
+          (s: any) => s._id?.toString() === b.stallId.toString()
+        );
+
+        return {
+          bookingId: b._id,
+          pointsSpent: b.pointsSpent,
+          createdAt: b.createdAt,
+          stall: stallInfo ? {
+            _id: stallInfo._id,
+            name: stallInfo.name,
+            size: stallInfo.size,
+            points: stallInfo.points
+          } : {
+            _id: b.stallId,
+            name: "Unknown Stall",
+            size: "",
+            points: 0
+          },
+          member: member ? {
+            _id: member._id,
+            fullName: member.fullName,
+            mobileNumber: member.mobileNumber,
+            email: member.email,
+            profilePhoto: member.profilePhoto,
+            businessName: member.businessName
+          } : null
+        };
+      });
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: {
+          announcementId: announcement._id,
+          title: announcement.title,
+          announcementType: announcement.announcementType,
+          isOfflineStallExist: announcement.isOfflineStallExist,
+          eventBookings: eventBookedMembers,
+          stallBookings: stallBookedMembers
+        }
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

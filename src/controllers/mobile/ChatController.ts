@@ -24,6 +24,7 @@ import { OneToOne } from "../../entity/OneToOne";
 import { Referral } from "../../entity/Referral";
 import { ThankYouSlip } from "../../entity/ThankYouSlip";
 import { Milestone } from "../../entity/Milestone";
+import { OnlineStallProduct } from "../../entity/OnlineStallProduct";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
@@ -48,6 +49,7 @@ export class MobileChatController {
   private referralRepo = AppDataSource.getMongoRepository(Referral);
   private tySlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
   private milestoneRepo = AppDataSource.getMongoRepository(Milestone);
+  private productRepo = AppDataSource.getMongoRepository(OnlineStallProduct);
 
   /**
    * @swagger
@@ -126,10 +128,22 @@ export class MobileChatController {
 
       const milestoneMap = new Map(milestones.map(m => [m._id.toString(), m]));
 
+      // Fetch products for product-related conversations
+      const productIds = conversations
+        .map(c => (c as any).productId)
+        .filter(id => !!id) as ObjectId[];
+
+      const products = productIds.length > 0
+        ? await this.productRepo.find({ where: { _id: { $in: productIds } } as any })
+        : [];
+
+      const productMap = new Map(products.map(p => [p._id.toString(), p]));
+
       const results = conversations.map(conv => {
         const otherParticipantId = conv.participants.find(p => !p.equals(userId));
         const otherUser = otherParticipantId ? memberMap.get(otherParticipantId.toString()) : null;
         const post = conv.postId ? postMap.get(conv.postId.toString()) : null;
+        const product = (conv as any).productId ? productMap.get((conv as any).productId.toString()) : null;
 
         let categoryName = null;
         if (otherUser && otherUser.businessCategory) {
@@ -149,6 +163,7 @@ export class MobileChatController {
             lastSeen: otherUser.lastSeen || null
           } : null,
           post: post || null,
+          product: product || null,
           milestone: conv.milestoneId ? milestoneMap.get(conv.milestoneId.toString()) : null,
           status: conv.status || "",
           reportReason: conv.reportReason || null,
@@ -318,6 +333,10 @@ export class MobileChatController {
 
         if ((msg.type === MessageType.POST_RESPONSE || msg.type === MessageType.POST_SHARE) && msg.postId) {
           result.post = await this.postRepo.findOneBy({ _id: msg.postId });
+        }
+
+        if (msg.type === MessageType.PRODUCT_RESPONSE && (msg as any).productId) {
+          result.product = await this.productRepo.findOneBy({ _id: (msg as any).productId });
         }
 
         if (msg.type === MessageType.MILESTONE_REPLY && msg.milestoneId) {
@@ -612,6 +631,154 @@ export class MobileChatController {
           message: savedMessage
         },
         points: pointsResult
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/chats/respond-to-product:
+   *   post:
+   *     summary: Initiate a chat response to an online stall product
+   *     tags: [Mobile Chat]
+   */
+  @Post("/respond-to-product")
+  async respondToProduct(@Req() req: any, @Body() data: { productId: string; message: string }, @Res() res: any) {
+    try {
+      const senderId = new ObjectId(req.user.userId);
+      const { productId, message } = data;
+
+      if (!productId || !ObjectId.isValid(productId)) throw new BadRequestError("Invalid Product ID");
+
+      const product = await this.productRepo.findOneBy({ _id: new ObjectId(productId), isDeleted: false });
+      if (!product) throw new NotFoundError("Product not found");
+
+      const receiverId = product.memberId;
+      if (senderId.equals(receiverId)) throw new BadRequestError("You cannot respond to your own product");
+
+      let conversation = await this.conversationRepo.findOne({
+        where: {
+          participants: { $all: [senderId, receiverId] },
+          productId: new ObjectId(productId)
+        } as any
+      });
+
+      if (!conversation) {
+        conversation = new Conversation();
+        conversation.participants = [senderId, receiverId];
+        (conversation as any).productId = new ObjectId(productId);
+        conversation.status = "PENDING";
+        conversation = await this.conversationRepo.save(conversation);
+      } else {
+        // Check if sender already responded to this product in this conversation
+        const existingResponse = await this.messageRepo.findOne({
+          where: {
+            conversationId: conversation._id,
+            senderId: senderId,
+            type: MessageType.PRODUCT_RESPONSE,
+            productId: new ObjectId(productId)
+          } as any
+        });
+
+        if (existingResponse) {
+          return res.status(StatusCodes.OK).json({
+            success: true,
+            message: "You have already responded to this product",
+            data: {
+              conversationId: conversation._id,
+              message: existingResponse
+            }
+          });
+        }
+      }
+
+      const newMessage = new Message();
+      newMessage.conversationId = conversation._id;
+      newMessage.senderId = senderId;
+      newMessage.content = message || "Hi, I'm interested in your product.";
+      newMessage.type = MessageType.PRODUCT_RESPONSE;
+      (newMessage as any).productId = new ObjectId(productId);
+
+      // Check if receiver is in the chat room
+      const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
+      if (isReceiverActive) {
+        newMessage.isRead = true;
+      }
+
+      const savedMessage = await this.messageRepo.save(newMessage);
+
+      // Send Push Notification if receiver is not active in the chat room and has fcmToken
+      const receiver = await this.memberRepo.findOneBy({ _id: receiverId, isDeleted: false });
+      if (!isReceiverActive && receiver?.fcmToken) {
+        const sender = await this.memberRepo.findOneBy({ _id: senderId });
+        await insertPushNotification({
+          token: receiver.fcmToken,
+          subject: sender?.fullName || "New Message",
+          content: newMessage.content,
+          moduleName: NotificationModule.CHAT,
+          moduleId: conversation._id.toString(),
+          receiverId: receiverId.toString(),
+          senderId: senderId.toString()
+        });
+      }
+
+      conversation.lastMessage = newMessage.content;
+      conversation.lastMessageTime = new Date();
+      conversation.lastMessageSenderId = senderId;
+
+      // Update unread count for receiver
+      const unreadCounts = conversation.unreadCounts || {};
+      if (isReceiverActive) {
+        unreadCounts[receiverId.toString()] = 0;
+      } else {
+        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
+      }
+      conversation.unreadCounts = { ...unreadCounts };
+
+      await this.conversationRepo.save(conversation);
+
+      const io = getIO();
+      io.to(receiverId.toString()).emit("new_message", {
+        ...savedMessage,
+        product
+      });
+
+      // Emit conversation update for the conversation list screen
+      const sender = await this.memberRepo.findOneBy({ _id: senderId });
+      let senderCategoryName = null;
+      if (sender && sender.businessCategory) {
+        const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
+        senderCategoryName = cat ? cat.name : null;
+      }
+
+      const unreadCount = conversation.unreadCounts?.[receiverId.toString()] || 0;
+
+      io.to(receiverId.toString()).emit("conversation_updated", {
+        ...conversation,
+        lastMessage: savedMessage.content,
+        lastMessageTime: savedMessage.createdAt,
+        lastMessageSenderId: savedMessage.senderId,
+        otherUser: sender ? {
+          _id: sender._id,
+          fullName: sender.fullName,
+          profilePhoto: sender.profilePhoto,
+          categoryName: senderCategoryName,
+          isOnline: sender.isOnline || false,
+          lastSeen: sender.lastSeen || null
+        } : null,
+        product: product || null,
+        unreadCount
+      });
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Message sent successfully",
+        data: {
+          conversationId: conversation._id,
+          message: savedMessage
+        }
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
