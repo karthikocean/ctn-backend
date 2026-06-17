@@ -15,8 +15,6 @@ import { IsNotEmpty, IsString, Length, IsOptional } from "class-validator";
  *     VerifyOtpDto:
  *       type: object
  *       required:
- *         - identifier
- *         - type
  *         - otp
  *       properties:
  *         identifier:
@@ -26,6 +24,12 @@ import { IsNotEmpty, IsString, Length, IsOptional } from "class-validator";
  *           type: string
  *           enum: [email, phone]
  *           example: "email"
+ *         phone:
+ *           type: string
+ *           example: "9876543210"
+ *         email:
+ *           type: string
+ *           example: "user@example.com"
  *         otp:
  *           type: string
  *           example: "1234"
@@ -43,15 +47,24 @@ export class SendOtpDto {
 
 export class VerifyOtpDto {
   @IsString()
-  @IsNotEmpty()
-    identifier!: string;
+  @IsOptional()
+    identifier?: string;
 
   @IsString()
-  @IsNotEmpty()
-    type!: "email" | "phone";
+  @IsOptional()
+    type?: "email" | "phone";
+
+  @IsString()
+  @IsOptional()
+    phone?: string;
+
+  @IsString()
+  @IsOptional()
+    email?: string;
 
   @IsString()
   @IsNotEmpty()
   @Length(4, 4)
     otp!: string;
 }
+
