@@ -121,7 +121,23 @@ export class VerificationController {
   @HttpCode(StatusCodes.OK)
   async verifyOtp(@Body() body: VerifyOtpDto, @Res() res: any) {
     try {
-      const { identifier, type, otp } = body;
+      let { identifier, type, phone, email, otp } = body;
+
+      if (!identifier) {
+        if (phone) {
+          identifier = phone;
+          type = "phone";
+        } else if (email) {
+          identifier = email;
+          type = "email";
+        }
+      }
+
+      if (!identifier || !type) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          message: "At least identifier/type, or phone, or email must be provided"
+        });
+      }
 
       // Test bypass
       if (otp === "1234") {
