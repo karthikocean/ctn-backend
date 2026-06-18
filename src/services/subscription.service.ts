@@ -159,7 +159,7 @@ export class SubscriptionService {
 
     const newSub = new MemberSubscription();
     newSub.memberId = memberObjectId;
-    newSub.planId = trialPlan._id;
+    newSub.planId = new ObjectId(trialPlan._id);
     newSub.type = trialPlan.type || "BASIC";
     newSub.status = "ACTIVE";
     newSub.startDate = now;
@@ -171,8 +171,8 @@ export class SubscriptionService {
 
     // Update member record
     member.hasUsedTrial = true;
-    member.subscriptionId = savedSub._id;
-    member.planId = trialPlan._id;
+    member.subscriptionId = new ObjectId(savedSub._id);
+    member.planId = new ObjectId(trialPlan._id);
     await this.memberRepo.save(member);
 
     return savedSub;
