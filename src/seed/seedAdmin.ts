@@ -36,6 +36,7 @@ export async function seedAdmin() {
     "plans",
     "franchises",
     "billings",
+    "coupons",
   ];
 
   // ✅ MODULES

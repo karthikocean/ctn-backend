@@ -10,6 +10,8 @@ import { Milestone } from "../entity/Milestone";
 import { AnnouncementBooking } from "../entity/AnnouncementBooking";
 import { OnlineStallProduct } from "../entity/OnlineStallProduct";
 import { StallBooking } from "../entity/StallBooking";
+import { OneToOne } from "../entity/OneToOne";
+import { ThankYouSlip } from "../entity/ThankYouSlip";
 
 export interface ModuleUsageConfigItem {
   entity: any;
@@ -18,6 +20,26 @@ export interface ModuleUsageConfigItem {
 }
 
 export const MODULE_USAGE_CONFIG: Record<string, ModuleUsageConfigItem> = {
+  "Thank you Slip": {
+    entity: ThankYouSlip,
+    getFilter: (memberId: ObjectId) => ({
+      $or: [
+        { senderId: memberId },
+        { receiverId: memberId }
+      ]
+    }),
+    dateField: "createdAt"
+  },
+  "One to One": {
+    entity: OneToOne,
+    getFilter: (memberId: ObjectId) => ({
+      $or: [
+        { senderId: memberId },
+        { receiverId: memberId }
+      ]
+    }),
+    dateField: "createdAt"
+  },
   Ask: {
     entity: PostModel,
     getFilter: (memberId: ObjectId) => ({
