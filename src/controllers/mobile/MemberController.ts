@@ -73,10 +73,10 @@ export class MobileMemberController {
       }
 
       // Check GST number limit (max 2 users per GST)
-      if (data.gstNumber) {
-        const gstCount = await this.memberRepo.count({ gstNumber: data.gstNumber, isDeleted: false });
-        if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
-      }
+      // if (data.gstNumber) {
+      //   const gstCount = await this.memberRepo.count({ gstNumber: data.gstNumber, isDeleted: false });
+      //   if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
+      // }
 
       const member = new Member();
       Object.assign(member, data);
@@ -203,7 +203,7 @@ export class MobileMemberController {
       const member = await this.memberRepo.findOneBy({ _id: new ObjectId(userId), isDeleted: false });
 
       if (!member) throw new NotFoundError("Member not found");
-
+      if (!member.pin) throw new BadRequestError("PIN not configured. Please set your PIN to proceed.");
       const isMatch = await bcrypt.compare(pin, member.pin);
       if (!isMatch) {
         throw new BadRequestError("Invalid PIN");
@@ -564,6 +564,8 @@ export class MobileMemberController {
         name: m.fullName,
         profile: m.profilePhoto,
         businessName: m.businessName,
+        businessType: m.businessType,
+        legalName: m.legalName,
         city: m.city,
         category: m.businessCategory ? { _id: m.businessCategory, name: catMap.get(m.businessCategory.toString()) } : null,
         sub_category: m.subCategory ? { _id: m.subCategory, name: catMap.get(m.subCategory.toString()) } : null,
@@ -641,6 +643,8 @@ export class MobileMemberController {
         fullName: m.fullName,
         profilePhoto: m.profilePhoto,
         businessName: m.businessName,
+        businessType: m.businessType,
+        legalName: m.legalName,
         city: m.city,
         category: m.businessCategory ? { _id: m.businessCategory, name: catMap.get(m.businessCategory.toString()) } : null,
         subCategory: m.subCategory ? { _id: m.subCategory, name: catMap.get(m.subCategory.toString()) } : null,
@@ -781,6 +785,8 @@ export class MobileMemberController {
           fullName: m.fullName,
           profilePhoto: m.profilePhoto,
           businessName: m.businessName,
+          businessType: m.businessType,
+          legalName: m.legalName,
           city: m.city,
           businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null,
           subCategory: m.subCategory ? categoryMap.get(m.subCategory.toString()) : null,
@@ -978,6 +984,8 @@ export class MobileMemberController {
           fullName: m.fullName,
           profilePhoto: m.profilePhoto,
           businessName: m.businessName,
+          businessType: m.businessType,
+          legalName: m.legalName,
           city: m.city,
           distance: m.distance,
           latitude: m.latitude,

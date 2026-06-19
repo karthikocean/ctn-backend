@@ -21,6 +21,12 @@ export enum LocationVisibility {
   MUTUAL = "MUTUAL"
 }
 
+export interface ServiceLocation {
+  country: string;
+  states: string[];
+  cities: string[];
+}
+
 @Entity("members")
 @Index(["mobileNumber"], { unique: true })
 @Index(["email"], { unique: true, sparse: true })
@@ -76,6 +82,11 @@ export class Member {
 
   @Column({ nullable: true })
     businessName?: string;
+  @Column({ nullable: true })
+    businessType?: string;
+
+  @Column({ nullable: true })
+    legalName?: string;
 
   @Column({ nullable: true })
     businessCategory?: ObjectId;
@@ -108,8 +119,8 @@ export class Member {
   @Column({ nullable: true })
     businessRegion?: ObjectId | null;
 
-  @Column("simple-array", { nullable: true })
-    serviceLocations?: string[];
+  @Column({ type: "json", nullable: true })
+    serviceLocations?: ServiceLocation;
 
   // =========================================
   // PROFESSIONAL DETAILS

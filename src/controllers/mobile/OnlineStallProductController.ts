@@ -18,6 +18,7 @@ import { OnlineStallProduct } from "../../entity/OnlineStallProduct";
 import { Announcement } from "../../entity/Announcement";
 import { Member } from "../../entity/Member";
 import { Category } from "../../entity/Category";
+import { MarketplaceCategory } from "../../entity/MarketplaceCategory";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
@@ -55,25 +56,31 @@ export class MobileOnlineStallProductController {
   @HttpCode(StatusCodes.CREATED)
   async create(@Req() req: any, @Body() body: CreateOnlineStallProductDto, @Res() res: any) {
     try {
-      const { productName, description, price, images, eventId } = body;
+      const { productName, description, price, images, location, endDate, marketplaceCategory } = body;
 
-      if (!ObjectId.isValid(eventId)) {
-        throw new BadRequestError("Invalid event ID");
+      if (!ObjectId.isValid(marketplaceCategory)) {
+        throw new BadRequestError("Invalid marketplace category ID");
       }
 
-      // Verify event exists
-      const event = await this.announcementRepo.findOneBy({
-        _id: new ObjectId(eventId),
+      const mCategory = await AppDataSource.getMongoRepository(MarketplaceCategory).findOneBy({
+        _id: new ObjectId(marketplaceCategory),
         isDeleted: false
       });
-      if (!event) {
-        throw new NotFoundError("Event Announcement not found");
+      if (!mCategory) {
+        throw new NotFoundError("Marketplace category not found");
       }
 
       const finalMemberId = new ObjectId(req.user.userId);
 
       // Validate Online Stall capacity under the plan
-      await validateModuleUsage(finalMemberId, "Online Stall");
+      await validateModuleUsage(finalMemberId, "MarketPlace");
+
+      let finalEndDate: Date | undefined;
+      if (endDate) {
+        finalEndDate = new Date(endDate);
+      } else {
+        finalEndDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      }
 
       const product = this.productRepo.create({
         productName,
@@ -81,8 +88,10 @@ export class MobileOnlineStallProductController {
         price: Number(price),
         images: images || [],
         memberId: finalMemberId,
-        eventId: new ObjectId(eventId),
-        isDeleted: false
+        isDeleted: false,
+        location,
+        endDate: finalEndDate,
+        marketplaceCategory: new ObjectId(marketplaceCategory)
       });
 
       const saved = await this.productRepo.save(product);
@@ -99,32 +108,31 @@ export class MobileOnlineStallProductController {
 
   /**
    * @swagger
-   * /mobile-api/online-stall-products/event/{eventId}:
+   * /mobile-api/online-stall-products:
    *   get:
    *     summary: Get all products for a specific event stall (Mobile)
    *     tags: [Mobile Online Stall Product]
    *     security:
    *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: eventId
-   *         required: true
-   *         schema:
-   *           type: string
    *     responses:
    *       200:
    *         description: List of products
    */
-  @Get("/event/:eventId")
-  async getByEvent(@Param("eventId") eventId: string, @Res() res: any) {
+  @Get("/")
+  async getByEvent(@Req() req: any, @Res() res: any) {
     try {
-      if (!ObjectId.isValid(eventId)) {
-        throw new BadRequestError("Invalid event ID");
+
+      const loggedInUserId = req.user.userId;
+      const loggedInMember = await this.memberRepo.findOneBy({
+        _id: new ObjectId(loggedInUserId),
+        isDeleted: false
+      });
+      if (!loggedInMember) {
+        throw new NotFoundError("Logged-in member not found");
       }
 
       const products = await this.productRepo.find({
         where: {
-          eventId: new ObjectId(eventId),
           isDeleted: false
         },
         order: { createdAt: "DESC" }
@@ -168,14 +176,61 @@ export class MobileOnlineStallProductController {
       const memberMap = new Map(members.map(m => [m._id.toString(), m]));
       const categoryMap = new Map(categories.map(c => [c._id.toString(), c]));
 
+      // Extract unique marketplace category IDs from products
+      const mCategoryIds = Array.from(
+        new Set(
+          products
+            .map(p => p.marketplaceCategory?.toString())
+            .filter((id): id is string => !!id)
+        )
+      ).map(id => new ObjectId(id));
+
+      const mCategories = mCategoryIds.length > 0
+        ? await AppDataSource.getMongoRepository(MarketplaceCategory).find({ where: { _id: { $in: mCategoryIds } } as any })
+        : [];
+      const mCategoryMap = new Map(mCategories.map(c => [c._id.toString(), { _id: c._id, name: c.name }]));
+
+      const now = new Date();
+      const loggedInRegion = loggedInMember.businessRegion?.toString();
+
+      // Filter products based on location rules
+      const filteredProducts = products.filter(product => {
+        const productOwner = memberMap.get(product.memberId.toString());
+        if (!productOwner) {
+          return false; // Skip products from deleted/non-existent members
+        }
+
+        // If location is "region", owner's region must match logged-in user's region
+        if (product.location === "region") {
+          const ownerRegion = productOwner.businessRegion?.toString();
+          return !!(ownerRegion && loggedInRegion && ownerRegion === loggedInRegion);
+        }
+
+        // If location is "Overall", list for everyone
+        return true;
+      });
+
       // Group products by memberId
-      const groupedProducts = new Map<string, OnlineStallProduct[]>();
-      for (const product of products) {
+      const groupedProducts = new Map<string, any[]>();
+      for (const product of filteredProducts) {
         const mIdStr = product.memberId.toString();
         if (!groupedProducts.has(mIdStr)) {
           groupedProducts.set(mIdStr, []);
         }
-        groupedProducts.get(mIdStr)!.push(product);
+
+        let daysRemaining = 0;
+        if (product.endDate) {
+          const diffTime = new Date(product.endDate).getTime() - now.getTime();
+          daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+        }
+
+        const mappedProduct = {
+          ...product,
+          daysRemaining,
+          marketplaceCategory: product.marketplaceCategory ? mCategoryMap.get(product.marketplaceCategory.toString()) || null : null
+        };
+
+        groupedProducts.get(mIdStr)!.push(mappedProduct);
       }
 
       const groupedData: any[] = [];
@@ -230,9 +285,38 @@ export class MobileOnlineStallProductController {
         order: { createdAt: "DESC" }
       });
 
+      // Extract unique marketplace category IDs from products
+      const mCategoryIds = Array.from(
+        new Set(
+          products
+            .map(p => p.marketplaceCategory?.toString())
+            .filter((id): id is string => !!id)
+        )
+      ).map(id => new ObjectId(id));
+
+      const mCategories = mCategoryIds.length > 0
+        ? await AppDataSource.getMongoRepository(MarketplaceCategory).find({ where: { _id: { $in: mCategoryIds } } as any })
+        : [];
+      const mCategoryMap = new Map(mCategories.map(c => [c._id.toString(), { _id: c._id, name: c.name }]));
+
+      const now = new Date();
+      const responseData = products.map(p => {
+        let daysRemaining = 0;
+        if (p.endDate) {
+          const diffTime = new Date(p.endDate).getTime() - now.getTime();
+          daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+        }
+
+        return {
+          ...p,
+          daysRemaining,
+          marketplaceCategory: p.marketplaceCategory ? mCategoryMap.get(p.marketplaceCategory.toString()) || null : null
+        };
+      });
+
       return res.status(StatusCodes.OK).json({
         success: true,
-        data: products
+        data: responseData
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

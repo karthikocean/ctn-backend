@@ -269,7 +269,7 @@ export class AdminUserController {
     newUser.userId = await generateAdminUserId();
 
     // Hash PIN
-    newUser.pin = await bcrypt.hash("1234", 10);
+    newUser.pin = await bcrypt.hash(userData.pin, 10);
 
     // Convert roleId string to ObjectId
     newUser.roleId = new ObjectId(userData.roleId);

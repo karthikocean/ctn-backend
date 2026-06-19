@@ -26,66 +26,66 @@ export class StallConfig {
 
 @Entity("announcements")
 export class Announcement {
-    @ObjectIdColumn()
-      _id!: ObjectId;
+  @ObjectIdColumn()
+    _id!: ObjectId;
 
-    @Column()
-      title!: string;
+  @Column()
+    title!: string;
 
-    @Column()
-      content!: string;
+  @Column()
+    content!: string;
 
-    @Column()
-      image!: string; // URL from media upload
+  @Column()
+    image!: string; // URL from media upload
 
-    @Column({ nullable: true })
-      video?: string; // URL from media upload
+  @Column({ nullable: true })
+    video?: string; // URL from media upload
 
-    @Column({
-      type: "enum",
-      enum: AnnouncementStatus,
-      default: AnnouncementStatus.DRAFT
-    })
-      status!: AnnouncementStatus;
+  @Column({
+    type: "enum",
+    enum: AnnouncementStatus,
+    default: AnnouncementStatus.DRAFT
+  })
+    status!: AnnouncementStatus;
 
-    @Column({
-      type: "enum",
-      enum: AnnouncementType,
-      default: AnnouncementType.EVENT
-    })
-      announcementType!: AnnouncementType;
+  @Column({
+    type: "enum",
+    enum: AnnouncementType,
+    default: AnnouncementType.EVENT
+  })
+    announcementType!: AnnouncementType;
 
-    @Column({ nullable: true })
-      date?: Date;
+  @Column({ nullable: true })
+    date?: Date;
 
-    @Column({ nullable: true })
-      time?: string;
+  @Column({ nullable: true })
+    time?: string;
 
-    @Column({ nullable: true })
-      location?: string;
+  @Column({ nullable: true })
+    location?: string;
 
-    @Column({ default: 0 })
-      points!: number;
+  @Column({ default: 0 })
+    points!: number;
 
-    @Column({ default: 0 })
-      membersLimit!: number;
+  @Column({ default: 0 })
+    membersLimit!: number;
 
-    @Column({ nullable: true })
-      scheduleDate?: Date;
+  @Column({ nullable: true })
+    scheduleDate?: Date;
 
-    @Column({ default: false })
-      isOfflineStallExist!: boolean;
+  @Column({ default: false })
+    isOfflineStallExist!: boolean;
 
-    // ✅ Embedded stall configuration (only relevant when isOfflineStallExist = true)
-    @Column({ nullable: true })
-      stallConfig?: StallConfig;
+  // ✅ Embedded stall configuration (only relevant when isOfflineStallExist = true)
+  @Column({ nullable: true })
+    stallConfig?: StallConfig;
 
-    @Column({ default: false })
-      isDeleted!: boolean;
+  @Column({ default: false })
+    isDeleted!: boolean;
 
-    @CreateDateColumn()
-      createdAt!: Date;
+  @CreateDateColumn()
+    createdAt!: Date;
 
-    @UpdateDateColumn()
-      updatedAt!: Date;
+  @UpdateDateColumn()
+    updatedAt!: Date;
 }

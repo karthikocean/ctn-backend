@@ -2,9 +2,7 @@ import { Entity, ObjectIdColumn, Column, CreateDateColumn, UpdateDateColumn, Ind
 import { ObjectId } from "mongodb";
 
 @Entity("online_stall_products")
-@Index(["eventId"])
 @Index(["memberId"])
-@Index(["eventId", "memberId"])
 export class OnlineStallProduct {
   @ObjectIdColumn()
     _id!: ObjectId;
@@ -24,11 +22,17 @@ export class OnlineStallProduct {
   @Column()
     memberId!: ObjectId;
 
-  @Column()
-    eventId!: ObjectId;
-
   @Column({ default: false })
     isDeleted!: boolean;
+
+  @Column({ type: "string", nullable: true })
+    location?: "region" | "Overall";
+
+  @Column({ type: "date", nullable: true })
+    endDate?: Date;
+
+  @Column({ nullable: true })
+    marketplaceCategory?: ObjectId;
 
   @CreateDateColumn()
     createdAt!: Date;

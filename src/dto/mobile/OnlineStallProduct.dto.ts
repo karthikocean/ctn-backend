@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsNumber, Min, IsArray, IsOptional } from "class-validator";
+import { IsNotEmpty, IsString, IsNumber, Min, IsArray, IsOptional, IsEnum } from "class-validator";
 
 /**
  * @swagger
@@ -9,7 +9,8 @@ import { IsNotEmpty, IsString, IsNumber, Min, IsArray, IsOptional } from "class-
  *       required:
  *         - productName
  *         - price
- *         - eventId
+ *         - location
+ *         - marketplaceCategory
  *       properties:
  *         productName:
  *           type: string
@@ -25,7 +26,14 @@ import { IsNotEmpty, IsString, IsNumber, Min, IsArray, IsOptional } from "class-
  *           items:
  *             type: string
  *           example: ["/images/apple1.jpg", "/images/apple2.jpg"]
- *         eventId:
+ *         location:
+ *           type: string
+ *           enum: [region, Overall]
+ *           example: "region"
+ *         endDate:
+ *           type: string
+ *           example: "2026-07-20T00:00:00.000Z"
+ *         marketplaceCategory:
  *           type: string
  *           example: "60d5ecb8b392d7001f8e8e3b"
  *     UpdateOnlineStallProductDto:
@@ -45,6 +53,16 @@ import { IsNotEmpty, IsString, IsNumber, Min, IsArray, IsOptional } from "class-
  *           items:
  *             type: string
  *           example: ["/images/apple_premium.jpg"]
+ *         location:
+ *           type: string
+ *           enum: [region, Overall]
+ *           example: "Overall"
+ *         endDate:
+ *           type: string
+ *           example: "2026-07-20T00:00:00.000Z"
+ *         marketplaceCategory:
+ *           type: string
+ *           example: "60d5ecb8b392d7001f8e8e3b"
  */
 
 export class CreateOnlineStallProductDto {
@@ -65,9 +83,17 @@ export class CreateOnlineStallProductDto {
   @IsOptional()
     images?: string[];
 
+  @IsEnum(["region", "Overall"])
+  @IsNotEmpty()
+    location!: "region" | "Overall";
+
+  @IsString()
+  @IsOptional()
+    endDate?: string;
+
   @IsString()
   @IsNotEmpty()
-    eventId!: string;
+    marketplaceCategory!: string;
 }
 
 export class UpdateOnlineStallProductDto {
@@ -88,4 +114,16 @@ export class UpdateOnlineStallProductDto {
   @IsString({ each: true })
   @IsOptional()
     images?: string[];
+
+  @IsEnum(["region", "Overall"])
+  @IsOptional()
+    location?: "region" | "Overall";
+
+  @IsString()
+  @IsOptional()
+    endDate?: string;
+
+  @IsString()
+  @IsOptional()
+    marketplaceCategory?: string;
 }

@@ -50,9 +50,13 @@ export class MobileAuthController {
       });
 
       if (!member) {
-        throw new UnauthorizedError("Invalid credentials");
+        throw new UnauthorizedError("User Account not found!!");
       }
-
+      if (!member.pin) {
+        throw new BadRequestError(
+          "PIN not configured. Please set your PIN to proceed."
+        );
+      }
       const isMatch = await bcrypt.compare(pin, member.pin);
       if (!isMatch) {
         throw new UnauthorizedError("Invalid credentials");

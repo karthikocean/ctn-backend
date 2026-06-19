@@ -57,7 +57,8 @@ import {
   IsNotEmpty,
   IsOptional,
   IsMongoId,
-  IsPhoneNumber
+  IsPhoneNumber,
+  Length
 } from "class-validator";
 import { Type } from "class-transformer";
 
@@ -84,10 +85,10 @@ export class CreateAdminUserDto {
   @IsNotEmpty()
     phoneNumber!: string;
 
-  // @Length(4)
-  // @IsString()
-  // @IsNotEmpty()
-  //   pin!: string;
+  @Length(4, 4)
+  @IsString()
+  @IsNotEmpty()
+    pin!: string;
 
   @IsMongoId()
     roleId!: string;

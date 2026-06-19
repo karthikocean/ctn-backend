@@ -7,6 +7,7 @@ import {
 import axios from "axios";
 import { AppDataSource } from "../../data-source";
 import { Category, CategoryStatus } from "../../entity/Category";
+import { MarketplaceCategory, MarketplaceCategoryStatus } from "../../entity/MarketplaceCategory";
 import { ObjectId } from "mongodb";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
@@ -16,6 +17,7 @@ import { Member, MemberStatus } from "../../entity/Member";
 @JsonController("/common")
 export class CommonController {
   private categoryRepo = AppDataSource.getMongoRepository(Category);
+  private marketplaceCategoryRepo = AppDataSource.getMongoRepository(MarketplaceCategory);
 
   /**
    * @swagger
@@ -266,6 +268,59 @@ export class CommonController {
       });
 
     } catch (error) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/common/marketplace-categories:
+   *   get:
+   *     summary: Get all active marketplace categories
+   *     tags: [Mobile Common]
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   */
+  @Get("/marketplace-categories")
+  async getMarketplaceCategories(
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @QueryParam("search") search: string,
+    @Res() res: any
+  ) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+
+    try {
+      const where: any = {
+        isDeleted: false,
+        status: MarketplaceCategoryStatus.ACTIVE
+      };
+
+      if (search) {
+        where.name = { $regex: search, $options: "i" };
+      }
+
+      const [categories, total] = await this.marketplaceCategoryRepo.findAndCount({
+        where,
+        skip: page * limit,
+        take: limit,
+        order: { name: "ASC" }
+      });
+
+      return pagination(total, categories, limit, page, res);
+    } catch (error: any) {
       return handleErrorResponse(error, res);
     }
   }
