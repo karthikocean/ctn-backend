@@ -57,9 +57,10 @@ export class AdminModuleController {
   async create(@Body() data: CreateModuleDto, @Res() res: any) {
     try {
       const trimmedName = data.name.trim();
+      const slugName = trimmedName.toLowerCase();
       const existing = await this.moduleRepo.findOne({
         where: {
-          name: trimmedName,
+          slugName,
           isDelete: 0
         }
       });
@@ -70,6 +71,8 @@ export class AdminModuleController {
       const module = new Module();
       Object.assign(module, {
         name: trimmedName,
+        slugName,
+        parentSlug: data.parentSlug || null,
         isActive: 1,
         isDelete: 0
       });
@@ -232,9 +235,10 @@ export class AdminModuleController {
 
       if (data.name && data.name.trim() !== module.name) {
         const trimmedName = data.name.trim();
+        const slugName = trimmedName.toLowerCase();
         const existing = await this.moduleRepo.findOne({
           where: {
-            name: trimmedName,
+            slugName,
             isDelete: 0,
             _id: { $ne: new ObjectId(id) }
           }
@@ -243,6 +247,11 @@ export class AdminModuleController {
           throw new BadRequestError("A module with this name already exists");
         }
         module.name = trimmedName;
+        module.slugName = slugName;
+      }
+
+      if (data.parentSlug !== undefined) {
+        module.parentSlug = data.parentSlug || null;
       }
 
       const saved = await this.moduleRepo.save(module);

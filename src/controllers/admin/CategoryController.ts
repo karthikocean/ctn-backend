@@ -11,7 +11,8 @@ import {
   BadRequestError,
   HttpCode,
   Res,
-  UseBefore
+  UseBefore,
+  Req
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Category, CategoryType } from "../../entity/Category";
@@ -21,7 +22,7 @@ import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
-import { canAccess } from "../../middlewares/PermissionMiddleware";
+import { hasPermission } from "../../utils/common.function";
 
 @JsonController("/categories")
 @UseBefore(AuthMiddleware)
@@ -47,10 +48,27 @@ export class CategoryController {
    *         description: Category created successfully
    */
   @Post("/")
-  @UseBefore(canAccess("categories", "add"))
   @HttpCode(StatusCodes.CREATED)
-  async create(@Body() data: CreateCategoryDto, @Res() res: any) {
+  async create(@Body() data: CreateCategoryDto, @Res() res: any, @Req() req: any) {
     try {
+      const role = req.user?.role;
+      const isSuperAdmin = role?.name === "Super Admin";
+      let requiredModule = "categories";
+      if (data.type === CategoryType.MAIN) {
+        requiredModule = "main_categories";
+      } else if (data.type === CategoryType.SUB) {
+        requiredModule = "sub_categories";
+      } else if (data.type === CategoryType.REFERRAL) {
+        requiredModule = "referral_categories";
+      }
+
+      if (!isSuperAdmin && !(await hasPermission(role, requiredModule, "create"))) {
+        return res.status(StatusCodes.FORBIDDEN).json({
+          success: false,
+          message: "Permission denied: Insufficient permissions"
+        });
+      }
+
       const category = new Category();
       category.name = data.name;
       category.type = data.type;
@@ -96,7 +114,6 @@ export class CategoryController {
    *         description: List of categories
    */
   @Get("/")
-  @UseBefore(canAccess("categories", "view"))
   async getAll(
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
@@ -104,12 +121,42 @@ export class CategoryController {
     @QueryParam("referralParent") referralParent: string,
     @QueryParam("parentCategory") parentCategory: string,
     @QueryParam("type") type: string,
-    @Res() res: any
+    @Res() res: any,
+    @Req() req: any
   ) {
     page = Number(page) || 0;
     limit = Number(limit) || 10;
 
     try {
+      const role = req.user?.role;
+      const isSuperAdmin = role?.name === "Super Admin";
+      let requiredModule = "categories";
+      if (type === CategoryType.MAIN) {
+        requiredModule = "main_categories";
+      } else if (type === CategoryType.SUB) {
+        requiredModule = "sub_categories";
+      } else if (type === CategoryType.REFERRAL) {
+        requiredModule = "referral_categories";
+      }
+
+      let allowed = isSuperAdmin;
+      if (!allowed) {
+        if (requiredModule !== "categories") {
+          allowed = await hasPermission(role, requiredModule, "view");
+        } else {
+          allowed = (await hasPermission(role, "categories", "view")) ||
+                    (await hasPermission(role, "main_categories", "view")) ||
+                    (await hasPermission(role, "sub_categories", "view")) ||
+                    (await hasPermission(role, "referral_categories", "view"));
+        }
+      }
+
+      if (!allowed) {
+        return res.status(StatusCodes.FORBIDDEN).json({
+          success: false,
+          message: "Permission denied: Insufficient permissions"
+        });
+      }
       const where: any = { isDeleted: false };
       if (search) {
         where.name = { $regex: search, $options: "i" };
@@ -186,8 +233,7 @@ export class CategoryController {
    *     tags: [Category]
    */
   @Get("/:id")
-  @UseBefore(canAccess("categories", "view"))
-  async getOne(@Param("id") id: string, @Res() res: any) {
+  async getOne(@Param("id") id: string, @Res() res: any, @Req() req: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
@@ -196,6 +242,24 @@ export class CategoryController {
       });
 
       if (!category) throw new NotFoundError("Category not found");
+
+      const role = req.user?.role;
+      const isSuperAdmin = role?.name === "Super Admin";
+      let requiredModule = "categories";
+      if (category.type === CategoryType.MAIN) {
+        requiredModule = "main_categories";
+      } else if (category.type === CategoryType.SUB) {
+        requiredModule = "sub_categories";
+      } else if (category.type === CategoryType.REFERRAL) {
+        requiredModule = "referral_categories";
+      }
+
+      if (!isSuperAdmin && !(await hasPermission(role, requiredModule, "view"))) {
+        return res.status(StatusCodes.FORBIDDEN).json({
+          success: false,
+          message: "Permission denied: Insufficient permissions"
+        });
+      }
 
       // Populate parents
       const populated: any = { ...category };
@@ -230,13 +294,30 @@ export class CategoryController {
    *     tags: [Category]
    */
   @Put("/:id")
-  @UseBefore(canAccess("categories", "edit"))
-  async update(@Param("id") id: string, @Body() data: UpdateCategoryDto, @Res() res: any) {
+  async update(@Param("id") id: string, @Body() data: UpdateCategoryDto, @Res() res: any, @Req() req: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
       const category = await this.categoryRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!category) throw new NotFoundError("Category not found");
+
+      const role = req.user?.role;
+      const isSuperAdmin = role?.name === "Super Admin";
+      let requiredModule = "categories";
+      if (category.type === CategoryType.MAIN) {
+        requiredModule = "main_categories";
+      } else if (category.type === CategoryType.SUB) {
+        requiredModule = "sub_categories";
+      } else if (category.type === CategoryType.REFERRAL) {
+        requiredModule = "referral_categories";
+      }
+
+      if (!isSuperAdmin && !(await hasPermission(role, requiredModule, "edit"))) {
+        return res.status(StatusCodes.FORBIDDEN).json({
+          success: false,
+          message: "Permission denied: Insufficient permissions"
+        });
+      }
 
       if (data.name) category.name = data.name;
       if (data.status) category.status = data.status;
@@ -258,13 +339,30 @@ export class CategoryController {
    *     tags: [Category]
    */
   @Delete("/:id")
-  @UseBefore(canAccess("categories", "delete"))
-  async delete(@Param("id") id: string, @Res() res: any) {
+  async delete(@Param("id") id: string, @Res() res: any, @Req() req: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
       const category = await this.categoryRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!category) throw new NotFoundError("Category not found");
+
+      const role = req.user?.role;
+      const isSuperAdmin = role?.name === "Super Admin";
+      let requiredModule = "categories";
+      if (category.type === CategoryType.MAIN) {
+        requiredModule = "main_categories";
+      } else if (category.type === CategoryType.SUB) {
+        requiredModule = "sub_categories";
+      } else if (category.type === CategoryType.REFERRAL) {
+        requiredModule = "referral_categories";
+      }
+
+      if (!isSuperAdmin && !(await hasPermission(role, requiredModule, "delete"))) {
+        return res.status(StatusCodes.FORBIDDEN).json({
+          success: false,
+          message: "Permission denied: Insufficient permissions"
+        });
+      }
 
       category.isDeleted = true;
       await this.categoryRepo.save(category);

@@ -13,6 +13,7 @@ import fileUpload from "express-fileupload";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
 import { seedAdmin } from "./seed/seedAdmin";
+import { seedModules } from "./seed/seedModules";
 import { createServer } from "http";
 import { initSocket, getIO, waitForDisconnects } from "./utils/socket";
 import { SubscriptionCronService } from "./services/subscriptionCron.service";
@@ -25,6 +26,8 @@ AppDataSource.initialize()
     console.log("✅ Database connected");
 
     const app = express();
+    // seed default modules
+    await seedModules();
     // seed default admin user
     await seedAdmin();
     // seed default subscription plans
@@ -160,3 +163,4 @@ AppDataSource.initialize()
   .catch((error) => {
     console.error("❌ DB Error:", error);
   });
+// Trigger nodemon restart

@@ -40,7 +40,7 @@ export class ReferralCategoryController {
    *             $ref: '#/components/schemas/CreateReferralCategoryDto'
    */
   @Post("/")
-  @UseBefore(canAccess("categories", "add"))
+  @UseBefore(canAccess("referral_categories", "add"))
   async create(@Body() data: CreateReferralCategoryDto, @Res() res: any) {
     try {
       const subCategoryIds = data.subCategory
@@ -87,7 +87,7 @@ export class ReferralCategoryController {
    *     tags: [Referral Category]
    */
   @Get("/")
-  @UseBefore(canAccess("categories", "view"))
+  @UseBefore(canAccess("referral_categories", "view"))
   async getAll(
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
@@ -151,7 +151,7 @@ export class ReferralCategoryController {
    *     tags: [Referral Category]
    */
   @Delete("/:id")
-  @UseBefore(canAccess("categories", "delete"))
+  @UseBefore(canAccess("referral_categories", "delete"))
   async delete(@Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) {

@@ -25,6 +25,8 @@ import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import handleErrorResponse from "../../utils/commonFunction";
 import { CreateOnlineStallProductDto, UpdateOnlineStallProductDto } from "../../dto/mobile/OnlineStallProduct.dto";
 import { validateModuleUsage } from "../../services/moduleUsage.service";
+import { PointService } from "../../services/point.service";
+import { PointConfigType } from "../../entity/PointConfig";
 
 @JsonController("/online-stall-products")
 @UseBefore(MobileAuthMiddleware)
@@ -75,6 +77,20 @@ export class MobileOnlineStallProductController {
       // Validate Online Stall capacity under the plan
       await validateModuleUsage(finalMemberId, "MarketPlace");
 
+      // Check points balance and deduct points
+      const pointService = new PointService();
+      const config = await pointService.getPointConfig("MarketPlace", PointConfigType.SPENT);
+      const pointsToDeduct = config ? config.points : 0;
+
+      const member = await this.memberRepo.findOneBy({ _id: finalMemberId, isDeleted: false });
+      if (!member) {
+        throw new NotFoundError("Member not found");
+      }
+
+      if (pointsToDeduct > 0 && (member.points || 0) < pointsToDeduct) {
+        throw new BadRequestError(`Insufficient points. You need ${pointsToDeduct} points.`);
+      }
+
       let finalEndDate: Date | undefined;
       if (endDate) {
         finalEndDate = new Date(endDate);
@@ -96,10 +112,32 @@ export class MobileOnlineStallProductController {
 
       const saved = await this.productRepo.save(product);
 
+      // Deduct points from history and balance
+      let remainingPoints = member.points;
+      if (pointsToDeduct > 0) {
+        try {
+          const deductResult = await pointService.deductPoints({
+            memberId: finalMemberId,
+            moduleName: "MarketPlace",
+            points: pointsToDeduct,
+            referenceId: saved._id,
+            actionType: "spent"
+          });
+          remainingPoints = deductResult.balance;
+        } catch (pointError) {
+          console.error("Failed to record marketplace points deduction in history:", pointError);
+          member.points = Math.max(0, (member.points || 0) - pointsToDeduct);
+          await this.memberRepo.save(member);
+          remainingPoints = member.points;
+        }
+      }
+
       return res.status(StatusCodes.CREATED).json({
         success: true,
         message: "Product created successfully",
-        data: saved
+        data: saved,
+        remainingPoints,
+        pointsSpent: pointsToDeduct
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

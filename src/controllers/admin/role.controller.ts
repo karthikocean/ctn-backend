@@ -200,9 +200,9 @@ export class RoleController {
 
       // Map permissions to use ObjectId for moduleId
       newRole.permissions = roleData.permissions.map(p => ({
-        moduleId: p.moduleId,
+        moduleId: ObjectId.isValid(p.moduleId) ? new ObjectId(p.moduleId) : p.moduleId,
         actions: p.actions
-      }));
+      })) as any;
 
       const savedRole = await this.roleRepo.save(newRole);
       return res.status(StatusCodes.CREATED).json(savedRole);
@@ -256,9 +256,9 @@ export class RoleController {
 
       if (roleData.permissions) {
         role.permissions = roleData.permissions.map(p => ({
-          moduleId: p.moduleId,
+          moduleId: ObjectId.isValid(p.moduleId) ? new ObjectId(p.moduleId) : p.moduleId,
           actions: p.actions
-        }));
+        })) as any;
       }
 
       const updatedRole = await this.roleRepo.save(role);
