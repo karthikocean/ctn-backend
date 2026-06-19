@@ -131,7 +131,7 @@ export const MODULE_USAGE_CONFIG: Record<string, ModuleUsageConfigItem> = {
     }),
     dateField: "createdAt"
   },
-  "Online Stall": {
+  "MarketPlace": {
     entity: OnlineStallProduct,
     getFilter: (memberId: ObjectId) => ({
       memberId: memberId,
@@ -173,34 +173,34 @@ export function getDateRangeByFrequency(frequency: string, frequencyValue: numbe
   const startDate = new Date();
 
   switch (frequency.toLowerCase()) {
-  case "daily":
-    startDate.setDate(endDate.getDate() - frequencyValue + 1);
-    startDate.setHours(0, 0, 0, 0);
-    break;
+    case "daily":
+      startDate.setDate(endDate.getDate() - frequencyValue + 1);
+      startDate.setHours(0, 0, 0, 0);
+      break;
 
-  case "weekly":
-    // Start of the week (assuming Sunday as first day), going back frequencyValue - 1 weeks
-    const dayOfWeek = endDate.getDay();
-    startDate.setDate(endDate.getDate() - dayOfWeek - (7 * (frequencyValue - 1)));
-    startDate.setHours(0, 0, 0, 0);
-    break;
+    case "weekly":
+      // Start of the week (assuming Sunday as first day), going back frequencyValue - 1 weeks
+      const dayOfWeek = endDate.getDay();
+      startDate.setDate(endDate.getDate() - dayOfWeek - (7 * (frequencyValue - 1)));
+      startDate.setHours(0, 0, 0, 0);
+      break;
 
-  case "monthly":
-    // Start of the month, going back frequencyValue - 1 months
-    startDate.setMonth(endDate.getMonth() - frequencyValue + 1);
-    startDate.setDate(1);
-    startDate.setHours(0, 0, 0, 0);
-    break;
+    case "monthly":
+      // Start of the month, going back frequencyValue - 1 months
+      startDate.setMonth(endDate.getMonth() - frequencyValue + 1);
+      startDate.setDate(1);
+      startDate.setHours(0, 0, 0, 0);
+      break;
 
-  case "yearly":
-    // Start of the year, going back frequencyValue - 1 years
-    startDate.setFullYear(endDate.getFullYear() - frequencyValue + 1);
-    startDate.setMonth(0, 1);
-    startDate.setHours(0, 0, 0, 0);
-    break;
+    case "yearly":
+      // Start of the year, going back frequencyValue - 1 years
+      startDate.setFullYear(endDate.getFullYear() - frequencyValue + 1);
+      startDate.setMonth(0, 1);
+      startDate.setHours(0, 0, 0, 0);
+      break;
 
-  default:
-    throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
+    default:
+      throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
   }
 
   return { startDate, endDate };

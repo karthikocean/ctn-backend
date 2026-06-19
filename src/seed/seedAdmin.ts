@@ -37,6 +37,8 @@ export async function seedAdmin() {
     "franchises",
     "billings",
     "coupons",
+    "marketplace_category",
+    "modules",
   ];
 
   // ✅ MODULES

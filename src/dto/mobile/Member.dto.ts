@@ -6,8 +6,10 @@ import {
   IsArray,
   Length,
   IsNotEmpty,
-  IsEnum
+  IsEnum,
+  ValidateNested
 } from "class-validator";
+import { Type } from "class-transformer";
 import { LocationVisibility } from "../../entity/Member";
 
 /**
@@ -114,6 +116,20 @@ import { LocationVisibility } from "../../entity/Member";
  *           example: 80.1428
  */
 
+export class ServiceLocationDto {
+  @IsString()
+  @IsNotEmpty()
+    country!: string;
+
+  @IsArray()
+  @IsString({ each: true })
+    states!: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+    cities!: string[];
+}
+
 export class CreateMemberDto {
   @IsString()
     fullName!: string;
@@ -132,6 +148,14 @@ export class CreateMemberDto {
   @IsString()
   @IsOptional()
     businessName?: string;
+
+  @IsString()
+  @IsOptional()
+    businessType?: string;
+
+  @IsString()
+  @IsOptional()
+    legalName?: string;
 
   @IsString()
   @IsOptional()
@@ -165,10 +189,10 @@ export class CreateMemberDto {
   @IsOptional()
     businessRegion?: string;
 
-  @IsArray()
-  @IsString({ each: true })
   @IsOptional()
-    serviceLocations?: string[];
+  @ValidateNested()
+  @Type(() => ServiceLocationDto)
+    serviceLocations?: ServiceLocationDto;
 
   @IsString()
   @IsOptional()
@@ -240,6 +264,14 @@ export class UpdateProfileDto {
   @IsOptional()
     businessName?: string;
 
+  @IsString()
+  @IsOptional()
+    businessType?: string;
+
+  @IsString()
+  @IsOptional()
+    legalName?: string;
+
   @IsNumber()
   @IsOptional()
     yearsOfExperience?: number;
@@ -271,10 +303,10 @@ export class UpdateProfileDto {
   @IsOptional()
     businessRegion?: string;
 
-  @IsArray()
-  @IsString({ each: true })
   @IsOptional()
-    serviceLocations?: string[];
+  @ValidateNested()
+  @Type(() => ServiceLocationDto)
+    serviceLocations?: ServiceLocationDto;
 
   @IsString()
   @IsOptional()

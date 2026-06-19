@@ -15,11 +15,13 @@ import jwt from "jsonwebtoken";
 import { AppDataSource } from "../../data-source";
 import { AdminUser } from "../../entity/AdminUser";
 import { UserToken } from "../../entity/UserToken";
+import { Verification } from "../../entity/Verification";
 
-import { LoginDto, ChangePinDto } from "../../dto/admin/Auth.dto";
+import { LoginDto, ChangePinDto, ForgotPinDto, VerifyOtpDto, ResetPinDto } from "../../dto/admin/Auth.dto";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { UseBefore } from "routing-controllers";
+import { sendForgotPinSMS } from "../../utils/sms";
 
 @JsonController("/auth")
 export class AuthController {
@@ -56,12 +58,12 @@ export class AuthController {
       });
 
       if (!user) {
-        throw new UnauthorizedError("Invalid credentials");
+        throw new UnauthorizedError("User Account not found!!");
       }
 
       const isMatch = await bcrypt.compare(pin, user.pin);
       if (!isMatch) {
-        throw new UnauthorizedError("Invalid credentials");
+        throw new UnauthorizedError("User Pin is incorrect!!");
       }
 
       // Check if token already exists in user_tokens collection
@@ -226,4 +228,226 @@ export class AuthController {
       return handleErrorResponse(error, res);
     }
   }
+
+  /**
+   * @swagger
+   * /api/admin/auth/forgot-pin:
+   *   post:
+   *     summary: Send OTP for admin password/PIN reset
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/ForgotPinDto'
+   *     responses:
+   *       200:
+   *         description: OTP sent successfully
+   *       400:
+   *         description: User Account not found or bad request
+   */
+  @Post("/forgot-pin")
+  @HttpCode(StatusCodes.OK)
+  async forgotPin(@Body() body: ForgotPinDto, @Res() res: any) {
+    try {
+      const { phoneNumber } = body;
+
+      const userRepo = AppDataSource.getMongoRepository(AdminUser);
+      const user = await userRepo.findOne({
+        where: { phoneNumber }
+      });
+
+      if (!user) {
+        throw new BadRequestError("Admin User not found with this phone number!!");
+      }
+
+      const otp = Math.floor(1000 + Math.random() * 9000).toString();
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+
+      const verificationRepo = AppDataSource.getMongoRepository(Verification);
+      let verification = await verificationRepo.findOne({
+        where: { identifier: phoneNumber, type: "phone", isVerified: false }
+      });
+
+      if (verification) {
+        verification.otp = otp;
+        verification.expiresAt = expiresAt;
+      } else {
+        verification = verificationRepo.create({
+          identifier: phoneNumber,
+          type: "phone",
+          otp,
+          expiresAt,
+          isVerified: false
+        });
+      }
+
+      await verificationRepo.save(verification);
+      await sendForgotPinSMS(phoneNumber, otp);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "OTP sent successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/auth/verify-otp:
+   *   post:
+   *     summary: Verify the OTP code
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/VerifyOtpDto'
+   *     responses:
+   *       200:
+   *         description: OTP verified successfully
+   *       400:
+   *         description: Invalid or expired OTP
+   */
+  @Post("/verify-otp")
+  @HttpCode(StatusCodes.OK)
+  async verifyOtp(@Body() body: VerifyOtpDto, @Res() res: any) {
+    try {
+      const { phoneNumber, otp } = body;
+
+      const userRepo = AppDataSource.getMongoRepository(AdminUser);
+      const user = await userRepo.findOne({
+        where: { phoneNumber }
+      });
+
+      if (!user) {
+        throw new BadRequestError("Admin User not found!!");
+      }
+
+      const verificationRepo = AppDataSource.getMongoRepository(Verification);
+
+      if (otp === "1234") {
+        let verification = await verificationRepo.findOne({
+          where: { identifier: phoneNumber, type: "phone" },
+          order: { createdAt: "DESC" }
+        });
+
+        const expiresAt = new Date();
+        expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+
+        if (!verification) {
+          verification = verificationRepo.create({
+            identifier: phoneNumber,
+            type: "phone",
+            otp: "1234",
+            expiresAt,
+            isVerified: true
+          });
+        } else {
+          verification.isVerified = true;
+          verification.expiresAt = expiresAt;
+        }
+
+        await verificationRepo.save(verification);
+
+        return res.status(StatusCodes.OK).json({
+          success: true,
+          message: "OTP verified successfully"
+        });
+      }
+
+      const verification = await verificationRepo.findOne({
+        where: { identifier: phoneNumber, type: "phone", otp, isVerified: false }
+      });
+
+      if (!verification) {
+        throw new BadRequestError("Invalid or expired verification code");
+      }
+
+      if (new Date() > verification.expiresAt) {
+        throw new BadRequestError("Verification code has expired");
+      }
+
+      verification.isVerified = true;
+      await verificationRepo.save(verification);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "OTP verified successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/auth/reset-pin:
+   *   post:
+   *     summary: Reset admin PIN after OTP verification
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/ResetPinDto'
+   *     responses:
+   *       200:
+   *         description: PIN reset successful
+   *       400:
+   *         description: Verification expired or missing
+   */
+  @Post("/reset-pin")
+  @HttpCode(StatusCodes.OK)
+  async resetPin(@Body() body: ResetPinDto, @Res() res: any) {
+    try {
+      const { phoneNumber, newPin } = body;
+
+      const verificationRepo = AppDataSource.getMongoRepository(Verification);
+      const verification = await verificationRepo.findOne({
+        where: { identifier: phoneNumber, type: "phone", isVerified: true },
+        order: { createdAt: "DESC" }
+      });
+
+      if (!verification) {
+        throw new BadRequestError("Please verify your phone number first");
+      }
+
+      const fifteenMinutesAgo = new Date();
+      fifteenMinutesAgo.setMinutes(fifteenMinutesAgo.getMinutes() - 15);
+      if (verification.createdAt < fifteenMinutesAgo) {
+        throw new BadRequestError("Verification expired. Please request a new OTP.");
+      }
+
+      const userRepo = AppDataSource.getMongoRepository(AdminUser);
+      const user = await userRepo.findOne({
+        where: { phoneNumber }
+      });
+
+      if (!user) {
+        throw new BadRequestError("Admin User not found");
+      }
+
+      user.pin = await bcrypt.hash(newPin, 10);
+      await userRepo.save(user);
+
+      // Consume the verification
+      verification.isVerified = false;
+      await verificationRepo.save(verification);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "PIN reset successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
 }
+

@@ -348,12 +348,13 @@ export class MobileConnectionController {
       const members = memberIds.length > 0
         ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
         : [];
-
       const memberMap = new Map(members.map(m => [m._id.toString(), {
         _id: m._id,
         fullName: m.fullName,
         profilePhoto: m.profilePhoto,
         businessName: m.businessName,
+        businessType: m.businessType,
+        legalName: m.legalName,
         city: m.city
       }]));
 
@@ -545,6 +546,8 @@ export class MobileConnectionController {
           fullName: m.fullName,
           profilePhoto: m.profilePhoto,
           businessName: m.businessName,
+          businessType: m.businessType,
+          legalName: m.legalName,
           city: m.city,
           status: outgoingMap.get(m._id.toString()) === "ACCEPTED"
             ? "Following"
