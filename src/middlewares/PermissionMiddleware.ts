@@ -27,7 +27,7 @@ export const canAccess = (feature: string, action: any) => {
         return res.status(403).json({ message: "Permission denied: Role is inactive or removed" });
       }
 
-      if (!hasPermission(role, feature, action) && role.name !== "Super Admin") {
+      if (!(await hasPermission(role, feature, action)) && role.name !== "Super Admin") {
         return res.status(403).json({ message: "Permission denied: Insufficient permissions" });
       }
 

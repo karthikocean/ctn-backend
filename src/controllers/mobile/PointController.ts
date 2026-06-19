@@ -11,6 +11,7 @@ import { AppDataSource } from "../../data-source";
 import { Member } from "../../entity/Member";
 import { PointHistory } from "../../entity/PointHistory";
 import { DailyScoreHistory } from "../../entity/DailyScoreHistory";
+import { PointConfig } from "../../entity/PointConfig";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
@@ -239,6 +240,10 @@ export class MobilePointController {
    *           type: string
    *           enum: [all, earned, spent]
    *       - in: query
+   *         name: moduleName
+   *         schema:
+   *           type: string
+   *       - in: query
    *         name: page
    *         schema:
    *           type: integer
@@ -251,6 +256,7 @@ export class MobilePointController {
   async getStatement(
     @Req() req: any,
     @QueryParam("type") type: string,
+    @QueryParam("moduleName") moduleName: string,
     @QueryParam("page") pageParam: number,
     @QueryParam("limit") limitParam: number,
     @Res() res: any
@@ -276,6 +282,10 @@ export class MobilePointController {
         ];
       }
 
+      if (moduleName) {
+        filter.moduleName = { $regex: new RegExp(`^${moduleName}$`, "i") };
+      }
+
       const [history, total] = await this.historyRepo.findAndCount({
         where: filter,
         order: { createdAt: "DESC" },
@@ -284,6 +294,53 @@ export class MobilePointController {
       });
       return pagination(total, history, page, limit, res);
 
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/points/configs:
+   *   get:
+   *     summary: Get all point configurations
+   *     tags: [Mobile Points]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: moduleName
+   *         schema:
+   *           type: string
+   *       - in: query
+   *         name: type
+   *         schema:
+   *           type: string
+   *           enum: [creation, response, spent]
+   */
+  @Get("/configs")
+  async getConfigs(
+    @QueryParam("moduleName") moduleName: string,
+    @QueryParam("type") type: string,
+    @Res() res: any
+  ) {
+    try {
+      const configRepo = AppDataSource.getMongoRepository(PointConfig);
+      const where: any = { isDeleted: false };
+
+      if (moduleName) {
+        where.moduleName = { $regex: new RegExp(`^${moduleName}$`, "i") };
+      }
+
+      if (type) {
+        where.type = type;
+      }
+
+      const configs = await configRepo.find({ where });
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: configs
+      });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
