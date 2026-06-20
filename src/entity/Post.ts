@@ -17,7 +17,8 @@ export enum PostType {
 
 export enum RequirementVisibility {
   MUTUAL_FRIEND = "MUTUAL-FRIEND",
-  REGION = "REGION"
+  REGION = "REGION",
+  OVERALL = "OVERALL"
 }
 
 @Entity("posts")
@@ -27,52 +28,58 @@ export enum RequirementVisibility {
 @Index(["createdAt"])
 export class PostModel {
   @ObjectIdColumn()
-    _id!: ObjectId;
+  _id!: ObjectId;
 
   @Column({
     type: "enum",
     enum: PostType,
     default: PostType.REQUIREMENT
   })
-    type!: PostType;
+  type!: PostType;
 
   @Column()
-    title!: string;
+  title!: string;
 
   @Column()
-    description!: string;
+  description!: string;
 
   @Column({ nullable: true })
-    location?: string;
+  location?: string;
 
   @Column({ nullable: true })
-    period?: string;
+  period?: string;
 
   @Column("simple-array", { nullable: true })
-    media?: string[];
+  media?: string[];
 
   @Column()
-    memberId!: ObjectId;
+  memberId!: ObjectId;
 
   @Column({ default: 0 })
-    responsedCount!: number;
+  responsedCount!: number;
 
   @Column({ default: 0 })
-    sharedCount!: number;
+  sharedCount!: number;
+
+  @Column("json", { nullable: true })
+  stateIds?: ObjectId[];
+
+  @Column("json", { nullable: true })
+  regionIds?: ObjectId[];
 
   @Column({ default: false })
-    isDeleted!: boolean;
+  isDeleted!: boolean;
 
   @Column({
     type: "enum",
     enum: RequirementVisibility,
     nullable: true
   })
-    requirementVisibility?: RequirementVisibility;
+  requirementVisibility?: RequirementVisibility;
 
   @CreateDateColumn()
-    createdAt!: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-    updatedAt!: Date;
+  updatedAt!: Date;
 }

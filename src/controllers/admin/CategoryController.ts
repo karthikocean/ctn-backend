@@ -15,8 +15,9 @@ import {
   Req
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
-import { Category, CategoryType } from "../../entity/Category";
+import { Category, CategoryType, CategoryStatus } from "../../entity/Category";
 import { CreateCategoryDto, UpdateCategoryDto } from "../../dto/admin/Category.dto";
+import * as XLSX from "xlsx";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
@@ -85,6 +86,133 @@ export class CategoryController {
 
       const saved = await this.categoryRepo.save(category);
       return res.status(StatusCodes.CREATED).json(saved);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/categories/import:
+   *   post:
+   *     summary: Bulk import categories and subcategories from an Excel file
+   *     tags: [Category]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               file:
+   *                 type: string
+   *                 format: binary
+   *     responses:
+   *       200:
+   *         description: Categories imported successfully
+   */
+  @Post("/import")
+  @HttpCode(StatusCodes.OK)
+  async import(@Req() req: any, @Res() res: any) {
+    try {
+      const role = req.user?.role;
+      const isSuperAdmin = role?.name === "Super Admin";
+
+      // Requires permission to create categories
+      if (!isSuperAdmin && !(await hasPermission(role, "main_categories", "create")) && !(await hasPermission(role, "sub_categories", "create"))) {
+        return res.status(StatusCodes.FORBIDDEN).json({
+          success: false,
+          message: "Permission denied: Insufficient permissions to import categories"
+        });
+      }
+
+      if (!req.files || !req.files.file) {
+        throw new BadRequestError("No file uploaded. Please upload a file with the key 'file'.");
+      }
+
+      const file = req.files.file;
+      const workbook = XLSX.read(file.data, { type: "buffer" });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
+
+      let createdMainCount = 0;
+      let createdSubCount = 0;
+      let skippedCount = 0;
+
+      for (const row of jsonData) {
+        let mainCategoryName = "";
+        let subCategoryName = "";
+
+        for (const key of Object.keys(row)) {
+          const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, "");
+          if (normalizedKey === "maincategory" || normalizedKey === "category") {
+            mainCategoryName = String(row[key] || "").trim();
+          } else if (normalizedKey === "subcategory") {
+            subCategoryName = String(row[key] || "").trim();
+          }
+        }
+
+        if (!mainCategoryName) {
+          skippedCount++;
+          continue;
+        }
+
+        // Check if Main Category exists (case-insensitive exact match)
+        let mainCategory = await this.categoryRepo.findOne({
+          where: {
+            name: { $regex: new RegExp(`^${mainCategoryName.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&")}$`, "i") },
+            type: CategoryType.MAIN,
+            isDeleted: false
+          }
+        });
+
+        if (!mainCategory) {
+          mainCategory = new Category();
+          mainCategory.name = mainCategoryName;
+          mainCategory.type = CategoryType.MAIN;
+          mainCategory.status = CategoryStatus.ACTIVE;
+          mainCategory.isDeleted = false;
+          mainCategory = await this.categoryRepo.save(mainCategory);
+          createdMainCount++;
+        }
+
+        if (subCategoryName) {
+          // Check if Sub Category exists under this Main Category (case-insensitive exact match)
+          const subCategory = await this.categoryRepo.findOne({
+            where: {
+              name: { $regex: new RegExp(`^${subCategoryName.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&")}$`, "i") },
+              type: CategoryType.SUB,
+              parentCategory: mainCategory._id,
+              isDeleted: false
+            }
+          });
+
+          if (!subCategory) {
+            const newSub = new Category();
+            newSub.name = subCategoryName;
+            newSub.type = CategoryType.SUB;
+            newSub.parentCategory = mainCategory._id;
+            newSub.status = CategoryStatus.ACTIVE;
+            newSub.isDeleted = false;
+            await this.categoryRepo.save(newSub);
+            createdSubCount++;
+          } else {
+            skippedCount++;
+          }
+        }
+      }
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Categories processed successfully.",
+        data: {
+          createdMainCategories: createdMainCount,
+          createdSubCategories: createdSubCount,
+          skippedRows: skippedCount
+        }
+      });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

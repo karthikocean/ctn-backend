@@ -16,6 +16,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Franchise, FranchiseStatus } from "../../entity/Franchise";
 import { BusinessRegion } from "../../entity/BusinessRegion";
+import { resolveRegions, resolveRegion } from "../../utils/region.helper";
 import { AdminUser } from "../../entity/AdminUser";
 import { CreateFranchiseDto, UpdateFranchiseDto } from "../../dto/admin/Franchise.dto";
 import { ObjectId } from "mongodb";
@@ -181,9 +182,10 @@ export class FranchiseController {
       const regions = regionIds.length > 0
         ? await this.regionRepo.find({ where: { _id: { $in: regionIds } } as any })
         : [];
+      const resolvedRegions = await resolveRegions(regions);
 
       const regionMap = new Map(
-        regions.map(r => [r._id.toString(), { _id: r._id, country: r.country, state: r.state, city: r.city }])
+        resolvedRegions.map(r => [r._id.toString(), { _id: r._id, country: r.country, state: r.state, city: r.city }])
       );
 
       // Populate AdminUsers (Users)
@@ -235,7 +237,8 @@ export class FranchiseController {
       if (franchise.businessRegionId) {
         const region = await this.regionRepo.findOneBy({ _id: franchise.businessRegionId, isDeleted: false });
         if (region) {
-          businessRegion = { _id: region._id, country: region.country, state: region.state, city: region.city };
+          const resolved = await resolveRegion(region);
+          businessRegion = { _id: resolved._id, country: resolved.country, state: resolved.state, city: resolved.city };
         }
       }
 

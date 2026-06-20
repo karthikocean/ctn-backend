@@ -14,6 +14,7 @@ import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
 import { seedAdmin } from "./seed/seedAdmin";
 import { seedModules } from "./seed/seedModules";
+// import { migrateRegions } from "./migrations/migrateRegions";
 import { createServer } from "http";
 import { initSocket, getIO, waitForDisconnects } from "./utils/socket";
 import { SubscriptionCronService } from "./services/subscriptionCron.service";
@@ -30,6 +31,8 @@ AppDataSource.initialize()
     await seedModules();
     // seed default admin user
     await seedAdmin();
+    // migrate old business region documents
+    // await migrateRegions();
     // seed default subscription plans
     // await seedPlans();
     app.use(express.json());

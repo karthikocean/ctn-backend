@@ -59,7 +59,9 @@ export class SpotlightController {
     try {
       const spotlight = new Spotlight();
       spotlight.members = data.members.map(id => new ObjectId(id));
-      spotlight.scheduleDate = new Date(data.scheduleDate);
+      const date = new Date(data.scheduleDate);
+      date.setMinutes(date.getMinutes() + 330); // Adjust for 5.30 hours timezone difference
+      spotlight.scheduleDate = date;
       spotlight.status = data.status || spotlight.status;
       spotlight.isDeleted = false;
       spotlight.createdBy = new ObjectId(req.user.userId);
@@ -488,7 +490,11 @@ export class SpotlightController {
       }
 
       if (data.members) spotlight.members = data.members.map(id => new ObjectId(id));
-      if (data.scheduleDate) spotlight.scheduleDate = new Date(data.scheduleDate);
+      if (data.scheduleDate) {
+        const date = new Date(data.scheduleDate);
+        date.setMinutes(date.getMinutes() + 330); // Adjust for 5.30 hours timezone difference
+        spotlight.scheduleDate = date;
+      }
       if (data.status) spotlight.status = data.status;
       spotlight.updatedBy = new ObjectId(req.user.userId);
 

@@ -18,6 +18,8 @@ import { AppDataSource } from "../../data-source";
 import { Member, MemberStatus } from "../../entity/Member";
 import { Category } from "../../entity/Category";
 import { BusinessRegion, Area } from "../../entity/BusinessRegion";
+import { State } from "../../entity/State";
+import { City } from "../../entity/City";
 import { CreateMemberDto } from "../../dto/mobile/Member.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -159,20 +161,51 @@ export class AdminMemberController {
         uniqueStateCitiesMap.set(`${sc.state.toLowerCase()}|${sc.city.toLowerCase()}`, sc);
       }
       const uniqueStateCities = Array.from(uniqueStateCitiesMap.values());
+      const stateNames = uniqueStateCities.map(sc => sc.state);
+      const cityNames = uniqueStateCities.map(sc => sc.city);
 
-      const regionQueries = uniqueStateCities.map(sc => ({
-        state: { $regex: new RegExp(`^${sc.state}$`, "i") },
-        city: { $regex: new RegExp(`^${sc.city}$`, "i") },
-        isDeleted: false
-      }));
+      const stateRepo = AppDataSource.getMongoRepository(State);
+      const cityRepo = AppDataSource.getMongoRepository(City);
 
-      const regions = regionQueries.length > 0
-        ? await this.businessRegionRepo.find({ where: { $or: regionQueries } as any })
+      const matchingStates = stateNames.length > 0
+        ? await stateRepo.find({
+            where: {
+              name: { $in: stateNames.map(name => new RegExp(`^${name}$`, "i")) },
+              isDeleted: false
+            }
+          })
+        : [];
+
+      const matchingCities = cityNames.length > 0
+        ? await cityRepo.find({
+            where: {
+              name: { $in: cityNames.map(name => new RegExp(`^${name}$`, "i")) },
+              isDeleted: false
+            }
+          })
+        : [];
+
+      const stateIdMap = new Map(matchingStates.map(s => [s._id.toString(), s.name.toLowerCase()]));
+      const cityIdMap = new Map(matchingCities.map(c => [c._id.toString(), c.name.toLowerCase()]));
+
+      const stateIds = matchingStates.map(s => s._id);
+      const cityIds = matchingCities.map(c => c._id);
+
+      const regions = (stateIds.length > 0 && cityIds.length > 0)
+        ? await this.businessRegionRepo.find({
+            where: {
+              state: { $in: stateIds },
+              city: { $in: cityIds },
+              isDeleted: false
+            } as any
+          })
         : [];
 
       const regionMap = new Map<string, Area[]>();
       for (const r of regions) {
-        regionMap.set(`${r.state.toLowerCase()}|${r.city.toLowerCase()}`, r.areas || []);
+        const stateName = stateIdMap.get(r.state.toString()) || "";
+        const cityName = cityIdMap.get(r.city.toString()) || "";
+        regionMap.set(`${stateName}|${cityName}`, r.areas || []);
       }
 
       const data = members.map(m => {
@@ -227,13 +260,26 @@ export class AdminMemberController {
         populated.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : null;
       }
       if (member.businessRegion && member.state && member.city) {
-        const region = await this.businessRegionRepo.findOne({
-          where: {
-            state: { $regex: new RegExp(`^${member.state}$`, "i") },
-            city: { $regex: new RegExp(`^${member.city}$`, "i") },
-            isDeleted: false
-          }
+        const stateRepo = AppDataSource.getMongoRepository(State);
+        const cityRepo = AppDataSource.getMongoRepository(City);
+        const stateDoc = await stateRepo.findOne({
+          where: { name: { $regex: new RegExp(`^${member.state}$`, "i") }, isDeleted: false }
         });
+        let region = null;
+        if (stateDoc) {
+          const cityDoc = await cityRepo.findOne({
+            where: { name: { $regex: new RegExp(`^${member.city}$`, "i") }, stateId: stateDoc._id, isDeleted: false }
+          });
+          if (cityDoc) {
+            region = await this.businessRegionRepo.findOne({
+              where: {
+                state: stateDoc._id,
+                city: cityDoc._id,
+                isDeleted: false
+              }
+            });
+          }
+        }
         const matchedArea = region?.areas?.find(a => a._id?.toString() === member.businessRegion!.toString());
         populated.businessRegion = matchedArea ? { _id: matchedArea._id, name: matchedArea.name } : null;
       }

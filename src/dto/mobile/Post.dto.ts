@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsEnum, IsOptional, IsArray } from "class-validator";
+import { IsString, IsNotEmpty, IsEnum, IsOptional, IsArray, IsMongoId } from "class-validator";
 import { PostType, RequirementVisibility } from "../../entity/Post";
 
 /**
@@ -35,8 +35,20 @@ import { PostType, RequirementVisibility } from "../../entity/Post";
  *           example: ["/uploads/post1.jpg"]
  *         requirementVisibility:
  *           type: string
- *           enum: [MUTUAL-FRIEND, REGION]
+ *           enum: [MUTUAL-FRIEND, REGION, OVERALL]
  *           example: "REGION"
+ *         stateIds:
+ *           type: array
+ *           items:
+ *             type: string
+ *           example: ["6a36616f64a1049a7f461acc"]
+ *           description: Optional list of state ObjectIds (from /mobile-api/common/states)
+ *         regionIds:
+ *           type: array
+ *           items:
+ *             type: string
+ *           example: ["6a0ec23d2d4c78a8d7cdfb6f"]
+ *           description: Optional list of region area ObjectIds (from /mobile-api/common/business-regions)
  *     UpdatePostDto:
  *       type: object
  *       properties:
@@ -57,7 +69,15 @@ import { PostType, RequirementVisibility } from "../../entity/Post";
  *             type: string
  *         requirementVisibility:
  *           type: string
- *           enum: [MUTUAL-FRIEND, REGION]
+ *           enum: [MUTUAL-FRIEND, REGION, OVERALL]
+ *         stateIds:
+ *           type: array
+ *           items:
+ *             type: string
+ *         regionIds:
+ *           type: array
+ *           items:
+ *             type: string
  */
 
 export class CreatePostDto {
@@ -88,6 +108,16 @@ export class CreatePostDto {
   @IsEnum(RequirementVisibility)
   @IsOptional()
     requirementVisibility?: RequirementVisibility;
+
+  @IsArray()
+  @IsMongoId({ each: true })
+  @IsOptional()
+    stateIds?: string[];
+
+  @IsArray()
+  @IsMongoId({ each: true })
+  @IsOptional()
+    regionIds?: string[];
 }
 
 export class UpdatePostDto {
@@ -118,4 +148,14 @@ export class UpdatePostDto {
   @IsEnum(RequirementVisibility)
   @IsOptional()
     requirementVisibility?: RequirementVisibility;
+
+  @IsArray()
+  @IsMongoId({ each: true })
+  @IsOptional()
+    stateIds?: string[];
+
+  @IsArray()
+  @IsMongoId({ each: true })
+  @IsOptional()
+    regionIds?: string[];
 }

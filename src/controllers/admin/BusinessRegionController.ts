@@ -16,6 +16,9 @@ import {
 import { AppDataSource } from "../../data-source";
 import { BusinessRegion } from "../../entity/BusinessRegion";
 import { Member } from "../../entity/Member";
+import { State } from "../../entity/State";
+import { City } from "../../entity/City";
+import { resolveRegions, resolveRegion } from "../../utils/region.helper";
 import { CreateBusinessRegionDto, UpdateBusinessRegionDto } from "../../dto/admin/BusinessRegion.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -53,12 +56,47 @@ export class BusinessRegionController {
   @HttpCode(StatusCodes.CREATED)
   async create(@Body() data: CreateBusinessRegionDto, @Res() res: any) {
     try {
+      const stateRepo = AppDataSource.getMongoRepository(State);
+      const cityRepo = AppDataSource.getMongoRepository(City);
+
+      // Check/create State
+      let state = await stateRepo.findOne({
+        where: {
+          name: { $regex: new RegExp(`^${data.state.trim()}$`, "i") },
+          country: { $regex: new RegExp(`^${data.country.trim()}$`, "i") },
+          isDeleted: false
+        }
+      });
+      if (!state) {
+        state = new State();
+        state.name = data.state.trim();
+        state.country = data.country.trim();
+        state.isDeleted = false;
+        state = await stateRepo.save(state);
+      }
+
+      // Check/create City
+      let city = await cityRepo.findOne({
+        where: {
+          name: { $regex: new RegExp(`^${data.city.trim()}$`, "i") },
+          stateId: state._id,
+          isDeleted: false
+        }
+      });
+      if (!city) {
+        city = new City();
+        city.name = data.city.trim();
+        city.stateId = state._id;
+        city.isDeleted = false;
+        city = await cityRepo.save(city);
+      }
+
       // Check for existing region with same country, state, city
       const existing = await this.regionRepo.findOne({
         where: {
-          country: data.country,
-          state: data.state,
-          city: data.city,
+          country: data.country.trim(),
+          state: state._id,
+          city: city._id,
           isDeleted: false
         }
       });
@@ -68,17 +106,19 @@ export class BusinessRegionController {
       }
 
       const region = new BusinessRegion();
-      region.country = data.country;
-      region.state = data.state;
-      region.city = data.city;
+      region.country = data.country.trim();
+      region.state = state._id;
+      region.city = city._id;
       region.status = data.status || region.status;
       region.areas = data.areas?.map((e) => ({ _id: new ObjectId(), name: e.name })) ?? [];
       region.isDeleted = false;
 
       const saved = await this.regionRepo.save(region);
+      const resolved = await resolveRegion(saved);
+
       return res.status(StatusCodes.CREATED).json({
         message: "Business region created successfully",
-        data: saved
+        data: resolved
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -122,11 +162,27 @@ export class BusinessRegionController {
 
     try {
       const where: any = { isDeleted: false };
-      if (search) {
+      if (search && search.trim()) {
+        const regex = new RegExp(search.trim(), "i");
+
+        const stateRepo = AppDataSource.getMongoRepository(State);
+        const cityRepo = AppDataSource.getMongoRepository(City);
+
+        const matchingStates = await stateRepo.find({
+          where: { name: { $regex: regex }, isDeleted: false }
+        });
+        const matchingCities = await cityRepo.find({
+          where: { name: { $regex: regex }, isDeleted: false }
+        });
+
+        const matchingStateIds = matchingStates.map(s => s._id);
+        const matchingCityIds = matchingCities.map(c => c._id);
+
         where.$or = [
-          { country: { $regex: search, $options: "i" } },
-          { state: { $regex: search, $options: "i" } },
-          { city: { $regex: search, $options: "i" } }
+          { country: { $regex: regex } },
+          { state: { $in: matchingStateIds } },
+          { city: { $in: matchingCityIds } },
+          { "areas.name": { $regex: regex } }
         ];
       }
 
@@ -141,8 +197,10 @@ export class BusinessRegionController {
         order: { createdAt: "DESC" }
       });
 
+      const resolvedRegions = await resolveRegions(regions);
+
       // Get member counts for each city (case-insensitive)
-      const lowerCities = regions.map((r) => (r.city ? r.city.toLowerCase() : ""));
+      const lowerCities = resolvedRegions.map((r) => (r.city ? r.city.toLowerCase() : ""));
       const memberCounts = await this.memberRepo
         .aggregate([
           {
@@ -167,7 +225,7 @@ export class BusinessRegionController {
         return acc;
       }, {});
 
-      const regionsWithCount = regions.map((region: any) => ({
+      const regionsWithCount = resolvedRegions.map((region: any) => ({
         ...region,
         memberCount: cityCountMap[region.city ? region.city.toLowerCase() : ""] || 0
       }));
@@ -197,7 +255,8 @@ export class BusinessRegionController {
 
       if (!region) throw new NotFoundError("Business region not found");
 
-      return res.status(StatusCodes.OK).json(region);
+      const resolved = await resolveRegion(region);
+      return res.status(StatusCodes.OK).json(resolved);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
@@ -219,17 +278,60 @@ export class BusinessRegionController {
       const region = await this.regionRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!region) throw new NotFoundError("Business region not found");
 
-      const country = data.country || region.country;
-      const state = data.state || region.state;
-      const city = data.city || region.city;
+      const stateRepo = AppDataSource.getMongoRepository(State);
+      const cityRepo = AppDataSource.getMongoRepository(City);
+
+      let stateId = region.state;
+      let cityId = region.city;
+
+      if (data.state || data.country) {
+        const targetStateName = data.state ? data.state.trim() : (await stateRepo.findOneBy({ _id: region.state }))?.name || "";
+        const targetCountry = data.country || region.country;
+
+        let state = await stateRepo.findOne({
+          where: {
+            name: { $regex: new RegExp(`^${targetStateName}$`, "i") },
+            country: { $regex: new RegExp(`^${targetCountry}$`, "i") },
+            isDeleted: false
+          }
+        });
+        if (!state && data.state) {
+          state = new State();
+          state.name = targetStateName;
+          state.country = targetCountry;
+          state.isDeleted = false;
+          state = await stateRepo.save(state);
+        }
+        if (state) stateId = state._id;
+      }
+
+      if (data.city || data.state || data.country) {
+        const targetCityName = data.city ? data.city.trim() : (await cityRepo.findOneBy({ _id: region.city }))?.name || "";
+
+        let city = await cityRepo.findOne({
+          where: {
+            name: { $regex: new RegExp(`^${targetCityName}$`, "i") },
+            stateId,
+            isDeleted: false
+          }
+        });
+        if (!city && data.city) {
+          city = new City();
+          city.name = targetCityName;
+          city.stateId = stateId;
+          city.isDeleted = false;
+          city = await cityRepo.save(city);
+        }
+        if (city) cityId = city._id;
+      }
 
       // Check for existing region with same country, state, city (excluding current)
       const existing = await this.regionRepo.findOne({
         where: {
           _id: { $ne: new ObjectId(id) },
-          country,
-          state,
-          city,
+          country: data.country || region.country,
+          state: stateId,
+          city: cityId,
           isDeleted: false
         }
       });
@@ -238,9 +340,9 @@ export class BusinessRegionController {
         throw new BadRequestError("Region with this country, state and city already exists");
       }
 
-      if (data.country) region.country = data.country;
-      if (data.state) region.state = data.state;
-      if (data.city) region.city = data.city;
+      if (data.country) region.country = data.country.trim();
+      region.state = stateId;
+      region.city = cityId;
       if (data.status) region.status = data.status;
       if (data.areas !== undefined) {
         region.areas = data.areas ? data.areas.map((e: any) => {
@@ -252,9 +354,11 @@ export class BusinessRegionController {
         }) : [];
       }
       const saved = await this.regionRepo.save(region);
+      const resolved = await resolveRegion(saved);
+
       return res.status(StatusCodes.OK).json({
         message: "Business region updated successfully",
-        data: saved
+        data: resolved
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
