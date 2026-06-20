@@ -66,6 +66,7 @@ export class AdminUserController {
     @QueryParam("limit") limit: number,
     @QueryParam("search") search: string,
     @QueryParam("roleId") roleId: string,
+    @QueryParam("status") status: string,
     @Res() res: any
   ) {
     page = Number(page) || 0;
@@ -83,6 +84,12 @@ export class AdminUserController {
 
       if (roleId && ObjectId.isValid(roleId)) {
         where.roleId = new ObjectId(roleId);
+      }
+
+      if (status === "active") {
+        where.isActive = true;
+      } else if (status === "inactive") {
+        where.isActive = false;
       }
 
       const [users, totalCount] = await this.adminUserRepo.findAndCount({

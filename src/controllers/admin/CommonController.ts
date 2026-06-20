@@ -12,6 +12,8 @@ import axios from "axios";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AppDataSource } from "../../data-source";
 import { BusinessRegion } from "../../entity/BusinessRegion";
+import { State } from "../../entity/State";
+import { City } from "../../entity/City";
 
 @JsonController("/common")
 export class AdminCommonController {
@@ -98,14 +100,24 @@ export class AdminCommonController {
       }
 
       const businessRegionRepository = AppDataSource.getMongoRepository(BusinessRegion);
+      const stateRepo = AppDataSource.getMongoRepository(State);
+      const cityRepo = AppDataSource.getMongoRepository(City);
 
-      const businessRegion = await businessRegionRepository.findOne({
-        where: {
-          state: { $regex: new RegExp(`^${state}$`, "i") },
-          city: { $regex: new RegExp(`^${city}$`, "i") },
-          isDeleted: false
-        }
+      const stateDoc = await stateRepo.findOne({
+        where: { name: { $regex: new RegExp(`^${state}$`, "i") }, isDeleted: false }
       });
+
+      let businessRegion = null;
+      if (stateDoc) {
+        const cityDoc = await cityRepo.findOne({
+          where: { name: { $regex: new RegExp(`^${city}$`, "i") }, stateId: stateDoc._id, isDeleted: false }
+        });
+        if (cityDoc) {
+          businessRegion = await businessRegionRepository.findOne({
+            where: { state: stateDoc._id, city: cityDoc._id, isDeleted: false }
+          });
+        }
+      }
 
       return res.status(200).json({
         status: true,

@@ -131,7 +131,7 @@ export const MODULE_USAGE_CONFIG: Record<string, ModuleUsageConfigItem> = {
     }),
     dateField: "createdAt"
   },
-  "MarketPlace": {
+  "Marketplace": {
     entity: OnlineStallProduct,
     getFilter: (memberId: ObjectId) => ({
       memberId: memberId,
@@ -139,6 +139,7 @@ export const MODULE_USAGE_CONFIG: Record<string, ModuleUsageConfigItem> = {
     }),
     dateField: "createdAt"
   },
+
   "online stall": {
     entity: OnlineStallProduct,
     getFilter: (memberId: ObjectId) => ({
@@ -261,7 +262,7 @@ export async function validateModuleUsage(memberId: ObjectId, moduleName: string
     throw new BadRequestError("Subscription plan has expired.");
   }
 
-  const plan = await planRepo.findOneBy({ _id: member.planId, isDeleted: false });
+  const plan = await planRepo.findOneBy({ _id: member?.planId, isDeleted: false });
   if (!plan) {
     throw new NotFoundError("Assigned subscription plan not found.");
   }

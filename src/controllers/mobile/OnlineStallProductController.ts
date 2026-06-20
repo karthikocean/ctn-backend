@@ -75,11 +75,11 @@ export class MobileOnlineStallProductController {
       const finalMemberId = new ObjectId(req.user.userId);
 
       // Validate Online Stall capacity under the plan
-      await validateModuleUsage(finalMemberId, "MarketPlace");
+      await validateModuleUsage(finalMemberId, "Marketplace");
 
       // Check points balance and deduct points
       const pointService = new PointService();
-      const config = await pointService.getPointConfig("MarketPlace", PointConfigType.SPENT);
+      const config = await pointService.getPointConfig("Marketplace", PointConfigType.SPENT);
       const pointsToDeduct = config ? config.points : 0;
 
       const member = await this.memberRepo.findOneBy({ _id: finalMemberId, isDeleted: false });
@@ -118,7 +118,7 @@ export class MobileOnlineStallProductController {
         try {
           const deductResult = await pointService.deductPoints({
             memberId: finalMemberId,
-            moduleName: "MarketPlace",
+            moduleName: "Marketplace",
             points: pointsToDeduct,
             referenceId: saved._id,
             actionType: "spent"
@@ -248,12 +248,12 @@ export class MobileOnlineStallProductController {
         return true;
       });
 
-      // Group products by memberId
+      // Group products by marketplaceCategory
       const groupedProducts = new Map<string, any[]>();
       for (const product of filteredProducts) {
-        const mIdStr = product.memberId.toString();
-        if (!groupedProducts.has(mIdStr)) {
-          groupedProducts.set(mIdStr, []);
+        const catIdStr = product.marketplaceCategory?.toString() || "uncategorized";
+        if (!groupedProducts.has(catIdStr)) {
+          groupedProducts.set(catIdStr, []);
         }
 
         let daysRemaining = 0;
@@ -262,31 +262,45 @@ export class MobileOnlineStallProductController {
           daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
         }
 
+        const productOwner = memberMap.get(product.memberId.toString());
+        const ownerCategoryIdStr = productOwner?.businessCategory?.toString();
+        const ownerCategoryName = ownerCategoryIdStr ? categoryMap.get(ownerCategoryIdStr)?.name || "" : "";
+
         const mappedProduct = {
           ...product,
           daysRemaining,
-          marketplaceCategory: product.marketplaceCategory ? mCategoryMap.get(product.marketplaceCategory.toString()) || null : null
+          marketplaceCategory: product.marketplaceCategory ? mCategoryMap.get(product.marketplaceCategory.toString()) || null : null,
+          member: productOwner ? {
+            _id: productOwner._id,
+            fullName: productOwner.fullName,
+            profilePhoto: productOwner.profilePhoto,
+            businessCategory: ownerCategoryName
+          } : null,
+          // Flattened member details for backward compatibility
+          memberId: product.memberId,
+          memberName: productOwner?.fullName || "",
+          profile: productOwner?.profilePhoto || "",
+          category: ownerCategoryName
         };
 
-        groupedProducts.get(mIdStr)!.push(mappedProduct);
+        groupedProducts.get(catIdStr)!.push(mappedProduct);
       }
 
       const groupedData: any[] = [];
-      for (const [mIdStr, memberProducts] of groupedProducts.entries()) {
-        const member = memberMap.get(mIdStr);
-        if (!member) {
-          continue; // Skip products from deleted/non-existent members
+      for (const [catIdStr, categoryProducts] of groupedProducts.entries()) {
+        let categoryName = "Uncategorized";
+        if (catIdStr !== "uncategorized") {
+          const cat = mCategoryMap.get(catIdStr);
+          if (cat) {
+            categoryName = cat.name;
+          }
         }
 
-        const categoryIdStr = member.businessCategory?.toString();
-        const categoryName = categoryIdStr ? categoryMap.get(categoryIdStr)?.name || "" : "";
-
         groupedData.push({
-          memberId: mIdStr,
-          memberName: member.fullName || "",
-          profile: member.profilePhoto || "",
+          categoryId: catIdStr === "uncategorized" ? null : catIdStr,
+          categoryName: categoryName,
           category: categoryName,
-          products: memberProducts
+          products: categoryProducts
         });
       }
 

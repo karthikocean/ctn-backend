@@ -26,10 +26,10 @@ export class BusinessRegion {
     country!: string;
 
   @Column()
-    state!: string;
+    state!: ObjectId;
 
   @Column()
-    city!: string;
+    city!: ObjectId;
 
   @Column("json", { nullable: true })
     areas?: Area[];

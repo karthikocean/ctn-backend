@@ -66,7 +66,7 @@ export async function seedAdmin() {
       phoneNumber: "9999999999",
       pin: hashedPin,
 
-      userId: "USR001",
+      userId: "US001",
 
       roleId: adminRole._id,
 

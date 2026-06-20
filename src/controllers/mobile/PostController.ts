@@ -79,18 +79,24 @@ export class MobilePostController {
           throw new BadRequestError("requirementVisibility is required when post type is REQUIREMENT");
         }
         const visibilityInput = data.requirementVisibility.toUpperCase().trim().replace(/_|\s+/g, "-");
-        if (visibilityInput !== RequirementVisibility.MUTUAL_FRIEND && visibilityInput !== RequirementVisibility.REGION) {
-          throw new BadRequestError("Invalid requirementVisibility. Must be either 'mutual-friend' or 'region'");
+        const validValues = Object.values(RequirementVisibility);
+        if (!validValues.includes(visibilityInput as RequirementVisibility)) {
+          throw new BadRequestError(`Invalid requirementVisibility. Must be one of: ${validValues.join(", ")}`);
         }
         data.requirementVisibility = visibilityInput as RequirementVisibility;
-      } else {
-        data.requirementVisibility = undefined;
       }
 
       const post = new PostEntity();
       Object.assign(post, data);
       post.memberId = memberObjectId;
       post.isDeleted = false;
+      // Convert stateIds / regionIds string arrays to ObjectId arrays
+      if (Array.isArray(data.stateIds) && data.stateIds.length > 0) {
+        post.stateIds = data.stateIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+      }
+      if (Array.isArray(data.regionIds) && data.regionIds.length > 0) {
+        post.regionIds = data.regionIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+      }
 
       const savedPost = await this.postRepo.save(post);
 
@@ -463,6 +469,16 @@ export class MobilePostController {
    *         name: search
    *         schema:
    *           type: string
+   *       - in: query
+   *         name: stateIds
+   *         schema:
+   *           type: string
+   *         description: Comma-separated state ObjectIds to filter posts (e.g. id1,id2)
+   *       - in: query
+   *         name: regionIds
+   *         schema:
+   *           type: string
+   *         description: Comma-separated region area ObjectIds to filter posts (e.g. id1,id2)
    */
   @Get("/overall")
   async getOverallPromotions(
@@ -471,6 +487,8 @@ export class MobilePostController {
     @QueryParam("limit") limit: number,
     @QueryParam("type") type: PostType,
     @QueryParam("search") search: string,
+    @QueryParam("stateIds") stateIds: string,
+    @QueryParam("regionIds") regionIds: string,
     @Res() res: any
   ) {
     page = Number(page) || 0;
@@ -493,11 +511,47 @@ export class MobilePostController {
         where.type = { $in: allowedTypes };
       }
 
-      if (search) {
+      // Auto-apply logged-in member's businessRegion as region filter
+      // Show posts where: post has no regionIds (open to all) OR post's regionIds contains member's region
+      const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
+      if (currentMember?.businessRegion) {
+        const memberRegionId = new ObjectId(currentMember.businessRegion);
         where.$or = [
-          { title: { $regex: search, $options: "i" } },
-          { description: { $regex: search, $options: "i" } },
-          { location: { $regex: search, $options: "i" } }
+          { regionIds: { $exists: false } },
+          { regionIds: null },
+          { regionIds: { $size: 0 } },
+          { regionIds: { $elemMatch: { $eq: memberRegionId } } }
+        ];
+      }
+
+      // Manual override: stateIds query param filters posts whose stateIds array contains any given ID
+      if (stateIds) {
+        const stateIdList = stateIds.split(",").map(s => s.trim()).filter(s => ObjectId.isValid(s)).map(s => new ObjectId(s));
+        if (stateIdList.length > 0) {
+          where.stateIds = { $elemMatch: { $in: stateIdList } };
+        }
+      }
+
+      // Manual override: regionIds query param filters posts whose regionIds array contains any given ID
+      if (regionIds) {
+        const regionIdList = regionIds.split(",").map(s => s.trim()).filter(s => ObjectId.isValid(s)).map(s => new ObjectId(s));
+        if (regionIdList.length > 0) {
+          // Override the auto $or with specific regionIds filter
+          delete where.$or;
+          where.regionIds = { $elemMatch: { $in: regionIdList } };
+        }
+      }
+
+      if (search) {
+        where.$and = [
+          ...(where.$and || []),
+          {
+            $or: [
+              { title: { $regex: search, $options: "i" } },
+              { description: { $regex: search, $options: "i" } },
+              { location: { $regex: search, $options: "i" } }
+            ]
+          }
         ];
       }
 
@@ -814,6 +868,31 @@ export class MobilePostController {
         where.$or = visibilityOrArray;
       }
 
+      // Auto-apply logged-in member's businessRegion as region filter if set
+      if (currentMember?.businessRegion) {
+        const memberRegionId = new ObjectId(currentMember.businessRegion);
+        const regionCondition = {
+          $or: [
+            { regionIds: { $exists: false } },
+            { regionIds: null },
+            { regionIds: { $size: 0 } },
+            { regionIds: { $elemMatch: { $eq: memberRegionId } } }
+          ]
+        };
+
+        if (where.$and) {
+          where.$and.push(regionCondition);
+        } else if (where.$or) {
+          where.$and = [
+            { $or: where.$or },
+            regionCondition
+          ];
+          delete where.$or;
+        } else {
+          where.$or = regionCondition.$or;
+        }
+      }
+
       const [posts, total] = await this.postRepo.findAndCount({
         where,
         skip: page * limit,
@@ -947,8 +1026,9 @@ export class MobilePostController {
           throw new BadRequestError("requirementVisibility is required when post type is REQUIREMENT");
         }
         const normalized = visibilityInput.toUpperCase().trim().replace(/_|\s+/g, "-");
-        if (normalized !== RequirementVisibility.MUTUAL_FRIEND && normalized !== RequirementVisibility.REGION) {
-          throw new BadRequestError("Invalid requirementVisibility. Must be either 'mutual-friend' or 'region'");
+        const validValues = Object.values(RequirementVisibility);
+        if (!validValues.includes(normalized as RequirementVisibility)) {
+          throw new BadRequestError(`Invalid requirementVisibility. Must be one of: ${validValues.join(", ")}`);
         }
         data.requirementVisibility = normalized as RequirementVisibility;
       } else {
@@ -956,6 +1036,13 @@ export class MobilePostController {
       }
 
       Object.assign(post, data);
+      // Convert stateIds / regionIds string arrays to ObjectId arrays
+      if (Array.isArray(data.stateIds)) {
+        post.stateIds = data.stateIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+      }
+      if (Array.isArray(data.regionIds)) {
+        post.regionIds = data.regionIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+      }
       const saved = await this.postRepo.save(post);
 
       return res.status(StatusCodes.OK).json({
