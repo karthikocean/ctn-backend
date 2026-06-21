@@ -1087,7 +1087,7 @@ export class MobileMemberController {
         const subCat = await this.categoryRepo.findOneBy({ _id: member.subCategory });
         populated.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : null;
       }
-       if (member.businessRegion && member.state && member.city) {
+      if (member.businessRegion && member.state && member.city) {
         const stateRepo = AppDataSource.getMongoRepository(State);
         const cityRepo = AppDataSource.getMongoRepository(City);
         const stateDoc = await stateRepo.findOne({
@@ -1249,20 +1249,20 @@ export class MobileMemberController {
 
     const matchingStates = stateNames.length > 0
       ? await stateRepo.find({
-          where: {
-            name: { $in: stateNames.map(name => new RegExp(`^${name}$`, "i")) },
-            isDeleted: false
-          }
-        })
+        where: {
+          name: { $in: stateNames.map(name => new RegExp(`^${name}$`, "i")) },
+          isDeleted: false
+        }
+      })
       : [];
 
     const matchingCities = cityNames.length > 0
       ? await cityRepo.find({
-          where: {
-            name: { $in: cityNames.map(name => new RegExp(`^${name}$`, "i")) },
-            isDeleted: false
-          }
-        })
+        where: {
+          name: { $in: cityNames.map(name => new RegExp(`^${name}$`, "i")) },
+          isDeleted: false
+        }
+      })
       : [];
 
     const stateIdMap = new Map(matchingStates.map(s => [s._id.toString(), s.name.toLowerCase()]));
@@ -1273,12 +1273,12 @@ export class MobileMemberController {
 
     const regions = (stateIds.length > 0 && cityIds.length > 0)
       ? await this.businessRegionRepo.find({
-          where: {
-            state: { $in: stateIds },
-            city: { $in: cityIds },
-            isDeleted: false
-          } as any
-        })
+        where: {
+          state: { $in: stateIds },
+          city: { $in: cityIds },
+          isDeleted: false
+        } as any
+      })
       : [];
 
     const regionMap = new Map<string, Area[]>();

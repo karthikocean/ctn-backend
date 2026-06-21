@@ -169,20 +169,20 @@ export class AdminMemberController {
 
       const matchingStates = stateNames.length > 0
         ? await stateRepo.find({
-            where: {
-              name: { $in: stateNames.map(name => new RegExp(`^${name}$`, "i")) },
-              isDeleted: false
-            }
-          })
+          where: {
+            name: { $in: stateNames.map(name => new RegExp(`^${name}$`, "i")) },
+            isDeleted: false
+          }
+        })
         : [];
 
       const matchingCities = cityNames.length > 0
         ? await cityRepo.find({
-            where: {
-              name: { $in: cityNames.map(name => new RegExp(`^${name}$`, "i")) },
-              isDeleted: false
-            }
-          })
+          where: {
+            name: { $in: cityNames.map(name => new RegExp(`^${name}$`, "i")) },
+            isDeleted: false
+          }
+        })
         : [];
 
       const stateIdMap = new Map(matchingStates.map(s => [s._id.toString(), s.name.toLowerCase()]));
@@ -193,12 +193,12 @@ export class AdminMemberController {
 
       const regions = (stateIds.length > 0 && cityIds.length > 0)
         ? await this.businessRegionRepo.find({
-            where: {
-              state: { $in: stateIds },
-              city: { $in: cityIds },
-              isDeleted: false
-            } as any
-          })
+          where: {
+            state: { $in: stateIds },
+            city: { $in: cityIds },
+            isDeleted: false
+          } as any
+        })
         : [];
 
       const regionMap = new Map<string, Area[]>();
