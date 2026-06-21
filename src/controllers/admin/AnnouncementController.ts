@@ -377,6 +377,15 @@ export class AdminAnnouncementController {
           title: announcement.title,
           announcementType: announcement.announcementType,
           isOfflineStallExist: announcement.isOfflineStallExist,
+          content: announcement.content,
+          image: announcement.image,
+          video: announcement.video,
+          date: announcement.date,
+          time: announcement.time,
+          location: announcement.location,
+          points: announcement.points,
+          membersLimit: announcement.membersLimit,
+          stallConfig: announcement.stallConfig,
           eventBookings: eventBookedMembers,
           stallBookings: stallBookedMembers
         }

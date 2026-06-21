@@ -199,7 +199,7 @@ export class CommonController {
   @Get("/business-region")
   async getBusinessRegion(@QueryParam("state") state: string, @QueryParam("city") city: string, @Res() res: any) {
     try {
-       if (!state || !city) {
+      if (!state || !city) {
         return res.status(400).json({
           status: false,
           message: "state and city are required"

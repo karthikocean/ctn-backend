@@ -31,11 +31,21 @@ function handleErrorResponse(error: any, res: any) {
       }
     }
 
+    // // User-friendly message for name+type compound index (e.g. categories)
+    // if (field === "name" || (error.keyValue && "name" in error.keyValue)) {
+    //   const name = error.keyValue?.name || value;
+    //   return res.status(409).json({
+    //     status: "error",
+    //     message: `${name} Name Already Exists`
+    //   });
+    // }
+
     return res.status(409).json({
       status: "error",
       message: `${field} '${value}' already exists`
     });
   }
+
 
   if (error instanceof ApiError) {
     return res

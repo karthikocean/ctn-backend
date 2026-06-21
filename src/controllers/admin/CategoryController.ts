@@ -69,7 +69,18 @@ export class CategoryController {
           message: "Permission denied: Insufficient permissions"
         });
       }
+      const catExists = await this.categoryRepo.findOne({
+        where: {
+          name: { $regex: new RegExp(`^${data.name}$`, "i") },
+          type: data.type,
+          isDeleted: false
+        }
+      });
+      console.log(catExists, 'catExists');
 
+      if (catExists) {
+        throw new BadRequestError("Category with this name already exists");
+      }
       const category = new Category();
       category.name = data.name;
       category.type = data.type;
@@ -249,6 +260,7 @@ export class CategoryController {
     @QueryParam("referralParent") referralParent: string,
     @QueryParam("parentCategory") parentCategory: string,
     @QueryParam("type") type: string,
+    @QueryParam("status") status: string,
     @Res() res: any,
     @Req() req: any
   ) {
@@ -273,9 +285,9 @@ export class CategoryController {
           allowed = await hasPermission(role, requiredModule, "view");
         } else {
           allowed = (await hasPermission(role, "categories", "view")) ||
-                    (await hasPermission(role, "main_categories", "view")) ||
-                    (await hasPermission(role, "sub_categories", "view")) ||
-                    (await hasPermission(role, "referral_categories", "view"));
+            (await hasPermission(role, "main_categories", "view")) ||
+            (await hasPermission(role, "sub_categories", "view")) ||
+            (await hasPermission(role, "referral_categories", "view"));
         }
       }
 
@@ -288,6 +300,9 @@ export class CategoryController {
       const where: any = { isDeleted: false };
       if (search) {
         where.name = { $regex: search, $options: "i" };
+      }
+      if (status) {
+        where.status = status;
       }
       if (parentCategory && ObjectId.isValid(parentCategory)) {
         where.parentCategory = new ObjectId(parentCategory);
@@ -440,7 +455,15 @@ export class CategoryController {
         requiredModule = "referral_categories";
       }
 
-      if (!isSuperAdmin && !(await hasPermission(role, requiredModule, "edit"))) {
+      let allowed = isSuperAdmin;
+      if (!allowed) {
+        allowed = await hasPermission(role, requiredModule, "edit");
+        if (!allowed && category.referralParent) {
+          allowed = await hasPermission(role, "referral_categories", "edit");
+        }
+      }
+
+      if (!allowed) {
         return res.status(StatusCodes.FORBIDDEN).json({
           success: false,
           message: "Permission denied: Insufficient permissions"
@@ -492,8 +515,7 @@ export class CategoryController {
         });
       }
 
-      category.isDeleted = true;
-      await this.categoryRepo.save(category);
+      await this.categoryRepo.findOneAndDelete(new ObjectId(id));
 
       return res.status(StatusCodes.OK).json({ message: "Category deleted successfully" });
     } catch (error: any) {
