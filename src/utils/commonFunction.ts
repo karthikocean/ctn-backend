@@ -46,7 +46,6 @@ function handleErrorResponse(error: any, res: any) {
     });
   }
 
-
   if (error instanceof ApiError) {
     return res
       .status(error.statusCode)

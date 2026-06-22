@@ -76,7 +76,7 @@ export class CategoryController {
           isDeleted: false
         }
       });
-      console.log(catExists, 'catExists');
+      console.log(catExists, "catExists");
 
       if (catExists) {
         throw new BadRequestError("Category with this name already exists");

@@ -39,6 +39,10 @@ export class AdminUser {
   @Column()
     roleId!: ObjectId;
 
+  // 🔹 Member Link (Optional)
+  @Column({ nullable: true })
+    memberId?: ObjectId | null;
+
   // 🔹 Profile Image
   @Column("simple-json", { nullable: true })
     profileImage?: {
