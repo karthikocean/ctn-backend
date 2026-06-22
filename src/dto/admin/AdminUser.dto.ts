@@ -24,6 +24,8 @@
  *           type: string
  *         roleId:
  *           type: string
+ *         memberId:
+ *           type: string
  *         isActive:
  *           type: number
  *     UpdateAdminUserDto:
@@ -40,6 +42,8 @@
  *         pin:
  *           type: string
  *         roleId:
+ *           type: string
+ *         memberId:
  *           type: string
  *         isActive:
  *           type: number
@@ -94,6 +98,10 @@ export class CreateAdminUserDto {
     roleId!: string;
 
   @IsOptional()
+  @IsMongoId()
+    memberId?: string;
+
+  @IsOptional()
   @Type(() => Number)
     isActive?: number;
 
@@ -133,6 +141,10 @@ export class UpdateAdminUserDto {
   @IsOptional()
   @IsMongoId()
     roleId?: string;
+
+  @IsOptional()
+  @IsMongoId()
+    memberId?: string;
 
   @IsOptional()
   @Type(() => Number)

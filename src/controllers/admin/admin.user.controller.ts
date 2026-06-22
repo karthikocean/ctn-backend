@@ -117,6 +117,7 @@ export class AdminUserController {
         companyName: user.companyName,
         roleId: user.roleId,
         roleName: user.roleId ? roleMap.get(user.roleId.toString()) : "N/A",
+        memberId: user.memberId || null,
         isActive: user.isActive,
         profileImage: user.profileImage,
         lastLoginAt: user.lastLoginAt,
@@ -213,6 +214,7 @@ export class AdminUserController {
       phoneNumber: user.phoneNumber,
       companyName: user.companyName,
       roleId: user.roleId,
+      memberId: user.memberId || null,
       isActive: user.isActive,
       profileImage: user.profileImage,
       lastLoginAt: user.lastLoginAt,
@@ -281,6 +283,13 @@ export class AdminUserController {
     // Convert roleId string to ObjectId
     newUser.roleId = new ObjectId(userData.roleId);
 
+    // Convert memberId string to ObjectId if present
+    if (userData.memberId) {
+      newUser.memberId = new ObjectId(userData.memberId);
+    } else {
+      newUser.memberId = null;
+    }
+
     // Default values
     newUser.isActive = userData.isActive !== undefined ? Boolean(userData.isActive) : true;
     newUser.isDeleted = false;
@@ -332,6 +341,11 @@ export class AdminUserController {
     if (userData.roleId) {
       (user as any).roleId = new ObjectId(userData.roleId);
       delete (userData as any).roleId;
+    }
+
+    if (userData.hasOwnProperty("memberId")) {
+      user.memberId = userData.memberId ? new ObjectId(userData.memberId) : null;
+      delete (userData as any).memberId;
     }
 
     if (userData.isActive !== undefined) {
