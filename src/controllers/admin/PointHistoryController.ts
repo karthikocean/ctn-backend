@@ -13,7 +13,6 @@ import { City } from "../../entity/City";
 import { StatusCodes } from "http-status-codes";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
-import { ObjectId } from "mongodb";
 
 @JsonController("/points")
 @UseBefore(AuthMiddleware)
