@@ -2,6 +2,7 @@ import { JsonController, Post, Body, Res, HttpCode, BadRequestError } from "rout
 import { StatusCodes } from "http-status-codes";
 import { AppDataSource } from "../../data-source";
 import { Verification } from "../../entity/Verification";
+import { Member, MemberStatus } from "../../entity/Member";
 import { MailService } from "../../services/mail.service";
 import { SendOtpDto, VerifyOtpDto } from "../../dto/mobile/Verification.dto";
 import handleErrorResponse from "../../utils/commonFunction";
@@ -10,6 +11,7 @@ import { sendOTPSMS } from "../../utils/sms";
 @JsonController("/verification")
 export class VerificationController {
   private verificationRepo = AppDataSource.getMongoRepository(Verification);
+  private memberRepo = AppDataSource.getMongoRepository(Member);
 
   /**
    * @swagger
@@ -35,6 +37,30 @@ export class VerificationController {
 
       if (!phone && !email) {
         throw new BadRequestError("At least phone or email must be provided");
+      }
+
+      if (phone) {
+        const member = await this.memberRepo.findOne({
+          where: { mobileNumber: phone, isDeleted: false }
+        });
+        if (!member) {
+          throw new BadRequestError("Member not found with this phone number");
+        }
+        if (member.status !== MemberStatus.ACTIVE) {
+          throw new BadRequestError("Member account is not active");
+        }
+      }
+
+      if (email) {
+        const member = await this.memberRepo.findOne({
+          where: { email: email, isDeleted: false }
+        });
+        if (!member) {
+          throw new BadRequestError("Member not found with this email address");
+        }
+        if (member.status !== MemberStatus.ACTIVE) {
+          throw new BadRequestError("Member account is not active");
+        }
       }
 
       const expiresAt = new Date();

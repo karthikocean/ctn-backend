@@ -5,7 +5,134 @@ import { Plan } from "../entity/Plan";
 import { MemberSubscription } from "../entity/MemberSubscription";
 import { Payment } from "../entity/Payment";
 import { SubscriptionFeatureUsage } from "../entity/SubscriptionFeatureUsage";
+import { PostModel, PostType } from "../entity/Post";
+import { Referral } from "../entity/Referral";
+import { MemberTraining } from "../entity/MemberTraining";
+import { Milestone } from "../entity/Milestone";
+import { AnnouncementBooking } from "../entity/AnnouncementBooking";
+import { OnlineStallProduct } from "../entity/OnlineStallProduct";
+import { StallBooking } from "../entity/StallBooking";
+import { OneToOne } from "../entity/OneToOne";
+import { ThankYouSlip } from "../entity/ThankYouSlip";
 import { BadRequestError, NotFoundError } from "routing-controllers";
+
+export interface ModuleUsageConfig {
+  entity: any;
+  getFilter: (memberId: ObjectId) => Record<string, any>;
+  dateField?: string;
+}
+
+export const MODULE_USAGE_CONFIG: Record<string, ModuleUsageConfig> = {
+  "thank you slip": {
+    entity: ThankYouSlip,
+    getFilter: (memberId: ObjectId) => ({
+      $or: [{ senderId: memberId }, { receiverId: memberId }],
+      isDeleted: { $ne: true }
+    }),
+    dateField: "createdAt"
+  },
+  "one to one": {
+    entity: OneToOne,
+    getFilter: (memberId: ObjectId) => ({
+      $or: [{ senderId: memberId }, { receiverId: memberId }],
+      isDeleted: { $ne: true }
+    }),
+    dateField: "createdAt"
+  },
+  "ask": {
+    entity: PostModel,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      type: PostType.ASK,
+      isDeleted: false
+    }),
+    dateField: "createdAt"
+  },
+  "give": {
+    entity: PostModel,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      type: PostType.GIVE,
+      isDeleted: false
+    }),
+    dateField: "createdAt"
+  },
+  "promotion": {
+    entity: PostModel,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      type: PostType.PROMOTION,
+      isDeleted: false
+    }),
+    dateField: "createdAt"
+  },
+  "requirement": {
+    entity: PostModel,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      type: PostType.REQUIREMENT,
+      isDeleted: false
+    }),
+    dateField: "createdAt"
+  },
+  "post": {
+    entity: PostModel,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      type: { $ne: PostType.ASK },
+      isDeleted: false
+    }),
+    dateField: "createdAt"
+  },
+  "referral": {
+    entity: Referral,
+    getFilter: (memberId: ObjectId) => ({
+      senderId: memberId,
+      isDeleted: { $ne: true }
+    }),
+    dateField: "createdAt"
+  },
+  "trainings": {
+    entity: MemberTraining,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      isDeleted: { $ne: true }
+    }),
+    dateField: "createdAt"
+  },
+  "milestone": {
+    entity: Milestone,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      isDeleted: false
+    }),
+    dateField: "createdAt"
+  },
+  "event": {
+    entity: AnnouncementBooking,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      status: "booked"
+    }),
+    dateField: "createdAt"
+  },
+  "marketplace": {
+    entity: OnlineStallProduct,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      isDeleted: false
+    }),
+    dateField: "createdAt"
+  },
+  "offline stall": {
+    entity: StallBooking,
+    getFilter: (memberId: ObjectId) => ({
+      memberId: memberId,
+      status: "booked"
+    }),
+    dateField: "createdAt"
+  }
+};
 
 export class SubscriptionService {
   private memberRepo = AppDataSource.getMongoRepository(Member);
@@ -15,22 +142,234 @@ export class SubscriptionService {
   private usageRepo = AppDataSource.getMongoRepository(SubscriptionFeatureUsage);
 
   /**
-   * Helper to fetch the currently active subscription for a member.
-   * If none exists or has expired, it returns virtual guest subscription.
+   * Helper: Normalize module name strings (e.g. "Milestones" -> "milestone")
    */
+  normalizeModuleName(name: string): string {
+    let lower = name.trim().toLowerCase();
+    if (lower.endsWith("s") && lower !== "glass" && lower !== "business") {
+      lower = lower.substring(0, lower.length - 1);
+    }
+    if (lower === "one to one" || lower === "onetoone") return "one to one";
+    if (lower === "thank you slip" || lower === "thankyouslip") return "thank you slip";
+    if (lower === "online stall") return "marketplace";
+    return lower;
+  }
+
+  /**
+   * Helper to retrieve active plan configurations for a specific member
+   */
+  async getMemberPlan(memberId: string | ObjectId): Promise<Plan> {
+    const memberOid = new ObjectId(memberId);
+    const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
+    if (!member) {
+      throw new NotFoundError("Member not found");
+    }
+
+    if (!member.planId) {
+      throw new BadRequestError("No subscription plan is currently active for this member.");
+    }
+
+    const now = new Date();
+    if (member.subscriptionStartDate && member.subscriptionStartDate > now) {
+      throw new BadRequestError("Subscription plan has not started yet.");
+    }
+
+    if (member.subscriptionEndDate && member.subscriptionEndDate < now) {
+      throw new BadRequestError("Subscription plan has expired.");
+    }
+
+    const plan = await this.planRepo.findOneBy({ _id: member.planId, isDeleted: false });
+    if (!plan) {
+      throw new NotFoundError("Assigned subscription plan not found.");
+    }
+
+    if (plan.status !== "active") {
+      throw new BadRequestError("Assigned subscription plan is currently inactive.");
+    }
+
+    return plan;
+  }
+
+  /**
+   * Core validator for usage-based modules
+   */
+  async validateModuleUsage(memberId: string | ObjectId, moduleName: string): Promise<void> {
+    const memberOid = new ObjectId(memberId);
+    const plan = await this.getMemberPlan(memberOid);
+    const normalized = this.normalizeModuleName(moduleName);
+
+    const planModule = plan.modules?.find(
+      (m) => this.normalizeModuleName(m.moduleName) === normalized
+    );
+
+    if (!planModule) {
+      throw new BadRequestError(`Access denied: Module "${moduleName}" is not included in your active plan.`);
+    }
+
+    if (planModule.countLimit === -1) {
+      return;
+    }
+
+    const { startDate, endDate } = this.getDateRangeByFrequency(planModule.frequency, planModule.frequencyValue);
+    const used = await this.getCurrentUsageCount(memberOid, normalized, startDate, endDate);
+
+    if (used >= planModule.countLimit) {
+      throw this.buildLimitExceededError(planModule.moduleName, used, planModule.countLimit, planModule.frequency);
+    }
+  }
+
+  /**
+   * Core validator for binary features access
+   */
+  async validateFeatureAccess(memberId: string | ObjectId, featureName: keyof Plan["features"]): Promise<void> {
+    const memberOid = new ObjectId(memberId);
+    const plan = await this.getMemberPlan(memberOid);
+
+    const hasAccess = plan.features?.[featureName];
+    if (!hasAccess) {
+      throw new BadRequestError("This feature is not available in your current subscription plan.");
+    }
+  }
+
+  /**
+   * Counts actual current usage logs in database
+   */
+  async getCurrentUsageCount(memberId: ObjectId, moduleName: string, startDate: Date, endDate: Date): Promise<number> {
+    const normalized = this.normalizeModuleName(moduleName);
+    const config = MODULE_USAGE_CONFIG[normalized];
+    if (!config) {
+      throw new BadRequestError(`No usage configuration found for module: ${moduleName}`);
+    }
+
+    const repo = AppDataSource.getMongoRepository(config.entity);
+    const filter = config.getFilter(memberId);
+    const dateField = config.dateField || "createdAt";
+
+    const finalFilter = {
+      ...filter,
+      [dateField]: {
+        $gte: startDate,
+        $lte: endDate
+      }
+    };
+
+    return repo.count(finalFilter as any);
+  }
+
+  /**
+   * Central API to fetch remaining usage details
+   */
+  async getRemainingUsage(memberId: string | ObjectId, moduleName: string) {
+    const memberOid = new ObjectId(memberId);
+    const plan = await this.getMemberPlan(memberOid);
+    const normalized = this.normalizeModuleName(moduleName);
+
+    const planModule = plan.modules?.find(
+      (m) => this.normalizeModuleName(m.moduleName) === normalized
+    );
+
+    if (!planModule) {
+      return {
+        moduleName,
+        used: 0,
+        limit: 0,
+        remaining: 0,
+        frequency: "none"
+      };
+    }
+
+    if (planModule.countLimit === -1) {
+      return {
+        moduleName: planModule.moduleName,
+        used: 0,
+        limit: -1,
+        remaining: -1,
+        frequency: planModule.frequency
+      };
+    }
+
+    const { startDate, endDate } = this.getDateRangeByFrequency(planModule.frequency, planModule.frequencyValue);
+    const used = await this.getCurrentUsageCount(memberOid, normalized, startDate, endDate);
+    const remaining = Math.max(0, planModule.countLimit - used);
+
+    return {
+      moduleName: planModule.moduleName,
+      used,
+      limit: planModule.countLimit,
+      remaining,
+      frequency: planModule.frequency
+    };
+  }
+
+  /**
+   * Retrieves the start/end date range bounds matching the limit's frequency
+   */
+  getDateRangeByFrequency(frequency: string, frequencyValue: number): { startDate: Date; endDate: Date } {
+    const endDate = new Date();
+    const startDate = new Date();
+
+    switch (frequency.toLowerCase()) {
+      case "daily":
+        startDate.setDate(endDate.getDate() - frequencyValue + 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "weekly":
+        const day = endDate.getDay();
+        startDate.setDate(endDate.getDate() - day - (7 * (frequencyValue - 1)));
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "monthly":
+        startDate.setMonth(endDate.getMonth() - frequencyValue + 1);
+        startDate.setDate(1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "yearly":
+        startDate.setFullYear(endDate.getFullYear() - frequencyValue + 1);
+        startDate.setMonth(0, 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      default:
+        throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
+    }
+
+    return { startDate, endDate };
+  }
+
+  /**
+   * Helper exception builder
+   */
+  buildLimitExceededError(moduleName: string, used: number, limit: number, frequency: string): BadRequestError {
+    return new BadRequestError(
+      `${moduleName} limit exceeded. Used: ${used}/${limit}, Frequency: ${frequency}. Please upgrade your plan or wait until your usage resets.`
+    );
+  }
+
+  /**
+   * Returns plan benefits
+   */
+  async getPlanBenefits(memberId: string | ObjectId) {
+    const plan = await this.getMemberPlan(memberId);
+    return {
+      modules: plan.modules,
+      features: plan.features,
+      benefits: plan.benefits
+    };
+  }
+
+  // =========================================================================
+  // BACKWARD COMPATIBLE FLOW FOR PAYMENTS AND TRIALS
+  // =========================================================================
+
   async getActiveSubscription(memberId: string | ObjectId) {
     const memberObjectId = new ObjectId(memberId);
     const now = new Date();
 
-    // 1. Fetch member
     const member = await this.memberRepo.findOneBy({ _id: memberObjectId, isDeleted: false });
     if (!member) {
       throw new NotFoundError("Member not found");
     }
 
     let activeSub: MemberSubscription | null = null;
-
-    // 2. Fetch the linked subscription
     if (member.subscriptionId) {
       activeSub = await this.subRepo.findOneBy({
         _id: member.subscriptionId,
@@ -40,7 +379,6 @@ export class SubscriptionService {
       });
     }
 
-    // 3. If no active sub found by ID, query ACTIVE subs from DB
     if (!activeSub) {
       activeSub = await this.subRepo.findOne({
         where: {
@@ -52,26 +390,20 @@ export class SubscriptionService {
       });
     }
 
-    // 4. If no active subscription exists, return virtual guest subscription
     if (!activeSub) {
       return this.getVirtualGuestSubscription(member.createdAt || now);
     }
 
-    // 5. Check if subscription has expired
     if (activeSub.endDate && activeSub.endDate < now) {
-      // Mark as expired
       activeSub.status = "EXPIRED";
       await this.subRepo.save(activeSub);
-
-      // Remove subscriptionId and planId reference from member
       await this.memberRepo.update(memberObjectId, { subscriptionId: null as any, planId: null as any });
       return this.getVirtualGuestSubscription(now);
     }
 
-    // 6. Get Plan details
     const plan = activeSub.planId ? await this.planRepo.findOneBy({ _id: activeSub.planId, isDeleted: false }) : null;
     const planName = plan ? plan.title : "";
-    const features = (plan && plan.features) ? plan.features : this.getDefaultGuestFeatures();
+    const features = plan && plan.features ? plan.features : this.getDefaultGuestFeatures();
 
     const diffTime = activeSub.endDate.getTime() - now.getTime();
     const daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
@@ -90,9 +422,6 @@ export class SubscriptionService {
     };
   }
 
-  /**
-   * Helper to generate a virtual Guest Subscription object
-   */
   private getVirtualGuestSubscription(startDate: Date) {
     return {
       subscriptionId: null,
@@ -108,9 +437,15 @@ export class SubscriptionService {
     };
   }
 
-  /**
-   * Start trial offer for a specific paid plan (Basic, Premium, Business, etc.)
-   */
+  private getDefaultGuestFeatures() {
+    return {
+      monthlyMeeting: false,
+      eventVisitor: false,
+      eventStall: false,
+      spotlights: false
+    };
+  }
+
   async startTrial(memberId: string | ObjectId, planId: string) {
     const memberObjectId = new ObjectId(memberId);
 
@@ -119,12 +454,10 @@ export class SubscriptionService {
       throw new NotFoundError("Member not found");
     }
 
-    // Step 1 & 2: Check if profile is complete (needs fullName, mobileNumber, businessName)
     if (!member.fullName || !member.mobileNumber || !member.businessName) {
       throw new BadRequestError("Profile is incomplete. Please complete your profile to activate the trial.");
     }
 
-    // Step 5: Prevent multiple trials
     if (member.hasUsedTrial) {
       throw new BadRequestError("You have already used your trial plan.");
     }
@@ -142,12 +475,10 @@ export class SubscriptionService {
       throw new NotFoundError("Selected plan not found");
     }
 
-    // Ensure the plan has a trial period
     if (!trialPlan.trialDays || trialPlan.trialDays <= 0) {
       throw new BadRequestError(`The plan "${trialPlan.title}" does not offer a free trial period.`);
     }
 
-    // Expire current active subscription
     await this.subRepo.updateMany(
       { memberId: memberObjectId, status: "ACTIVE" },
       { $set: { status: "EXPIRED" } }
@@ -160,7 +491,7 @@ export class SubscriptionService {
     const newSub = new MemberSubscription();
     newSub.memberId = memberObjectId;
     newSub.planId = new ObjectId(trialPlan._id);
-    newSub.type = trialPlan.type || "BASIC";
+    newSub.type = trialPlan.billingType || "BASIC";
     newSub.status = "ACTIVE";
     newSub.startDate = now;
     newSub.endDate = end;
@@ -169,18 +500,16 @@ export class SubscriptionService {
 
     const savedSub = await this.subRepo.save(newSub);
 
-    // Update member record
     member.hasUsedTrial = true;
     member.subscriptionId = new ObjectId(savedSub._id);
     member.planId = new ObjectId(trialPlan._id);
+    member.subscriptionStartDate = now;
+    member.subscriptionEndDate = end;
     await this.memberRepo.save(member);
 
     return savedSub;
   }
 
-  /**
-   * Payment flow: Step 1 - Create Payment Record
-   */
   async createSubscriptionPayment(memberId: string | ObjectId, planId: string, paymentMethod: string) {
     const memberObjectId = new ObjectId(memberId);
     const planObjectId = new ObjectId(planId);
@@ -204,9 +533,6 @@ export class SubscriptionService {
     return this.paymentRepo.save(payment);
   }
 
-  /**
-   * Payment flow: Step 2 - Verify payment and trigger activation
-   */
   async verifyPayment(transactionId: string, status: "COMPLETED" | "FAILED") {
     const payment = await this.paymentRepo.findOneBy({ transactionId, isDeleted: false });
     if (!payment) {
@@ -235,34 +561,29 @@ export class SubscriptionService {
     };
   }
 
-  /**
-   * Payment flow: Step 3 - Activate Premium/Business subscription
-   */
   async activateSubscription(memberId: ObjectId, planId: ObjectId, paymentId: ObjectId) {
     const plan = await this.planRepo.findOneBy({ _id: planId, isDeleted: false });
     if (!plan) {
       throw new NotFoundError("Plan not found");
     }
 
-    // 1. Expire current ACTIVE subscriptions
     await this.subRepo.updateMany(
       { memberId, status: "ACTIVE" },
       { $set: { status: "EXPIRED" } }
     );
 
-    // 2. Create new MemberSubscription
     const now = new Date();
     const end = new Date();
     if (plan.billingCycle === "yearly") {
       end.setFullYear(end.getFullYear() + 1);
     } else {
-      end.setMonth(end.getMonth() + 1); // Monthly default
+      end.setMonth(end.getMonth() + 1);
     }
 
     const newSub = new MemberSubscription();
     newSub.memberId = memberId;
     newSub.planId = planId;
-    newSub.type = plan.type || "FREE"; // "PREMIUM" | "BUSINESS"
+    newSub.type = plan.billingType || "FREE";
     newSub.status = "ACTIVE";
     newSub.startDate = now;
     newSub.endDate = end;
@@ -270,18 +591,18 @@ export class SubscriptionService {
 
     const savedSub = await this.subRepo.save(newSub);
 
-    // 3. Update payment history with linked subscriptionId
     await this.paymentRepo.update(paymentId, { subscriptionId: savedSub._id });
 
-    // 4. Update member.subscriptionId and planId
-    await this.memberRepo.update(memberId, { subscriptionId: savedSub._id, planId: planId });
+    await this.memberRepo.update(memberId, {
+      subscriptionId: savedSub._id,
+      planId: planId,
+      subscriptionStartDate: now,
+      subscriptionEndDate: end
+    });
 
     return savedSub;
   }
 
-  /**
-   * Cancel subscription: immediately cancels paid subscription
-   */
   async cancelSubscription(memberId: string | ObjectId) {
     const memberObjectId = new ObjectId(memberId);
 
@@ -295,12 +616,15 @@ export class SubscriptionService {
       throw new BadRequestError("You do not have any active paid subscription to cancel.");
     }
 
-    // Mark current as CANCELLED
     activeSub.status = "CANCELLED";
     await this.subRepo.save(activeSub);
 
-    // Update member subscriptionId and planId
-    await this.memberRepo.update(memberObjectId, { subscriptionId: null as any, planId: null as any });
+    await this.memberRepo.update(memberObjectId, {
+      subscriptionId: null as any,
+      planId: null as any,
+      subscriptionStartDate: null as any,
+      subscriptionEndDate: null as any
+    });
 
     return {
       message: "Subscription cancelled successfully.",
@@ -309,102 +633,37 @@ export class SubscriptionService {
   }
 
   /**
-   * Check feature access validation helper
+   * Compatibility wrapper for old checkFeatureAccess middleware checks
    */
   async checkFeatureAccess(memberId: string | ObjectId, featureType: string): Promise<boolean> {
-    const activeSub = await this.getActiveSubscription(memberId);
-
-    // 1. Resolve direct boolean features
-    const featureVal = (activeSub.features as any)[featureType];
-    if (typeof featureVal === "boolean") {
-      return featureVal;
-    }
-
-    // 2. Resolve string features (like searchType: "basic" | "advanced")
-    if (featureType === "searchType" || featureType === "requirementsAccess") {
-      return !!featureVal;
-    }
-
-    // 3. Resolve limited counts (maxConnections, maxMessages)
-    if (featureType === "maxConnections" || featureType === "maxMessages") {
-      const limit = Number(featureVal);
-      if (limit === -1) return true; // Unlimited
-
-      // Query usage
-      const usageType = featureType === "maxConnections" ? "connections_created" : "messages_sent";
-      const usage = await this.getOrCreateFeatureUsage(new ObjectId(memberId), activeSub.subscriptionId || new ObjectId("000000000000000000000000"), usageType);
-
-      if (usage.count >= limit) {
-        return false;
+    try {
+      const activeSub = await this.getActiveSubscription(memberId);
+      
+      // Resolve direct new boolean features
+      if (activeSub.features && typeof (activeSub.features as any)[featureType] === "boolean") {
+        return (activeSub.features as any)[featureType];
       }
-      return true;
-    }
 
-    return false;
+      // Check module usage validation matching old features
+      if (featureType === "maxConnections") {
+        // Map to connections/one-to-one validation
+        await this.validateModuleUsage(memberId, "one to one");
+        return true;
+      }
+
+      if (featureType === "maxMessages") {
+        // Map to chat messages limits
+        await this.validateModuleUsage(memberId, "promotion"); // e.g. or chat
+        return true;
+      }
+
+      return false;
+    } catch {
+      return false;
+    }
   }
 
-  /**
-   * Increments feature usage count for a member
-   */
   async incrementFeatureUsage(memberId: string | ObjectId, featureType: "connections_created" | "messages_sent") {
-    const memberObjectId = new ObjectId(memberId);
-    const activeSub = await this.getActiveSubscription(memberObjectId);
-
-    const usage = await this.getOrCreateFeatureUsage(memberObjectId, activeSub.subscriptionId || new ObjectId("000000000000000000000000"), featureType);
-    usage.count += 1;
-    await this.usageRepo.save(usage);
-  }
-
-  /**
-   * Retrieves or creates feature usage log (checking reset dates)
-   */
-  private async getOrCreateFeatureUsage(memberId: ObjectId, subscriptionId: ObjectId, featureType: string): Promise<SubscriptionFeatureUsage> {
-    const now = new Date();
-    let usage = await this.usageRepo.findOneBy({
-      memberId,
-      subscriptionId,
-      featureType
-    });
-
-    if (!usage) {
-      usage = new SubscriptionFeatureUsage();
-      usage.memberId = memberId;
-      usage.subscriptionId = subscriptionId;
-      usage.featureType = featureType;
-      usage.count = 0;
-      const nextReset = new Date();
-      nextReset.setMonth(nextReset.getMonth() + 1); // 30-day reset
-      usage.resetDate = nextReset;
-      usage = await this.usageRepo.save(usage);
-    } else if (usage.resetDate < now) {
-      // Reset limit
-      usage.count = 0;
-      const nextReset = new Date();
-      nextReset.setMonth(nextReset.getMonth() + 1);
-      usage.resetDate = nextReset;
-      usage = await this.usageRepo.save(usage);
-    }
-
-    return usage;
-  }
-
-  /**
-   * Fallback default features for Guest/Restricted Access
-   */
-  private getDefaultGuestFeatures() {
-    return {
-      maxConnections: 0,
-      maxMessages: 0,
-      searchType: "basic",
-      requirementsAccess: "public",
-      featuredProfile: false,
-      priorityVisibility: false,
-      trustAnalytics: false,
-      businessInsights: false,
-      teamManagement: false,
-      leadGeneration: false,
-      dashboard: false,
-      premiumBranding: false,
-    };
+    // Keep as no-op or proxy for backward compatibility if called
   }
 }

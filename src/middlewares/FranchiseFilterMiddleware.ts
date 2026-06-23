@@ -18,12 +18,18 @@ export const franchiseFilter = async (req: any, res: Response, next: NextFunctio
       if (franchise && franchise.businessRegionId) {
         const businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
         const region = await businessRegionRepo.findOne({
-          where: { _id: franchise.businessRegionId, isDeleted: false }
+          where: {
+            $or: [
+              { _id: franchise.businessRegionId },
+              { "areas._id": franchise.businessRegionId }
+            ],
+            isDeleted: false
+          } as any
         });
 
         req.isFranchise = true;
         req.franchise = franchise;
-        req.franchiseAreaIds = region?.areas ? region.areas.map(a => new ObjectId(a._id)) : [];
+        req.franchiseAreaIds = region ? [new ObjectId(franchise.businessRegionId)] : [];
       } else {
         req.isFranchise = true;
         req.franchise = null;

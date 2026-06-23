@@ -99,6 +99,28 @@ export class MobileAnnouncementController {
         order: { createdAt: "DESC" }
       });
 
+      const bookingRepo = AppDataSource.getMongoRepository(StallBooking);
+      const announcementIds = announcements.map(a => a._id);
+      const bookings = await bookingRepo.find({
+        where: {
+          announcementId: { $in: announcementIds },
+          status: "booked"
+        } as any
+      });
+
+      const bookedStallIds = new Set(bookings.map(b => b.stallId.toString()));
+
+      announcements.forEach(ann => {
+        if (ann.isOfflineStallExist && ann.stallConfig && Array.isArray(ann.stallConfig.stalls)) {
+          ann.stallConfig.stalls = ann.stallConfig.stalls.map((s: any) => {
+            return {
+              ...s,
+              isBooked: bookedStallIds.has(s._id?.toString() || "")
+            };
+          });
+        }
+      });
+
       return pagination(total, announcements, limit, page, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);

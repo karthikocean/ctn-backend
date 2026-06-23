@@ -37,6 +37,9 @@ export class Franchise {
   })
     status!: FranchiseStatus;
 
+  @Column({ type: "double", default: 0 })
+    commissionPercentage!: number;
+
   @Column({ default: false })
     isDeleted!: boolean;
 

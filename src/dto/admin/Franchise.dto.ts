@@ -3,7 +3,10 @@ import {
   IsNotEmpty,
   IsEnum,
   IsOptional,
-  IsArray
+  IsArray,
+  IsNumber,
+  Min,
+  Max
 } from "class-validator";
 import { FranchiseStatus } from "../../entity/Franchise";
 
@@ -24,6 +27,12 @@ export class CreateFranchiseDto {
   @IsEnum(FranchiseStatus)
   @IsOptional()
     status?: FranchiseStatus = FranchiseStatus.ACTIVE;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+    commissionPercentage?: number = 0;
 }
 
 export class UpdateFranchiseDto {
@@ -43,4 +52,10 @@ export class UpdateFranchiseDto {
   @IsEnum(FranchiseStatus)
   @IsOptional()
     status?: FranchiseStatus;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+    commissionPercentage?: number;
 }

@@ -4,11 +4,12 @@ import {
   IsNumber,
   IsArray,
   IsOptional,
+  IsBoolean,
   ValidateNested
 } from "class-validator";
 import { Type } from "class-transformer";
 
-class ModuleConfigDto {
+export class ModuleConfigDto {
   @IsString()
   @IsNotEmpty()
     moduleName!: string;
@@ -17,12 +18,38 @@ class ModuleConfigDto {
     countLimit!: number;
 
   @IsString()
-  @IsOptional()
-    frequency?: string;
+    frequency!: string;
 
   @IsNumber()
-  @IsOptional()
-    frequencyValue?: number;
+    frequencyValue!: number;
+}
+
+export class FeatureConfigDto {
+  @IsBoolean()
+    monthlyMeeting!: boolean;
+
+  @IsBoolean()
+    eventVisitor!: boolean;
+
+  @IsBoolean()
+    eventStall!: boolean;
+
+  @IsBoolean()
+    spotlights!: boolean;
+}
+
+export class BenefitConfigDto {
+  @IsNumber()
+    requirementResponseLimit!: number;
+
+  @IsNumber()
+    pointMultiplier!: number;
+
+  @IsNumber()
+    trainingDiscountPercentage!: number;
+
+  @IsNumber()
+    referralBonusMonths!: number;
 }
 
 export class CreatePlanDto {
@@ -39,24 +66,31 @@ export class CreatePlanDto {
 
   @IsNumber()
   @IsOptional()
-    trialDays?: number | null;
+    trialDays?: number = 0;
 
   @IsString()
   @IsOptional()
-    status?: string = "active";
+    status?: "active" | "inactive" = "active";
+
+  @IsString()
+    billingType!: string;
 
   @IsString()
   @IsOptional()
     billingCycle?: string = "yearly";
 
-  @IsString()
-  @IsOptional()
-    billingType?: string;
-
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ModuleConfigDto)
     modules!: ModuleConfigDto[];
+
+  @ValidateNested()
+  @Type(() => FeatureConfigDto)
+    features!: FeatureConfigDto;
+
+  @ValidateNested()
+  @Type(() => BenefitConfigDto)
+    benefits!: BenefitConfigDto;
 }
 
 export class UpdatePlanDto {
@@ -74,23 +108,33 @@ export class UpdatePlanDto {
 
   @IsNumber()
   @IsOptional()
-    trialDays?: number | null;
+    trialDays?: number;
 
   @IsString()
   @IsOptional()
-    status?: string;
-
-  @IsString()
-  @IsOptional()
-    billingCycle?: string;
+    status?: "active" | "inactive";
 
   @IsString()
   @IsOptional()
     billingType?: string;
+
+  @IsString()
+  @IsOptional()
+    billingCycle?: string;
 
   @IsArray()
   @IsOptional()
   @ValidateNested({ each: true })
   @Type(() => ModuleConfigDto)
     modules?: ModuleConfigDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FeatureConfigDto)
+    features?: FeatureConfigDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BenefitConfigDto)
+    benefits?: BenefitConfigDto;
 }
