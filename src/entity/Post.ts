@@ -61,10 +61,10 @@ export class PostModel {
   @Column({ default: 0 })
     sharedCount!: number;
 
-  @Column("json", { nullable: true })
+  @Column({ nullable: true })
     stateIds?: ObjectId[];
 
-  @Column("json", { nullable: true })
+  @Column({ nullable: true })
     regionIds?: ObjectId[];
 
   @Column({ default: false })

@@ -17,9 +17,10 @@ import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { canAccess } from "../../middlewares/PermissionMiddleware";
+import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 
 @JsonController("/contributions")
-@UseBefore(AuthMiddleware, canAccess("contributions", "view"))
+@UseBefore(AuthMiddleware, franchiseFilter, canAccess("contributions", "view"))
 export class AdminContributionController {
   private oneToOneRepo = AppDataSource.getMongoRepository(OneToOne);
   private tySlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
@@ -51,8 +52,30 @@ export class AdminContributionController {
     limit = Number(limit) || 10;
 
     try {
+      // Handle franchise filtering
+      let franchiseMemberIds: ObjectId[] = [];
+      if (req.isFranchise) {
+        const fMemberWhere: any = { isDeleted: false };
+        if (req.franchiseAreaIds && req.franchiseAreaIds.length > 0) {
+          fMemberWhere.businessRegion = { $in: req.franchiseAreaIds };
+        } else {
+          fMemberWhere.businessRegion = new ObjectId();
+        }
+        const fMembers = await this.memberRepo.find({
+          where: fMemberWhere
+        });
+        franchiseMemberIds = fMembers.map(m => m._id);
+
+        if (franchiseMemberIds.length === 0) {
+          return pagination(0, [], limit, page, res);
+        }
+      }
+
       let memberIds: ObjectId[] = [];
-      let hasSearchOrRole = false;
+      let hasSearchOrRole = req.isFranchise;
+      if (req.isFranchise) {
+        memberIds = franchiseMemberIds;
+      }
 
       // Handle role filtering
       let hasRoleFilter = false;
@@ -76,15 +99,29 @@ export class AdminContributionController {
             fullName: { $regex: search, $options: "i" }
           }
         });
-        memberIds = matchingMembers.map(m => m._id);
+        const searchMemberIds = matchingMembers.map(m => m._id);
+
+        if (req.isFranchise) {
+          const fSet = new Set(franchiseMemberIds.map(id => id.toString()));
+          memberIds = searchMemberIds.filter(id => fSet.has(id.toString()));
+        } else {
+          memberIds = searchMemberIds;
+        }
 
         if (hasRoleFilter) {
           const roleSet = new Set(roleMemberIds.map(id => id.toString()));
           memberIds = memberIds.filter(id => roleSet.has(id.toString()));
         }
-      } else if (hasRoleFilter) {
-        hasSearchOrRole = true;
-        memberIds = roleMemberIds;
+      } else {
+        if (hasRoleFilter) {
+          hasSearchOrRole = true;
+          if (req.isFranchise) {
+            const fSet = new Set(franchiseMemberIds.map(id => id.toString()));
+            memberIds = roleMemberIds.filter(id => fSet.has(id.toString()));
+          } else {
+            memberIds = roleMemberIds;
+          }
+        }
       }
 
       // Date filtering

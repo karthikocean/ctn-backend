@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, Length, IsOptional } from "class-validator";
+import { IsNotEmpty, IsString, Length, IsOptional, IsBoolean } from "class-validator";
 /**
  * @swagger
  * components:
@@ -38,33 +38,36 @@ import { IsNotEmpty, IsString, Length, IsOptional } from "class-validator";
 export class SendOtpDto {
   @IsString()
   @IsOptional()
-    phone?: string;
+  phone?: string;
 
   @IsString()
   @IsOptional()
-    email?: string;
+  email?: string;
+  @IsBoolean()
+  @IsOptional()
+  isRegister?: boolean;
 }
 
 export class VerifyOtpDto {
   @IsString()
   @IsOptional()
-    identifier?: string;
+  identifier?: string;
 
   @IsString()
   @IsOptional()
-    type?: "email" | "phone";
+  type?: "email" | "phone";
 
   @IsString()
   @IsOptional()
-    phone?: string;
+  phone?: string;
 
   @IsString()
   @IsOptional()
-    email?: string;
+  email?: string;
 
   @IsString()
   @IsNotEmpty()
   @Length(4, 4)
-    otp!: string;
+  otp!: string;
 }
 

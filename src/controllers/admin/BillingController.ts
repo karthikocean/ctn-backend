@@ -24,9 +24,10 @@ import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { CreateBillingDto, UpdateBillingDto } from "../../dto/admin/Billing.dto";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
+import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 
 @JsonController("/billings")
-@UseBefore(AuthMiddleware)
+@UseBefore(AuthMiddleware, franchiseFilter)
 export class AdminBillingController {
   private paymentRepo = AppDataSource.getMongoRepository(Payment);
   private memberRepo = AppDataSource.getMongoRepository(Member);
@@ -88,6 +89,7 @@ export class AdminBillingController {
    */
   @Get("/")
   async getAll(
+    @Req() req: any,
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
     @QueryParam("search") search: string,
@@ -98,6 +100,24 @@ export class AdminBillingController {
 
     try {
       const where: any = { isDeleted: false };
+      let franchiseMemberIds: ObjectId[] = [];
+
+      if (req.isFranchise) {
+        const fMemberWhere: any = { isDeleted: false };
+        if (req.franchiseAreaIds && req.franchiseAreaIds.length > 0) {
+          fMemberWhere.businessRegion = { $in: req.franchiseAreaIds };
+        } else {
+          fMemberWhere.businessRegion = new ObjectId();
+        }
+        const fMembers = await this.memberRepo.find({
+          where: fMemberWhere
+        });
+        franchiseMemberIds = fMembers.map(m => m._id);
+
+        if (franchiseMemberIds.length === 0) {
+          return pagination(0, [], limit, page, res);
+        }
+      }
 
       if (search) {
         // Query members by name matching the search term
@@ -107,7 +127,12 @@ export class AdminBillingController {
             isDeleted: false
           } as any
         });
-        const matchingMemberIds = matchingMembers.map(m => m._id);
+        let matchingMemberIds = matchingMembers.map(m => m._id);
+
+        if (req.isFranchise) {
+          const fSet = new Set(franchiseMemberIds.map(id => id.toString()));
+          matchingMemberIds = matchingMemberIds.filter(id => fSet.has(id.toString()));
+        }
 
         // Query plans by title matching the search term
         const matchingPlans = await this.planRepo.find({
@@ -125,6 +150,14 @@ export class AdminBillingController {
           { transactionId: { $regex: search, $options: "i" } },
           { remarks: { $regex: search, $options: "i" } }
         ];
+
+        if (req.isFranchise) {
+          where.memberId = { $in: franchiseMemberIds };
+        }
+      } else {
+        if (req.isFranchise) {
+          where.memberId = { $in: franchiseMemberIds };
+        }
       }
 
       const [payments, total] = await this.paymentRepo.findAndCount({
@@ -168,7 +201,7 @@ export class AdminBillingController {
    *     tags: [Admin Billing]
    */
   @Get("/:id")
-  async getOne(@Param("id") id: string, @Res() res: any) {
+  async getOne(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
@@ -180,6 +213,14 @@ export class AdminBillingController {
       if (!payment) throw new NotFoundError("Billing record not found");
 
       const member = payment.memberId ? await this.memberRepo.findOneBy({ _id: payment.memberId }) : null;
+      
+      if (req.isFranchise) {
+        const regionId = member?.businessRegion;
+        if (!member || !regionId || !req.franchiseAreaIds.some((areaId: ObjectId) => areaId.toString() === regionId.toString())) {
+          throw new NotFoundError("Billing record not found");
+        }
+      }
+
       const plan = payment.planId ? await this.planRepo.findOneBy({ _id: payment.planId }) : null;
 
       const data = {

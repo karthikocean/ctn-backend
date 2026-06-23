@@ -340,7 +340,7 @@ export class SubscriptionService {
    */
   buildLimitExceededError(moduleName: string, used: number, limit: number, frequency: string): BadRequestError {
     return new BadRequestError(
-      `${moduleName} limit exceeded. Used: ${used}/${limit}, Frequency: ${frequency}. Please upgrade your plan or wait until your usage resets.`
+      `You've used your ${frequency.toLowerCase()} upload allowance. Please try again after your limit resets or upgrade your plan for additional uploads.`
     );
   }
 
