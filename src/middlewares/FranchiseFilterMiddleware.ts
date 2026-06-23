@@ -6,7 +6,6 @@ import { ObjectId } from "mongodb";
 
 export const franchiseFilter = async (req: any, res: Response, next: NextFunction): Promise<void> => {
   try {
-    console.log(req.user?.role?.code, 'req.user?.role?.code')
     if (req.user?.role?.code?.toUpperCase() === "FRANCHISE_OWNER") {
       const franchiseRepo = AppDataSource.getMongoRepository(Franchise);
       const franchise = await franchiseRepo.findOne({
