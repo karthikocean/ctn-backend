@@ -25,6 +25,9 @@ import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { canAccess } from "../../middlewares/PermissionMiddleware";
+import { Member } from "../../entity/Member";
+import { Payment } from "../../entity/Payment";
+import { FranchisePaymentHistory } from "../../entity/FranchisePaymentHistory";
 
 @JsonController("/franchises")
 @UseBefore(AuthMiddleware)
@@ -32,6 +35,9 @@ export class FranchiseController {
   private franchiseRepo = AppDataSource.getMongoRepository(Franchise);
   private regionRepo = AppDataSource.getMongoRepository(BusinessRegion);
   private adminUserRepo = AppDataSource.getMongoRepository(AdminUser);
+  private memberRepo = AppDataSource.getMongoRepository(Member);
+  private paymentRepo = AppDataSource.getMongoRepository(Payment);
+  private paymentHistoryRepo = AppDataSource.getMongoRepository(FranchisePaymentHistory);
 
   /**
    * @swagger
@@ -72,9 +78,14 @@ export class FranchiseController {
       if (!ObjectId.isValid(data.businessRegionId)) {
         throw new BadRequestError("Invalid businessRegionId");
       }
-      const region = await this.regionRepo.findOneBy({
-        _id: new ObjectId(data.businessRegionId),
-        isDeleted: false
+      const region = await this.regionRepo.findOne({
+        where: {
+          $or: [
+            { _id: new ObjectId(data.businessRegionId) },
+            { "areas._id": new ObjectId(data.businessRegionId) }
+          ],
+          isDeleted: false
+        } as any
       });
       if (!region) {
         throw new NotFoundError("Business region not found");
@@ -116,6 +127,7 @@ export class FranchiseController {
       franchise.businessRegionId = new ObjectId(data.businessRegionId);
       franchise.userId = userObjectIds;
       franchise.status = data.status || FranchiseStatus.ACTIVE;
+      franchise.commissionPercentage = data.commissionPercentage !== undefined ? data.commissionPercentage : 0;
       franchise.isDeleted = false;
 
       const saved = await this.franchiseRepo.save(franchise);
@@ -153,7 +165,18 @@ export class FranchiseController {
       const where: any = { isDeleted: false };
 
       if (search) {
-        where.name = { $regex: search, $options: "i" };
+        const matchingUsers = await this.adminUserRepo.find({
+          where: {
+            name: { $regex: search, $options: "i" },
+            isDeleted: false
+          }
+        });
+        const matchingUserIds = matchingUsers.map(u => u.id);
+
+        where.$or = [
+          { name: { $regex: search, $options: "i" } },
+          { userId: { $in: matchingUserIds } }
+        ];
       }
 
       if (status) {
@@ -180,13 +203,16 @@ export class FranchiseController {
         .filter((id): id is ObjectId => !!id);
 
       const regions = regionIds.length > 0
-        ? await this.regionRepo.find({ where: { _id: { $in: regionIds } } as any })
+        ? await this.regionRepo.find({
+            where: {
+              $or: [
+                { _id: { $in: regionIds } },
+                { "areas._id": { $in: regionIds } }
+              ]
+            } as any
+          })
         : [];
       const resolvedRegions = await resolveRegions(regions);
-
-      const regionMap = new Map(
-        resolvedRegions.map(r => [r._id.toString(), { _id: r._id, country: r.country, state: r.state, city: r.city }])
-      );
 
       // Populate AdminUsers (Users)
       const userIds = franchises
@@ -201,11 +227,31 @@ export class FranchiseController {
         adminUsers.map(u => [u.id.toString(), { _id: u.id, fullName: u.name, email: u.email, mobileNumber: u.phoneNumber }])
       );
 
-      const populated = franchises.map(f => ({
-        ...f,
-        businessRegion: f.businessRegionId ? regionMap.get(f.businessRegionId.toString()) : null,
-        users: (f.userId || []).map(uid => userMap.get(uid.toString())).filter(Boolean)
-      }));
+      const populated = franchises.map(f => {
+        let businessRegion = null;
+        if (f.businessRegionId) {
+          const region = resolvedRegions.find(r =>
+            r._id.toString() === f.businessRegionId.toString() ||
+            (r.areas && r.areas.some((a: any) => a._id.toString() === f.businessRegionId.toString()))
+          );
+          if (region) {
+            const matchedArea = region.areas?.find((a: any) => a._id.toString() === f.businessRegionId.toString());
+            businessRegion = {
+              _id: f.businessRegionId,
+              name: matchedArea ? matchedArea.name : `${region.city}, ${region.state}`,
+              city: region.city,
+              state: region.state,
+              country: region.country,
+              areas: region.areas
+            };
+          }
+        }
+        return {
+          ...f,
+          businessRegion,
+          users: (f.userId || []).map(uid => userMap.get(uid.toString())).filter(Boolean)
+        };
+      });
 
       return pagination(total, populated, limit, page, res);
     } catch (error: any) {
@@ -235,10 +281,26 @@ export class FranchiseController {
       // Populate Business Region
       let businessRegion = null;
       if (franchise.businessRegionId) {
-        const region = await this.regionRepo.findOneBy({ _id: franchise.businessRegionId, isDeleted: false });
+        const region = await this.regionRepo.findOne({
+          where: {
+            $or: [
+              { _id: franchise.businessRegionId },
+              { "areas._id": franchise.businessRegionId }
+            ],
+            isDeleted: false
+          } as any
+        });
         if (region) {
           const resolved = await resolveRegion(region);
-          businessRegion = { _id: resolved._id, country: resolved.country, state: resolved.state, city: resolved.city };
+          const matchedArea = resolved.areas?.find((a: any) => a._id.toString() === franchise.businessRegionId.toString());
+          businessRegion = {
+            _id: franchise.businessRegionId,
+            name: matchedArea ? matchedArea.name : `${resolved.city}, ${resolved.state}`,
+            city: resolved.city,
+            state: resolved.state,
+            country: resolved.country,
+            areas: resolved.areas
+          };
         }
       }
 
@@ -297,9 +359,14 @@ export class FranchiseController {
         if (!ObjectId.isValid(data.businessRegionId)) {
           throw new BadRequestError("Invalid businessRegionId");
         }
-        const region = await this.regionRepo.findOneBy({
-          _id: new ObjectId(data.businessRegionId),
-          isDeleted: false
+        const region = await this.regionRepo.findOne({
+          where: {
+            $or: [
+              { _id: new ObjectId(data.businessRegionId) },
+              { "areas._id": new ObjectId(data.businessRegionId) }
+            ],
+            isDeleted: false
+          } as any
         });
         if (!region) {
           throw new NotFoundError("Business region not found");
@@ -330,6 +397,10 @@ export class FranchiseController {
 
       if (data.status) {
         franchise.status = data.status;
+      }
+
+      if (data.commissionPercentage !== undefined) {
+        franchise.commissionPercentage = data.commissionPercentage;
       }
 
       const saved = await this.franchiseRepo.save(franchise);
@@ -364,6 +435,193 @@ export class FranchiseController {
 
       return res.status(StatusCodes.OK).json({
         message: "Franchise deleted successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  @Get("/commission-report")
+  @UseBefore(canAccess("franchises", "view"))
+  async getCommissionReport(
+    @QueryParam("month") month: string,
+    @QueryParam("search") search: string,
+    @QueryParam("page") page: any,
+    @QueryParam("limit") limit: any,
+    @Res() res: any
+  ) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+
+    try {
+      if (!month) {
+        const d = new Date();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        month = `${d.getFullYear()}-${mm}`;
+      }
+
+      const [yearStr, monthStr] = month.split("-");
+      const year = Number(yearStr);
+      const mNum = Number(monthStr);
+      const startDate = new Date(year, mNum - 1, 1);
+      const endDate = new Date(year, mNum, 1);
+
+      const where: any = { isDeleted: false };
+      if (search) {
+        const matchingUsers = await this.adminUserRepo.find({
+          where: {
+            name: { $regex: search, $options: "i" },
+            isDeleted: false
+          }
+        });
+        const matchingUserIds = matchingUsers.map(u => u.id);
+
+        where.$or = [
+          { name: { $regex: search, $options: "i" } },
+          { userId: { $in: matchingUserIds } }
+        ];
+      }
+
+      const [franchises, total] = await this.franchiseRepo.findAndCount({
+        where,
+        skip: page * limit,
+        take: limit,
+        order: { createdAt: "DESC" }
+      });
+
+      const regionIds = franchises
+        .map(f => f.businessRegionId)
+        .filter((id): id is ObjectId => !!id);
+
+      const allMembers = regionIds.length > 0
+        ? await this.memberRepo.find({
+            where: {
+              businessRegion: { $in: regionIds },
+              isDeleted: false
+            } as any
+          })
+        : [];
+
+      const memberIds = allMembers.map(m => m._id);
+      const allPayments = (memberIds.length > 0)
+        ? await this.paymentRepo.find({
+            where: {
+              memberId: { $in: memberIds },
+              status: "COMPLETED",
+              createdAt: { $gte: startDate, $lt: endDate }
+            } as any
+          })
+        : [];
+
+      const historyRecords = await this.paymentHistoryRepo.find({
+        where: {
+          franchiseId: { $in: franchises.map(f => f._id) },
+          month,
+          isDeleted: false
+        } as any
+      });
+      const historyMap = new Map(historyRecords.map(h => [h.franchiseId.toString(), h]));
+
+      const allUserIds = franchises
+        .flatMap(f => f.userId || [])
+        .filter((id): id is ObjectId => !!id);
+
+      const adminUsers = allUserIds.length > 0
+        ? await this.adminUserRepo.find({ where: { _id: { $in: allUserIds } } as any })
+        : [];
+      const userMap = new Map(adminUsers.map(u => [u.id.toString(), u.name]));
+
+      const reportData = franchises.map((f) => {
+        const fMembers = allMembers.filter(m => m.businessRegion?.toString() === f.businessRegionId?.toString());
+        const fMemberIds = fMembers.map(m => m._id.toString());
+        const memberJoinedCount = fMembers.filter(m => m.createdAt >= startDate && m.createdAt < endDate).length;
+        const fPayments = allPayments.filter(p => fMemberIds.includes(p.memberId.toString()));
+        const totalAmount = fPayments.reduce((sum, p) => sum + p.amount, 0);
+
+        const commissionPercent = f.commissionPercentage || 0;
+        const commissionAmount = totalAmount * commissionPercent / 100;
+
+        const history = historyMap.get(f._id.toString());
+        const status = history ? history.status : "pending";
+        const paymentReceiptUrl = history ? history.paymentReceiptUrl : null;
+        const historyId = history ? history._id : null;
+
+        const ownerNames = (f.userId || [])
+          .map(uid => userMap.get(uid.toString()))
+          .filter(Boolean)
+          .join(", ") || "No Owner";
+
+        return {
+          franchiseId: f._id,
+          franchiseName: f.name,
+          franchiseOwner: ownerNames,
+          memberJoinedCount,
+          month,
+          totalAmount,
+          commissionPercent,
+          commissionAmount,
+          status,
+          paymentReceiptUrl,
+          historyId
+        };
+      });
+
+      return pagination(total, reportData, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  @Post("/commission-report/settle")
+  @UseBefore(canAccess("franchises", "edit"))
+  async settleCommission(
+    @Body() body: { franchiseId: string; month: string; status: string; paymentReceiptUrl?: string },
+    @Res() res: any
+  ) {
+    try {
+      const { franchiseId, month, status, paymentReceiptUrl } = body;
+
+      if (!franchiseId || !ObjectId.isValid(franchiseId)) {
+        throw new BadRequestError("Invalid or missing franchiseId");
+      }
+      if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+        throw new BadRequestError("Invalid or missing month (YYYY-MM)");
+      }
+      if (status !== "settled" && status !== "pending") {
+        throw new BadRequestError("Status must be 'settled' or 'pending'");
+      }
+
+      const franchise = await this.franchiseRepo.findOneBy({ _id: new ObjectId(franchiseId), isDeleted: false });
+      if (!franchise) {
+        throw new NotFoundError("Franchise not found");
+      }
+
+      let record = await this.paymentHistoryRepo.findOne({
+        where: { franchiseId: new ObjectId(franchiseId), month, isDeleted: false }
+      });
+
+      if (record) {
+        record.status = status;
+        if (paymentReceiptUrl !== undefined) {
+          record.paymentReceiptUrl = paymentReceiptUrl;
+        }
+        record.settledAt = status === "settled" ? new Date() : undefined;
+      } else {
+        record = this.paymentHistoryRepo.create({
+          franchiseId: new ObjectId(franchiseId),
+          month,
+          status,
+          paymentReceiptUrl,
+          settledAt: status === "settled" ? new Date() : undefined,
+          isDeleted: false
+        });
+      }
+
+      const saved = await this.paymentHistoryRepo.save(record);
+
+      return res.status(StatusCodes.OK).json({
+        message: "Franchise settlement updated successfully",
+        data: saved
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

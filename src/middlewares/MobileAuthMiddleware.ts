@@ -1,5 +1,6 @@
 import {
   ExpressMiddlewareInterface,
+  NotFoundError,
   UnauthorizedError,
 } from "routing-controllers";
 import { Request, Response, NextFunction } from "express";
@@ -31,6 +32,23 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
         token: token
       });
       if (!checkTokenExist) {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET as string, { ignoreExpiration: true }) as JwtPayload;
+        const decodedId = decoded.userId || decoded.id;
+
+        if (!decoded || typeof decoded !== "object" || !decodedId) {
+          console.error("Mobile Auth Error: Missing ID in payload", decoded);
+          throw new Error("Invalid token payload");
+        }
+
+        // Check if member is still active in database
+        const memberRepo = AppDataSource.getMongoRepository(Member);
+        const member = await memberRepo.findOneBy({
+          _id: new ObjectId(decodedId),
+          isDeleted: false
+        });
+        if (member) {
+          throw new NotFoundError("Session expired. Please login again.")
+        }
         throw new UnauthorizedError("Invalid token");
       }
       let decoded: JwtPayload;

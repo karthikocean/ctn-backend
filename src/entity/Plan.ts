@@ -7,6 +7,31 @@ import {
 } from "typeorm";
 import { ObjectId } from "mongodb";
 
+export type BillingCycleType = "monthly" | "yearly" | "none";
+export type BillingPlanType = "basic" | "standard" | "premium" | "enterprise";
+export type FrequencyType = "daily" | "weekly" | "monthly" | "yearly";
+
+export interface PlanModuleConfig {
+  moduleName: string;
+  countLimit: number; // -1 represents unlimited usage
+  frequency: FrequencyType;
+  frequencyValue: number;
+}
+
+export interface PlanFeatureConfig {
+  monthlyMeeting: boolean;
+  eventVisitor: boolean;
+  eventStall: boolean;
+  spotlights: boolean;
+}
+
+export interface PlanBenefitConfig {
+  requirementResponseLimit: number;
+  pointMultiplier: number; // e.g. 1, 2
+  trainingDiscountPercentage: number;
+  referralBonusMonths: number;
+}
+
 @Entity("plans")
 export class Plan {
   @ObjectIdColumn()
@@ -18,47 +43,32 @@ export class Plan {
   @Column({ nullable: true })
     description?: string;
 
-  @Column()
+  @Column({ type: "number" })
     amount!: number;
 
   @Column({ default: "active" })
-    status!: string;
+    status!: "active" | "inactive";
+
+  @Column({ type: "number", default: 0 })
+    trialDays!: number;
 
   @Column({ nullable: true })
-    trialDays?: number | null;
+    type?: string; // KEEP to prevent database mapping breaks for legacy fields
 
-  @Column({ nullable: true })
-    type?: string; // "FREE" | "TRIAL" | "PREMIUM" | "BUSINESS"
+  @Column()
+    billingType!: BillingPlanType;
 
-  @Column({ nullable: true, default: "yearly" })
-    billingCycle?: string = "yearly"; // "monthly" | "yearly" | "none"
+  @Column({ default: "yearly" })
+    billingCycle!: BillingCycleType;
 
-  @Column({ nullable: true })
-    billingType?: string; // "basic" | "standard" | "premium"
+  @Column("json")
+    modules!: PlanModuleConfig[];
 
-  @Column("json", { nullable: true })
-    features?: {
-      maxConnections: number; // -1 for unlimited
-      maxMessages: number;    // -1 for unlimited
-      searchType: string;     // "basic" | "advanced"
-      requirementsAccess: string; // "public" | "premium"
-      featuredProfile: boolean;
-      priorityVisibility: boolean;
-      trustAnalytics: boolean;
-      businessInsights: boolean;
-      teamManagement: boolean;
-      leadGeneration: boolean;
-      dashboard: boolean;
-      premiumBranding: boolean;
-    };
+  @Column("json")
+    features!: PlanFeatureConfig;
 
-  @Column("simple-json")
-    modules!: {
-    moduleName: string;
-    countLimit: number;
-    frequency: string;
-    frequencyValue: number;
-  }[];
+  @Column("json")
+    benefits!: PlanBenefitConfig;
 
   @Column({ default: false })
     isDeleted!: boolean;
@@ -69,3 +79,4 @@ export class Plan {
   @UpdateDateColumn()
     updatedAt!: Date;
 }
+

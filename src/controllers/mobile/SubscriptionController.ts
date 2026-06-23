@@ -595,11 +595,12 @@ export class MobileSubscriptionController {
             currentCount = currentUsageMap.get("messages_sent") || 0;
           }
 
+          const val = limit as any;
           return {
             feature: key,
-            limit,
+            limit: val,
             currentUsage: currentCount,
-            hasAccess: limit === -1 || limit === true || (typeof limit === "number" && currentCount < limit) || typeof limit === "string"
+            hasAccess: val === -1 || val === true || (typeof val === "number" && currentCount < val) || typeof val === "string"
           };
         })
       };
