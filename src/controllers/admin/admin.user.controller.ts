@@ -16,6 +16,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { AdminUser } from "../../entity/AdminUser";
 import { Role } from "../../entity/Role.Permission";
+import { Franchise } from "../../entity/Franchise";
 import { CreateAdminUserDto, UpdateAdminUserDto, UpdateAdminUserStatusDto } from "../../dto/admin/AdminUser.dto";
 import bcrypt from "bcryptjs";
 import { ObjectId } from "mongodb";
@@ -133,7 +134,10 @@ export class AdminUserController {
 
   @Get("/getfranchies-user")
   @UseBefore(AuthMiddleware)
-  async getFranchiseUsers(@Res() res: any) {
+  async getFranchiseUsers(
+    @QueryParam("excludeFranchiseId") excludeFranchiseId: string,
+    @Res() res: any
+  ) {
     try {
       const roleRepo = AppDataSource.getMongoRepository(Role);
       const roles = await roleRepo.find({
@@ -149,6 +153,26 @@ export class AdminUserController {
 
       const roleIds = roles.map(r => r._id);
 
+      // Find all userIds already assigned to active franchises
+      const franchiseRepo = AppDataSource.getMongoRepository(Franchise);
+      const franchiseWhere: any = { isDeleted: false };
+      if (excludeFranchiseId && ObjectId.isValid(excludeFranchiseId)) {
+        franchiseWhere._id = { $ne: new ObjectId(excludeFranchiseId) };
+      }
+      
+      const franchises = await franchiseRepo.find({
+        where: franchiseWhere
+      });
+      
+      const assignedUserIds = new Set<string>();
+      franchises.forEach(f => {
+        if (f.userId && Array.isArray(f.userId)) {
+          f.userId.forEach(uid => {
+            assignedUserIds.add(uid.toString());
+          });
+        }
+      });
+
       const users = await this.adminUserRepo.find({
         where: {
           roleId: { $in: roleIds },
@@ -159,7 +183,10 @@ export class AdminUserController {
 
       const roleMap = new Map(roles.map(r => [r._id.toString(), r.name]));
 
-      const mappedUsers = users.map(user => ({
+      // Filter out users who are already assigned to other franchises
+      const filteredUsers = users.filter(user => !assignedUserIds.has(user.id.toString()));
+
+      const mappedUsers = filteredUsers.map(user => ({
         id: user.id,
         name: user.name,
         userId: user.userId,

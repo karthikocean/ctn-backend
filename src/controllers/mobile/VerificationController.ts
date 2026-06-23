@@ -33,36 +33,38 @@ export class VerificationController {
   @HttpCode(StatusCodes.OK)
   async sendOtp(@Body() body: SendOtpDto, @Res() res: any) {
     try {
-      const { phone, email } = body;
+      const { phone, email, isRegister } = body;
 
       if (!phone && !email) {
         throw new BadRequestError("At least phone or email must be provided");
       }
 
-      if (phone) {
-        const member = await this.memberRepo.findOne({
-          where: { mobileNumber: phone, isDeleted: false }
-        });
-        if (!member) {
-          throw new BadRequestError("Member not found with this phone number");
+      if (isRegister) {
+        if (phone) {
+          const member = await this.memberRepo.findOne({
+            where: { mobileNumber: phone, isDeleted: false }
+          });
+          if (!member) {
+            throw new BadRequestError("Member not found with this phone number");
+          }
+          if (member.status !== MemberStatus.ACTIVE) {
+            throw new BadRequestError("Member account is not active");
+          }
         }
-        if (member.status !== MemberStatus.ACTIVE) {
-          throw new BadRequestError("Member account is not active");
-        }
-      }
 
-      if (email) {
-        const member = await this.memberRepo.findOne({
-          where: { email: email, isDeleted: false }
-        });
-        if (!member) {
-          throw new BadRequestError("Member not found with this email address");
+        if (email) {
+          const member = await this.memberRepo.findOne({
+            where: { email: email, isDeleted: false }
+          });
+          if (!member) {
+            throw new BadRequestError("Member not found with this email address");
+          }
+          if (member.status !== MemberStatus.ACTIVE) {
+            throw new BadRequestError("Member account is not active");
+          }
         }
-        if (member.status !== MemberStatus.ACTIVE) {
-          throw new BadRequestError("Member account is not active");
-        }
-      }
 
+      }
       const expiresAt = new Date();
       expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 

@@ -109,7 +109,6 @@ export class AdminMemberController {
 
     try {
       const where: any = { isDeleted: false };
-
       if (req.isFranchise) {
         if (req.franchiseAreaIds && req.franchiseAreaIds.length > 0) {
           where.businessRegion = { $in: req.franchiseAreaIds };
@@ -239,7 +238,7 @@ export class AdminMemberController {
    *     tags: [Admin Member]
    */
   @Get("/:id")
-  async getMemberDetail(@Param("id") id: string, @Res() res: any) {
+  async getMemberDetail(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
@@ -248,6 +247,13 @@ export class AdminMemberController {
       });
 
       if (!member) throw new NotFoundError("Member not found");
+
+      if (req.isFranchise) {
+        const regionId = member.businessRegion;
+        if (!regionId || !req.franchiseAreaIds.some((areaId: ObjectId) => areaId.toString() === regionId.toString())) {
+          throw new NotFoundError("Member not found");
+        }
+      }
 
       // Populate Categories
       const populated: any = { ...member };
@@ -301,11 +307,18 @@ export class AdminMemberController {
    *     tags: [Admin Member]
    */
   @Put("/:id")
-  async updateMember(@Param("id") id: string, @Body() data: any, @Res() res: any) {
+  async updateMember(@Req() req: any, @Param("id") id: string, @Body() data: any, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
       const member = await this.memberRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!member) throw new NotFoundError("Member not found");
+
+      if (req.isFranchise) {
+        const regionId = member.businessRegion;
+        if (!regionId || !req.franchiseAreaIds.some((areaId: ObjectId) => areaId.toString() === regionId.toString())) {
+          throw new NotFoundError("Member not found");
+        }
+      }
 
       if (data.businessCategory) data.businessCategory = new ObjectId(data.businessCategory);
       if (data.subCategory) data.subCategory = new ObjectId(data.subCategory);
@@ -346,12 +359,19 @@ export class AdminMemberController {
    *     tags: [Admin Member]
    */
   @Put("/:id/status")
-  async updateStatus(@Param("id") id: string, @Body() data: { status: MemberStatus }, @Res() res: any) {
+  async updateStatus(@Req() req: any, @Param("id") id: string, @Body() data: { status: MemberStatus }, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
       const member = await this.memberRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!member) throw new NotFoundError("Member not found");
+
+      if (req.isFranchise) {
+        const regionId = member.businessRegion;
+        if (!regionId || !req.franchiseAreaIds.some((areaId: ObjectId) => areaId.toString() === regionId.toString())) {
+          throw new NotFoundError("Member not found");
+        }
+      }
 
       member.status = data.status;
       await this.memberRepo.save(member);
@@ -373,12 +393,19 @@ export class AdminMemberController {
    *     tags: [Admin Member]
    */
   @Delete("/:id")
-  async delete(@Param("id") id: string, @Res() res: any) {
+  async delete(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
       const member = await this.memberRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!member) throw new NotFoundError("Member not found");
+
+      if (req.isFranchise) {
+        const regionId = member.businessRegion;
+        if (!regionId || !req.franchiseAreaIds.some((areaId: ObjectId) => areaId.toString() === regionId.toString())) {
+          throw new NotFoundError("Member not found");
+        }
+      }
 
       member.isDeleted = true;
       await this.memberRepo.save(member);

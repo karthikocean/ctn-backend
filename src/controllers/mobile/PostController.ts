@@ -91,10 +91,10 @@ export class MobilePostController {
       post.memberId = memberObjectId;
       post.isDeleted = false;
       // Convert stateIds / regionIds string arrays to ObjectId arrays
-      if (Array.isArray(data.stateIds) && data.stateIds.length > 0) {
+      if (Array.isArray(data.stateIds)) {
         post.stateIds = data.stateIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
       }
-      if (Array.isArray(data.regionIds) && data.regionIds.length > 0) {
+      if (Array.isArray(data.regionIds)) {
         post.regionIds = data.regionIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
       }
 

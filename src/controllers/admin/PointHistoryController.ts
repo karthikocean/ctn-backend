@@ -2,6 +2,7 @@ import {
   JsonController,
   Get,
   Res,
+  Req,
   UseBefore
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
@@ -13,9 +14,11 @@ import { City } from "../../entity/City";
 import { StatusCodes } from "http-status-codes";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
+import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
+import { ObjectId } from "mongodb";
 
 @JsonController("/points")
-@UseBefore(AuthMiddleware)
+@UseBefore(AuthMiddleware, franchiseFilter)
 export class PointHistoryController {
   private historyRepo = AppDataSource.getMongoRepository(PointHistory);
   private memberRepo = AppDataSource.getMongoRepository(Member);
@@ -28,19 +31,35 @@ export class PointHistoryController {
    *     tags: [Points Ledger]
    */
   @Get("/history")
-  async getHistory(@Res() res: any) {
+  async getHistory(@Req() req: any, @Res() res: any) {
     try {
-      const histories = await this.historyRepo.find({
-        order: { createdAt: "DESC" }
-      });
+      const memberWhere: any = { isDeleted: false };
+      if (req.isFranchise) {
+        if (req.franchiseAreaIds && req.franchiseAreaIds.length > 0) {
+          memberWhere.businessRegion = { $in: req.franchiseAreaIds };
+        } else {
+          memberWhere.businessRegion = new ObjectId();
+        }
+      }
 
       const members = await this.memberRepo.find({
-        where: { isDeleted: false }
+        where: memberWhere
       });
 
       const memberMap = new Map<string, Member>();
       members.forEach((m) => {
         memberMap.set(m._id.toString(), m);
+      });
+
+      const memberIds = members.map(m => m._id);
+      const historyWhere: any = {};
+      if (req.isFranchise) {
+        historyWhere.memberId = { $in: memberIds };
+      }
+
+      const histories = await this.historyRepo.find({
+        where: historyWhere,
+        order: { createdAt: "DESC" }
       });
 
       // Populate Areas/Regions
