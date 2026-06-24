@@ -73,11 +73,11 @@ export class MobilePostController {
       // 1. Validate module usage limit before saving the document
       await validateModuleUsage(memberObjectId, moduleName);
 
-      // 1.5. Validate requirement visibility target if post type is REQUIREMENT
-      if (data.type === PostType.REQUIREMENT) {
-        if (!data.requirementVisibility) {
-          throw new BadRequestError("requirementVisibility is required when post type is REQUIREMENT");
-        }
+      // 1.5. Validate requirement visibility target if post type is REQUIREMENT or if visibility is provided
+      if (data.type === PostType.REQUIREMENT && !data.requirementVisibility) {
+        throw new BadRequestError("requirementVisibility is required when post type is REQUIREMENT");
+      }
+      if (data.requirementVisibility) {
         const visibilityInput = data.requirementVisibility.toUpperCase().trim().replace(/_|\s+/g, "-");
         const validValues = Object.values(RequirementVisibility);
         if (!validValues.includes(visibilityInput as RequirementVisibility)) {
@@ -511,18 +511,12 @@ export class MobilePostController {
         where.type = { $in: allowedTypes };
       }
 
-      // Auto-apply logged-in member's businessRegion as region filter
-      // Show posts where: post has no regionIds (open to all) OR post's regionIds contains member's region
-      const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
-      if (currentMember?.businessRegion) {
-        const memberRegionId = new ObjectId(currentMember.businessRegion);
-        where.$or = [
-          { regionIds: { $exists: false } },
-          { regionIds: null },
-          { regionIds: { $size: 0 } },
-          { regionIds: { $elemMatch: { $eq: memberRegionId } } }
-        ];
-      }
+      // Only show posts that are not targeted to any specific region (open to overall/everyone)
+      where.$or = [
+        { regionIds: { $exists: false } },
+        { regionIds: null },
+        { regionIds: { $size: 0 } }
+      ];
 
       // Manual override: stateIds query param filters posts whose stateIds array contains any given ID
       if (stateIds) {
@@ -650,34 +644,21 @@ export class MobilePostController {
         throw new BadRequestError("Member not found");
       }
 
-      const memberCity = currentMember.city;
       const memberBusinessRegion = currentMember.businessRegion;
 
-      if (!memberCity && !memberBusinessRegion) {
-        // If member has no location, return empty list
+      if (!memberBusinessRegion) {
+        // If member has no business region, they cannot view regional posts
         return pagination(0, [], limit, page, res);
       }
 
-      // 2. Find members in the same region
-      const locationCondition: any = { isDeleted: false };
-      if (memberCity) locationCondition.city = memberCity;
-      if (memberBusinessRegion) locationCondition.businessRegion = memberBusinessRegion;
+      const memberRegionId = new ObjectId(memberBusinessRegion);
 
-      const regionMembers = await this.memberRepo.find({ where: locationCondition });
-      // Exclude current user
-      const regionMemberIds = regionMembers
-        .filter(m => m._id.toString() !== userId)
-        .map(m => m._id);
-
-      if (regionMemberIds.length === 0) {
-        return pagination(0, [], limit, page, res);
-      }
-
-      // 3. Find ASK / PROMOTION posts from these members
+      // 2. Find ASK / PROMOTION posts targeted to this region
       const allowedTypes = [PostType.PROMOTION, PostType.ASK];
       const where: any = {
-        memberId: { $in: regionMemberIds },
-        isDeleted: false
+        isDeleted: false,
+        memberId: { $ne: new ObjectId(userId) },
+        regionIds: { $elemMatch: { $eq: memberRegionId } }
       };
 
       if (type) {
@@ -690,10 +671,15 @@ export class MobilePostController {
       }
 
       if (search) {
-        where.$or = [
-          { title: { $regex: search, $options: "i" } },
-          { description: { $regex: search, $options: "i" } },
-          { location: { $regex: search, $options: "i" } }
+        where.$and = [
+          ...(where.$and || []),
+          {
+            $or: [
+              { title: { $regex: search, $options: "i" } },
+              { description: { $regex: search, $options: "i" } },
+              { location: { $regex: search, $options: "i" } }
+            ]
+          }
         ];
       }
 
@@ -1020,19 +1006,17 @@ export class MobilePostController {
       }
 
       const targetType = data.type !== undefined ? data.type : post.type;
-      if (targetType === PostType.REQUIREMENT) {
-        const visibilityInput = data.requirementVisibility !== undefined ? data.requirementVisibility : post.requirementVisibility;
-        if (!visibilityInput) {
-          throw new BadRequestError("requirementVisibility is required when post type is REQUIREMENT");
-        }
-        const normalized = visibilityInput.toUpperCase().trim().replace(/_|\s+/g, "-");
+      const visibilityInput = data.requirementVisibility !== undefined ? data.requirementVisibility : post.requirementVisibility;
+      if (targetType === PostType.REQUIREMENT && !visibilityInput) {
+        throw new BadRequestError("requirementVisibility is required when post type is REQUIREMENT");
+      }
+      if (data.requirementVisibility !== undefined && data.requirementVisibility !== null) {
+        const normalized = data.requirementVisibility.toUpperCase().trim().replace(/_|\s+/g, "-");
         const validValues = Object.values(RequirementVisibility);
         if (!validValues.includes(normalized as RequirementVisibility)) {
           throw new BadRequestError(`Invalid requirementVisibility. Must be one of: ${validValues.join(", ")}`);
         }
         data.requirementVisibility = normalized as RequirementVisibility;
-      } else {
-        data.requirementVisibility = undefined;
       }
 
       Object.assign(post, data);

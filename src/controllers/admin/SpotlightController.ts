@@ -104,6 +104,7 @@ export class SpotlightController {
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
     @QueryParam("status") status: string,
+    @QueryParam("search") search: string,
     @Res() res: any
   ) {
     page = Number(page) || 0;
@@ -116,6 +117,49 @@ export class SpotlightController {
       }
       if (status) {
         where.status = status;
+      }
+
+      let targetMemberIds: ObjectId[] = [];
+      let limitToMembers = false;
+
+      if (req.isFranchise) {
+        limitToMembers = true;
+        const franchiseMembers = await this.memberRepo.find({
+          where: {
+            businessRegion: { $in: req.franchiseAreaIds },
+            isDeleted: false
+          }
+        });
+        const franchiseMemberIds = franchiseMembers.map(m => m._id);
+
+        if (search) {
+          const searchedMembers = await this.memberRepo.find({
+            where: {
+              fullName: { $regex: search, $options: "i" },
+              isDeleted: false
+            }
+          });
+          const searchedMemberIds = searchedMembers.map(m => m._id.toString());
+          targetMemberIds = franchiseMemberIds.filter(id => searchedMemberIds.includes(id.toString()));
+        } else {
+          targetMemberIds = franchiseMemberIds;
+        }
+      } else if (search) {
+        limitToMembers = true;
+        const searchedMembers = await this.memberRepo.find({
+          where: {
+            fullName: { $regex: search, $options: "i" },
+            isDeleted: false
+          }
+        });
+        targetMemberIds = searchedMembers.map(m => m._id);
+      }
+
+      if (limitToMembers) {
+        if (targetMemberIds.length === 0) {
+          return pagination(0, [], limit, page, res);
+        }
+        where.members = { $in: targetMemberIds };
       }
 
       const [spotlights, total] = await this.spotlightRepo.findAndCount({
