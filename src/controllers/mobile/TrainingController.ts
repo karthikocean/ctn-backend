@@ -47,6 +47,19 @@ export class MobileTrainingController {
     limit = Number(limit) || 10;
     try {
       const userId = new ObjectId(req.user.userId);
+
+      // ✅ Fetch training discount from the member's active subscription plan
+      let trainingDiscountPercentage = 0;
+      let planTitle: string | null = null;
+      try {
+        const subscriptionService = new SubscriptionService();
+        const plan = await subscriptionService.getMemberPlan(userId);
+        trainingDiscountPercentage = plan.benefits?.trainingDiscountPercentage || 0;
+        planTitle = plan.title || null;
+      } catch {
+        // No active plan — no discount
+      }
+
       const trainings = await this.trainingRepo.find({
         where: {
           status: TrainingStatus.ACTIVE,
@@ -110,6 +123,10 @@ export class MobileTrainingController {
 
         const categoryName = t.categoryId ? categoryMap.get(t.categoryId.toString()) || null : null;
 
+        // ✅ Compute discounted unlock cost based on plan
+        const discountAmount = Math.floor(t.overallPoints * (trainingDiscountPercentage / 100));
+        const discountedPoints = Math.max(0, t.overallPoints - discountAmount);
+
         return {
           ...t,
           categoryName,
@@ -123,7 +140,9 @@ export class MobileTrainingController {
             position: lastWatchedProgress.lastWatchedPosition,
             isCompleted: lastWatchedProgress.isCompleted,
             updatedAt: lastWatchedProgress.updatedAt
-          } : null
+          } : null,
+          discountedPoints,
+          discountAmount
         };
       });
 
@@ -147,6 +166,11 @@ export class MobileTrainingController {
 
       return res.status(StatusCodes.OK).json({
         success: true,
+        planTitle,
+        trainingDiscountPercentage,
+        description: trainingDiscountPercentage > 0
+          ? `Your ${planTitle} plan gives you a ${trainingDiscountPercentage}% discount on all training unlocks.`
+          : "No training discount is available on your current plan.",
         data: groupedData
       });
     } catch (error: any) {
@@ -469,20 +493,33 @@ export class MobileTrainingController {
    *       200:
    *         description: Point configuration details for Trainings
    */
-  @Get("/point-config")
-  async getPointConfig(@Res() res: any) {
+  @Get("/point/config")
+  async getPointConfig(@Req() req: any, @Res() res: any) {
     try {
-      const configs = await this.configRepo.find({
-        where: {
-          moduleName: { $regex: new RegExp("^Trainings$", "i") },
-          isDeleted: false,
-          type: PointConfigType.SPENT
-        }
-      });
+      const userId = new ObjectId(req.user.userId);
+
+      // ✅ Fetch training discount percentage from the member's active subscription plan
+      let trainingDiscountPercentage = 0;
+      let planTitle: string | null = null;
+      try {
+        const subscriptionService = new SubscriptionService();
+        const plan = await subscriptionService.getMemberPlan(userId);
+        trainingDiscountPercentage = plan.benefits?.trainingDiscountPercentage || 0;
+        planTitle = plan.title || null;
+      } catch {
+        // No active plan — no discount
+        trainingDiscountPercentage = 0;
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,
-        data: configs
+        data: {
+          planTitle,
+          trainingDiscountPercentage,
+          description: trainingDiscountPercentage > 0
+            ? `Your ${planTitle} plan gives you a ${trainingDiscountPercentage}% discount on all training unlocks.`
+            : "No training discount is available on your current plan."
+        }
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
