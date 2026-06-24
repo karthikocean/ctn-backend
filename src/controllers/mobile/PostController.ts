@@ -549,7 +549,6 @@ export class MobilePostController {
           where.stateIds = { $elemMatch: { $in: stateIdList } };
         }
       }
-
       // Manual override: regionIds query param filters posts whose regionIds array contains any given ID
       if (regionIds) {
         const regionIdList = regionIds.split(",").map(s => s.trim()).filter(s => ObjectId.isValid(s)).map(s => new ObjectId(s));
