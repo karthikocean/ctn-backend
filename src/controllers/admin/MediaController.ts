@@ -41,9 +41,6 @@ export class AdminMediaController {
         throw new BadRequestError("No files uploaded. Please use 'files' field.");
       }
 
-      console.log("files", req.files);
-      console.log("folder", folder);
-
       const targetFolder = folder || "general";
       const files = Array.isArray(req.files.files) ? req.files.files : [req.files.files];
       const maxSize = 50 * 1024 * 1024; // Admin can upload up to 50MB (for videos)

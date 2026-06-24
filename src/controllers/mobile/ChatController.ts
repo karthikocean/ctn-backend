@@ -33,7 +33,6 @@ import { getIO, isUserInConversation } from "../../utils/socket";
 import { pagination } from "../../utils";
 import { insertPushNotification } from "../../services/pushnotification.service";
 import { NotificationModule } from "../../entity/PushNotifications";
-import { validateModuleUsage } from "../../services/moduleUsage.service";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
 
