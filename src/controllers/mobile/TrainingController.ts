@@ -12,6 +12,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { validateModuleUsage } from "../../services/moduleUsage.service";
 import { PointService } from "../../services/point.service";
 import { PointConfig, PointConfigType } from "../../entity/PointConfig";
+import { SubscriptionService } from "../../services/subscription.service";
 
 @JsonController("/trainings")
 @UseBefore(MobileAuthMiddleware)
@@ -311,7 +312,20 @@ export class MobileTrainingController {
         });
       }
 
-      const pointsToDeduct = inputPoints !== undefined ? inputPoints : training.overallPoints;
+      // ✅ Apply trainingDiscountPercentage from subscription plan benefits
+      let basePoints = inputPoints !== undefined ? inputPoints : training.overallPoints;
+      let discountPercentage = 0;
+      try {
+        const subscriptionService = new SubscriptionService();
+        const plan = await subscriptionService.getMemberPlan(userId);
+        discountPercentage = plan.benefits?.trainingDiscountPercentage || 0;
+      } catch {
+        // No active plan or benefit — use full price
+        discountPercentage = 0;
+      }
+
+      const discount = Math.floor(basePoints * (discountPercentage / 100));
+      const pointsToDeduct = Math.max(0, basePoints - discount);
 
       if (member.points < pointsToDeduct) {
         throw new BadRequestError(`Insufficient points. You need ${pointsToDeduct} points.`);
@@ -348,6 +362,8 @@ export class MobileTrainingController {
         message: "Training unlocked successfully",
         remainingPoints: remainingPoints,
         isUnlocked: true,
+        originalPoints: basePoints,
+        discountApplied: discount,
         pointsSpent: pointsToDeduct
       });
     } catch (error: any) {

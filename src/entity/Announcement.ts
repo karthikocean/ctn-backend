@@ -4,7 +4,8 @@ import { ObjectId } from "mongodb";
 export enum AnnouncementStatus {
   DRAFT = "draft",
   PUBLISHED = "published",
-  SCHEDULED = "scheduled"
+  SCHEDULED = "scheduled",
+  INACTIVE = "inactive"
 }
 
 export enum AnnouncementType {
