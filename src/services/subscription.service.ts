@@ -309,27 +309,27 @@ export class SubscriptionService {
     const startDate = new Date();
 
     switch (frequency.toLowerCase()) {
-      case "daily":
-        startDate.setDate(endDate.getDate() - frequencyValue + 1);
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      case "weekly":
-        const day = endDate.getDay();
-        startDate.setDate(endDate.getDate() - day - (7 * (frequencyValue - 1)));
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      case "monthly":
-        startDate.setMonth(endDate.getMonth() - frequencyValue + 1);
-        startDate.setDate(1);
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      case "yearly":
-        startDate.setFullYear(endDate.getFullYear() - frequencyValue + 1);
-        startDate.setMonth(0, 1);
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      default:
-        throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
+    case "daily":
+      startDate.setDate(endDate.getDate() - frequencyValue + 1);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    case "weekly":
+      const day = endDate.getDay();
+      startDate.setDate(endDate.getDate() - day - (7 * (frequencyValue - 1)));
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    case "monthly":
+      startDate.setMonth(endDate.getMonth() - frequencyValue + 1);
+      startDate.setDate(1);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    case "yearly":
+      startDate.setFullYear(endDate.getFullYear() - frequencyValue + 1);
+      startDate.setMonth(0, 1);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    default:
+      throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
     }
 
     return { startDate, endDate };
@@ -638,7 +638,7 @@ export class SubscriptionService {
   async checkFeatureAccess(memberId: string | ObjectId, featureType: string): Promise<boolean> {
     try {
       const activeSub = await this.getActiveSubscription(memberId);
-      
+
       // Resolve direct new boolean features
       if (activeSub.features && typeof (activeSub.features as any)[featureType] === "boolean") {
         return (activeSub.features as any)[featureType];

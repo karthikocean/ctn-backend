@@ -213,7 +213,7 @@ export class AdminBillingController {
       if (!payment) throw new NotFoundError("Billing record not found");
 
       const member = payment.memberId ? await this.memberRepo.findOneBy({ _id: payment.memberId }) : null;
-      
+
       if (req.isFranchise) {
         const regionId = member?.businessRegion;
         if (!member || !regionId || !req.franchiseAreaIds.some((areaId: ObjectId) => areaId.toString() === regionId.toString())) {

@@ -228,13 +228,13 @@ export class FranchiseController {
 
       const regions = regionIds.length > 0
         ? await this.regionRepo.find({
-            where: {
-              $or: [
-                { _id: { $in: regionIds } },
-                { "areas._id": { $in: regionIds } }
-              ]
-            } as any
-          })
+          where: {
+            $or: [
+              { _id: { $in: regionIds } },
+              { "areas._id": { $in: regionIds } }
+            ]
+          } as any
+        })
         : [];
       const resolvedRegions = await resolveRegions(regions);
 
@@ -345,22 +345,22 @@ export class FranchiseController {
 
       const allMembers = regionIds.length > 0
         ? await this.memberRepo.find({
-            where: {
-              businessRegion: { $in: regionIds },
-              isDeleted: false
-            } as any
-          })
+          where: {
+            businessRegion: { $in: regionIds },
+            isDeleted: false
+          } as any
+        })
         : [];
 
       const memberIds = allMembers.map(m => m._id);
       const allPayments = (memberIds.length > 0)
         ? await this.paymentRepo.find({
-            where: {
-              memberId: { $in: memberIds },
-              status: "COMPLETED",
-              createdAt: { $gte: startDate, $lt: endDate }
-            } as any
-          })
+          where: {
+            memberId: { $in: memberIds },
+            status: "COMPLETED",
+            createdAt: { $gte: startDate, $lt: endDate }
+          } as any
+        })
         : [];
 
       const historyRecords = await this.paymentHistoryRepo.find({
@@ -558,11 +558,11 @@ export class FranchiseController {
       const regionId = franchise.businessRegionId;
       const allMembers = regionId
         ? await this.memberRepo.find({
-            where: {
-              businessRegion: regionId,
-              isDeleted: false
-            } as any
-          })
+          where: {
+            businessRegion: regionId,
+            isDeleted: false
+          } as any
+        })
         : [];
 
       // Members who joined in this month only
@@ -572,20 +572,20 @@ export class FranchiseController {
       // Payments ONLY from members who joined this month (excludes existing member renewals)
       const payments = (newMemberIds.length > 0)
         ? await this.paymentRepo.find({
-            where: {
-              memberId: { $in: newMemberIds },
-              status: "COMPLETED",
-              createdAt: { $gte: startDate, $lt: endDate }
-            } as any
-          })
+          where: {
+            memberId: { $in: newMemberIds },
+            status: "COMPLETED",
+            createdAt: { $gte: startDate, $lt: endDate }
+          } as any
+        })
         : [];
 
       // Fetch plan names for the payments
       const planIds = [...new Set(payments.map(p => p.planId?.toString()).filter(Boolean))];
       const plans = planIds.length > 0
         ? await this.planRepo.find({
-            where: { _id: { $in: planIds.map(id => new ObjectId(id)) } } as any
-          })
+          where: { _id: { $in: planIds.map(id => new ObjectId(id)) } } as any
+        })
         : [];
       const planMap = new Map(plans.map(pl => [pl._id.toString(), pl]));
 

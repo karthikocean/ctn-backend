@@ -159,11 +159,11 @@ export class AdminUserController {
       if (excludeFranchiseId && ObjectId.isValid(excludeFranchiseId)) {
         franchiseWhere._id = { $ne: new ObjectId(excludeFranchiseId) };
       }
-      
+
       const franchises = await franchiseRepo.find({
         where: franchiseWhere
       });
-      
+
       const assignedUserIds = new Set<string>();
       franchises.forEach(f => {
         if (f.userId && Array.isArray(f.userId)) {

@@ -874,7 +874,7 @@ export class MobileChatController {
         else if (type === MessageType.REFERRAL) moduleName = "Referral";
         else if (type === MessageType.THANK_YOU_SLIP) moduleName = "Thank you Slip";
 
-        await validateModuleUsage(senderId, moduleName);
+        // await validateModuleUsage(senderId, moduleName);
 
         console.log(type === MessageType.ONE_TO_ONE, "type === MessageType.ONE_TO_ONE");
 
