@@ -21,6 +21,7 @@ import { SubscriptionCronService } from "./services/subscriptionCron.service";
 import { DailyScoreCronService } from "./services/dailyScoreCron.service";
 import { SpotlightCronService } from "./services/spotlightCron.service";
 import { OnlineStallCronService } from "./services/onlineStallCron.service";
+import { AnnouncementCronService } from "./services/announcementCron.service";
 
 AppDataSource.initialize()
   .then(async () => {
@@ -129,6 +130,9 @@ AppDataSource.initialize()
       DailyScoreCronService.init();
       SpotlightCronService.init();
       OnlineStallCronService.init();
+
+      // Initialize Announcement Activation & Deactivation Cron Jobs
+      AnnouncementCronService.init();
 
     });
 

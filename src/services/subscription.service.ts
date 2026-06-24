@@ -143,15 +143,21 @@ export class SubscriptionService {
 
   /**
    * Helper: Normalize module name strings (e.g. "Milestones" -> "milestone")
+   * Special cases that must stay plural are listed in the exceptions set.
    */
   normalizeModuleName(name: string): string {
-    let lower = name.trim().toLowerCase();
-    if (lower.endsWith("s") && lower !== "glass" && lower !== "business") {
-      lower = lower.substring(0, lower.length - 1);
-    }
+    const lower = name.trim().toLowerCase();
+    // Multi-word or known keys — return as-is
     if (lower === "one to one" || lower === "onetoone") return "one to one";
     if (lower === "thank you slip" || lower === "thankyouslip") return "thank you slip";
     if (lower === "online stall") return "marketplace";
+    // Keys in MODULE_USAGE_CONFIG that are stored as plurals
+    const keepPlural = new Set(["trainings"]);
+    if (keepPlural.has(lower)) return lower;
+    // Strip trailing 's' for other plural module names
+    if (lower.endsWith("s") && lower !== "glass" && lower !== "business") {
+      return lower.substring(0, lower.length - 1);
+    }
     return lower;
   }
 
