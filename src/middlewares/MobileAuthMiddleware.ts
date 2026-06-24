@@ -47,7 +47,7 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
           isDeleted: false
         });
         if (member) {
-          throw new NotFoundError("Session expired. Please login again.")
+          throw new NotFoundError("Session expired. Please login again.");
         }
         throw new UnauthorizedError("Invalid token");
       }
