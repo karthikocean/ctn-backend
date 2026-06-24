@@ -35,6 +35,14 @@ import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
 import { DailyScoreService } from "../../services/dailyScore.service";
 
+const getObjectIdStr = (val: any): string | null => {
+  if (!val) return null;
+  if (typeof val === "string") return val;
+  if (val.$oid && typeof val.$oid === "string") return val.$oid;
+  if (val.toString) return val.toString();
+  return null;
+};
+
 @JsonController("/posts")
 @UseBefore(MobileAuthMiddleware)
 export class MobilePostController {
@@ -74,11 +82,15 @@ export class MobilePostController {
       await validateModuleUsage(memberObjectId, moduleName);
 
       // 1.5. Validate requirement visibility target if post type is REQUIREMENT or if visibility is provided
-      if (data.type === PostType.REQUIREMENT && !data.requirementVisibility) {
+      const inputVisibility = data.requirementVisibility || (data as any).visibility;
+      const inputStateIds = data.stateIds || (data as any).states;
+      const inputRegionIds = data.regionIds || (data as any).regions;
+
+      if (data.type === PostType.REQUIREMENT && !inputVisibility) {
         throw new BadRequestError("requirementVisibility is required when post type is REQUIREMENT");
       }
-      if (data.requirementVisibility) {
-        const visibilityInput = data.requirementVisibility.toUpperCase().trim().replace(/_|\s+/g, "-");
+      if (inputVisibility) {
+        const visibilityInput = inputVisibility.toUpperCase().trim().replace(/_|\s+/g, "-");
         const validValues = Object.values(RequirementVisibility);
         if (!validValues.includes(visibilityInput as RequirementVisibility)) {
           throw new BadRequestError(`Invalid requirementVisibility. Must be one of: ${validValues.join(", ")}`);
@@ -90,13 +102,25 @@ export class MobilePostController {
       Object.assign(post, data);
       post.memberId = memberObjectId;
       post.isDeleted = false;
-      // Convert stateIds / regionIds string arrays to ObjectId arrays
-      if (Array.isArray(data.stateIds)) {
-        post.stateIds = data.stateIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+
+      // Convert stateIds / regionIds string arrays/objects to ObjectId arrays
+      if (Array.isArray(inputStateIds)) {
+        post.stateIds = inputStateIds
+          .map(getObjectIdStr)
+          .filter((id): id is string => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
       }
-      if (Array.isArray(data.regionIds)) {
-        post.regionIds = data.regionIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+      if (Array.isArray(inputRegionIds)) {
+        post.regionIds = inputRegionIds
+          .map(getObjectIdStr)
+          .filter((id): id is string => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
       }
+
+      // Remove any legacy unmapped keys so they don't persist in DB
+      delete (post as any).visibility;
+      delete (post as any).states;
+      delete (post as any).regions;
 
       const savedPost = await this.postRepo.save(post);
 
@@ -1006,12 +1030,14 @@ export class MobilePostController {
       }
 
       const targetType = data.type !== undefined ? data.type : post.type;
-      const visibilityInput = data.requirementVisibility !== undefined ? data.requirementVisibility : post.requirementVisibility;
-      if (targetType === PostType.REQUIREMENT && !visibilityInput) {
+      const inputVisibility = data.requirementVisibility !== undefined ? data.requirementVisibility : (data as any).visibility;
+      const finalVisibility = inputVisibility !== undefined ? inputVisibility : post.requirementVisibility;
+
+      if (targetType === PostType.REQUIREMENT && !finalVisibility) {
         throw new BadRequestError("requirementVisibility is required when post type is REQUIREMENT");
       }
-      if (data.requirementVisibility !== undefined && data.requirementVisibility !== null) {
-        const normalized = data.requirementVisibility.toUpperCase().trim().replace(/_|\s+/g, "-");
+      if (inputVisibility !== undefined && inputVisibility !== null) {
+        const normalized = inputVisibility.toUpperCase().trim().replace(/_|\s+/g, "-");
         const validValues = Object.values(RequirementVisibility);
         if (!validValues.includes(normalized as RequirementVisibility)) {
           throw new BadRequestError(`Invalid requirementVisibility. Must be one of: ${validValues.join(", ")}`);
@@ -1020,13 +1046,27 @@ export class MobilePostController {
       }
 
       Object.assign(post, data);
-      // Convert stateIds / regionIds string arrays to ObjectId arrays
-      if (Array.isArray(data.stateIds)) {
-        post.stateIds = data.stateIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+
+      const inputStateIds = data.stateIds || (data as any).states;
+      if (Array.isArray(inputStateIds)) {
+        post.stateIds = inputStateIds
+          .map(getObjectIdStr)
+          .filter((id): id is string => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
       }
-      if (Array.isArray(data.regionIds)) {
-        post.regionIds = data.regionIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+
+      const inputRegionIds = data.regionIds || (data as any).regions;
+      if (Array.isArray(inputRegionIds)) {
+        post.regionIds = inputRegionIds
+          .map(getObjectIdStr)
+          .filter((id): id is string => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
       }
+
+      // Remove any legacy unmapped keys so they don't persist in DB
+      delete (post as any).visibility;
+      delete (post as any).states;
+      delete (post as any).regions;
       const saved = await this.postRepo.save(post);
 
       return res.status(StatusCodes.OK).json({
