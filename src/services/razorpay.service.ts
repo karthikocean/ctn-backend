@@ -306,7 +306,7 @@ export class RazorpayUpgradeService {
     const savedSub = await subRepo.save(newSub);
 
     // 3. Update member subscriptionId and planId
-    await this.memberRepo.update(memberObjectId, { subscriptionId: savedSub._id, planId: planObjectId });
+    await this.memberRepo.update(memberObjectId, { subscriptionId: new ObjectId(savedSub._id), planId: new ObjectId(planObjectId) });
 
     // 4. Store a payment record of $0 for tracking
     const payment = new Payment();
