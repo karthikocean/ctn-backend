@@ -309,6 +309,30 @@ export class MobileChatController {
         skip: page * limit
       });
 
+      // ✅ Auto-mark unread messages (sent by the other user) as read when the user fetches messages
+      const userId = new ObjectId(req.user.userId);
+      const hasUnread = messages.some(m => !m.isRead && !m.senderId.equals(userId));
+      if (hasUnread) {
+        await this.messageRepo.updateMany(
+          { conversationId: new ObjectId(conversationId), senderId: { $ne: userId }, isRead: false } as any,
+          { $set: { isRead: true } } as any
+        );
+        // Reset unread count for this user in the conversation
+        const unreadCounts = conversation.unreadCounts || {};
+        unreadCounts[userId.toString()] = 0;
+        conversation.unreadCounts = { ...unreadCounts };
+        await this.conversationRepo.save(conversation);
+
+        // Notify the sender that their messages have been read
+        const otherParticipant = conversation.participants.find(p => !p.equals(userId));
+        if (otherParticipant) {
+          const io = getIO();
+          const readPayload = { conversationId: conversation._id, readBy: userId, readAt: new Date() };
+          io.to(`conversation_${conversation._id}`).emit("messages_read", readPayload);
+          io.to(otherParticipant.toString()).emit("messages_read", readPayload);
+        }
+      }
+
       const populatedMessages = await Promise.all(messages.map(async (msg) => {
         if (msg.isDeleted) {
           return {
@@ -570,7 +594,7 @@ export class MobileChatController {
       if (isReceiverActive) {
         unreadCounts[receiverId.toString()] = 0;
       } else {
-        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0 + 1);
+        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
       }
       conversation.unreadCounts = { ...unreadCounts };
 
@@ -737,7 +761,7 @@ export class MobileChatController {
       if (isReceiverActive) {
         unreadCounts[receiverId.toString()] = 0;
       } else {
-        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0 + 1);
+        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
       }
       conversation.unreadCounts = { ...unreadCounts };
 
@@ -990,7 +1014,7 @@ export class MobileChatController {
       if (isReceiverActive) {
         unreadCounts[receiverId.toString()] = 0;
       } else {
-        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0 + 1);
+        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
       }
       conversation.unreadCounts = { ...unreadCounts };
 
