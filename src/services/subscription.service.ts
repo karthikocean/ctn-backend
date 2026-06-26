@@ -7,6 +7,7 @@ import { Payment } from "../entity/Payment";
 import { SubscriptionFeatureUsage } from "../entity/SubscriptionFeatureUsage";
 import { PostModel, PostType } from "../entity/Post";
 import { Referral } from "../entity/Referral";
+import { Message, MessageType } from "../entity/Message";
 import { MemberTraining } from "../entity/MemberTraining";
 import { Milestone } from "../entity/Milestone";
 import { AnnouncementBooking } from "../entity/AnnouncementBooking";
@@ -221,6 +222,78 @@ export class SubscriptionService {
 
     if (used >= planModule.countLimit) {
       throw this.buildLimitExceededError(planModule.moduleName, used, planModule.countLimit, planModule.frequency);
+    }
+  }
+
+  /**
+   * Validator for requirement post response limits
+   */
+  async validateRequirementResponseLimit(memberId: string | ObjectId): Promise<void> {
+    const memberOid = new ObjectId(memberId);
+    const plan = await this.getMemberPlan(memberOid);
+
+    // Get response limit from benefits config
+    const limit = plan.benefits?.requirementResponseLimit;
+    if (limit === undefined || limit === null) {
+      throw new BadRequestError("Access denied: Requirement response benefit is not configured in your active plan.");
+    }
+
+    if (limit === -1) {
+      return; // Unlimited responses allowed
+    }
+
+    // Determine the frequency and frequency value based on the Requirement module config, default to daily
+    const requirementModule = plan.modules?.find(
+      (m) => this.normalizeModuleName(m.moduleName) === "requirement"
+    );
+    const frequency = requirementModule?.frequency || "daily";
+    const frequencyValue = requirementModule?.frequencyValue || 1;
+
+    const { startDate, endDate } = this.getDateRangeByFrequency(frequency, frequencyValue);
+
+    // Get messages sent by the member of type POST_RESPONSE within the date range
+    const messages = await AppDataSource.getMongoRepository(Message).find({
+      where: {
+        senderId: memberOid,
+        type: MessageType.POST_RESPONSE,
+        isDeleted: { $ne: true },
+        createdAt: {
+          $gte: startDate,
+          $lte: endDate
+        }
+      } as any
+    });
+
+    if (messages.length === 0) {
+      return;
+    }
+
+    const postIds = messages
+      .map((msg) => {
+        if (!msg.postId) return null;
+        try {
+          return new ObjectId(msg.postId.toString());
+        } catch {
+          return null;
+        }
+      })
+      .filter((id): id is ObjectId => !!id);
+
+    if (postIds.length === 0) {
+      return;
+    }
+
+    // Count how many of those posts are of type REQUIREMENT
+    const used = await AppDataSource.getMongoRepository(PostModel).count({
+      _id: { $in: postIds },
+      type: PostType.REQUIREMENT,
+      isDeleted: false
+    } as any);
+
+    if (used >= limit) {
+      throw new BadRequestError(
+        `You've reached your ${frequency.toLowerCase()} limit of ${limit} requirement post response(s). Please try again after your limit resets or upgrade your plan.`
+      );
     }
   }
 

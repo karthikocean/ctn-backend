@@ -35,6 +35,7 @@ import { insertPushNotification } from "../../services/pushnotification.service"
 import { NotificationModule } from "../../entity/PushNotifications";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
+import { validateRequirementResponseLimit } from "../../services/moduleUsage.service";
 
 @JsonController("/chats")
 @UseBefore(MobileAuthMiddleware)
@@ -482,6 +483,10 @@ export class MobileChatController {
 
       const post = await this.postRepo.findOneBy({ _id: new ObjectId(postId) });
       if (!post) throw new NotFoundError("Post not found");
+
+      if (post.type === PostType.REQUIREMENT) {
+        await validateRequirementResponseLimit(senderId);
+      }
 
       // Increment response count
       post.responsedCount = (post.responsedCount || 0) + 1;

@@ -22,7 +22,8 @@ import { DailyScoreCronService } from "./services/dailyScoreCron.service";
 import { SpotlightCronService } from "./services/spotlightCron.service";
 import { OnlineStallCronService } from "./services/onlineStallCron.service";
 import { AnnouncementCronService } from "./services/announcementCron.service";
-
+import { PostDeactivationCronService } from "./services/postDeactivationCron.service";
+// import { migrateRegions } from "./migrations/migrateRegions";
 AppDataSource.initialize()
   .then(async () => {
     console.log("✅ Database connected");
@@ -134,6 +135,8 @@ AppDataSource.initialize()
       // Initialize Announcement Activation & Deactivation Cron Jobs
       AnnouncementCronService.init();
 
+      // Initialize Post Deactivation Cron Job
+      PostDeactivationCronService.init();
     });
 
     // ✅ Graceful Shutdown Handlers
