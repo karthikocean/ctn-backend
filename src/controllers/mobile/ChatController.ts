@@ -213,7 +213,7 @@ export class MobileChatController {
 
       // Reset unread count for this user
       const unreadCounts = conversation.unreadCounts || {};
-      unreadCounts[userId.toString()] = 1;
+      unreadCounts[userId.toString()] = 0;
       conversation.unreadCounts = { ...unreadCounts };
       await this.conversationRepo.save(conversation);
 
@@ -570,7 +570,7 @@ export class MobileChatController {
       if (isReceiverActive) {
         unreadCounts[receiverId.toString()] = 0;
       } else {
-        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0);
+        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0 + 1);
       }
       conversation.unreadCounts = { ...unreadCounts };
 
@@ -737,7 +737,7 @@ export class MobileChatController {
       if (isReceiverActive) {
         unreadCounts[receiverId.toString()] = 0;
       } else {
-        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0);
+        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0 + 1);
       }
       conversation.unreadCounts = { ...unreadCounts };
 
@@ -990,7 +990,7 @@ export class MobileChatController {
       if (isReceiverActive) {
         unreadCounts[receiverId.toString()] = 0;
       } else {
-        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0);
+        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0 + 1);
       }
       conversation.unreadCounts = { ...unreadCounts };
 
