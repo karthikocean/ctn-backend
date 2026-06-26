@@ -1346,7 +1346,7 @@ export class MobilePostController {
         if (isReceiverActive) {
           unreadCounts[otherId.toString()] = 0;
         } else {
-          unreadCounts[otherId.toString()] = (unreadCounts[otherId.toString()] || 0) + 1;
+          unreadCounts[otherId.toString()] = (unreadCounts[otherId.toString()] || 0);
         }
         targetConversation.unreadCounts = { ...unreadCounts };
 
