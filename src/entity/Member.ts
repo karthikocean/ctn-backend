@@ -233,4 +233,7 @@ export class Member {
     default: LocationVisibility.EVERYONE
   })
     locationVisibility!: LocationVisibility;
+
+  @Column({ nullable: true })
+    dob?: Date;
 }

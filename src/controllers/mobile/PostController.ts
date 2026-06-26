@@ -54,6 +54,61 @@ export class MobilePostController {
   private messageRepo = AppDataSource.getMongoRepository(Message);
   private savedPostRepo = AppDataSource.getMongoRepository(SavedPost);
 
+  private getCategoryVisibilityFilter(currentMember: Member) {
+    const memberCategory = currentMember.businessCategory ? new ObjectId(currentMember.businessCategory) : null;
+    const memberSubcategory = currentMember.subCategory ? new ObjectId(currentMember.subCategory) : null;
+
+    const categoryEmpty = { $or: [{ categoryIds: { $exists: false } }, { categoryIds: null }, { categoryIds: [] }] };
+    const subCategoryEmpty = { $or: [{ subCategoryIds: { $exists: false } }, { subCategoryIds: null }, { subCategoryIds: [] }] };
+
+    const categoryNotEmpty = { categoryIds: { $exists: true, $ne: null, $not: { $size: 0 } } };
+    const subCategoryNotEmpty = { subCategoryIds: { $exists: true, $ne: null, $not: { $size: 0 } } };
+
+    const conditions: any[] = [
+      { $and: [categoryEmpty, subCategoryEmpty] }
+    ];
+
+    if (memberCategory) {
+      conditions.push({
+        $and: [
+          categoryNotEmpty,
+          subCategoryEmpty,
+          { categoryIds: memberCategory }
+        ]
+      });
+    }
+
+    if (memberSubcategory) {
+      conditions.push({
+        $and: [
+          subCategoryNotEmpty,
+          { subCategoryIds: memberSubcategory }
+        ]
+      });
+    }
+
+    return { $or: conditions };
+  }
+
+  private applyCategoryVisibilityFilter(where: any, currentMember: Member) {
+    const visibilityFilter = this.getCategoryVisibilityFilter(currentMember);
+    if (where.$or) {
+      const existingOr = where.$or;
+      delete where.$or;
+      where.$and = [
+        ...(where.$and || []),
+        { $or: existingOr },
+        visibilityFilter
+      ];
+    } else {
+      if (where.$and) {
+        where.$and.push(visibilityFilter);
+      } else {
+        where.$and = [visibilityFilter];
+      }
+    }
+  }
+
   /**
    * @swagger
    * /mobile-api/posts:
@@ -112,6 +167,19 @@ export class MobilePostController {
       }
       if (Array.isArray(inputRegionIds)) {
         post.regionIds = inputRegionIds
+          .map(getObjectIdStr)
+          .filter((id): id is string => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
+      }
+
+      if (Array.isArray(data.categoryIds)) {
+        post.categoryIds = data.categoryIds
+          .map(getObjectIdStr)
+          .filter((id): id is string => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
+      }
+      if (Array.isArray(data.subCategoryIds)) {
+        post.subCategoryIds = data.subCategoryIds
           .map(getObjectIdStr)
           .filter((id): id is string => !!id && ObjectId.isValid(id))
           .map(id => new ObjectId(id));
@@ -200,7 +268,7 @@ export class MobilePostController {
     limit = Number(limit) || 10;
     try {
       const userId = req.user.userId;
-      const where: any = { memberId: new ObjectId(userId), isDeleted: false };
+      const where: any = { memberId: new ObjectId(userId), isDeleted: false, status: { $ne: "reported" } };
       if (type) where.type = type;
 
       const [posts, total] = await this.postRepo.findAndCount({
@@ -268,10 +336,16 @@ export class MobilePostController {
       // 2. Fetch posts from these members
       const where: any = {
         memberId: { $in: followingIds },
-        isDeleted: false
+        isDeleted: false,
+        status: { $ne: "reported" }
       };
 
       if (type) where.type = type;
+
+      const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
+      if (!currentMember) throw new BadRequestError("Member not found");
+
+      this.applyCategoryVisibilityFilter(where, currentMember);
 
       const [posts, total] = await this.postRepo.findAndCount({
         where,
@@ -403,7 +477,8 @@ export class MobilePostController {
       const where: any = {
         type: PostType.REQUIREMENT,
         memberId: { $in: regionMemberIds },
-        isDeleted: false
+        isDeleted: false,
+        status: { $ne: "reported" }
       };
 
       const visibilityOrArray = [
@@ -426,6 +501,8 @@ export class MobilePostController {
       } else {
         where.$or = visibilityOrArray;
       }
+
+      this.applyCategoryVisibilityFilter(where, currentMember);
 
       const [posts, total] = await this.postRepo.findAndCount({
         where,
@@ -523,6 +600,7 @@ export class MobilePostController {
       const allowedTypes = [PostType.PROMOTION, PostType.ASK];
       const where: any = {
         isDeleted: false,
+        status: { $ne: "reported" },
         memberId: { $ne: new ObjectId(userId) }
       };
 
@@ -571,6 +649,11 @@ export class MobilePostController {
           }
         ];
       }
+
+      const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
+      if (!currentMember) throw new BadRequestError("Member not found");
+
+      this.applyCategoryVisibilityFilter(where, currentMember);
 
       const [posts, total] = await this.postRepo.findAndCount({
         where,
@@ -680,6 +763,7 @@ export class MobilePostController {
       const allowedTypes = [PostType.PROMOTION, PostType.ASK];
       const where: any = {
         isDeleted: false,
+        status: { $ne: "reported" },
         memberId: { $ne: new ObjectId(userId) },
         regionIds: { $elemMatch: { $eq: memberRegionId } }
       };
@@ -705,6 +789,8 @@ export class MobilePostController {
           }
         ];
       }
+
+      this.applyCategoryVisibilityFilter(where, currentMember);
 
       const [posts, total] = await this.postRepo.findAndCount({
         where,
@@ -799,7 +885,7 @@ export class MobilePostController {
     const userId = req.user.userId;
 
     try {
-      const where: any = { isDeleted: false };
+      const where: any = { isDeleted: false, status: { $ne: "reported" } };
 
       if (type) where.type = type;
 
@@ -902,6 +988,11 @@ export class MobilePostController {
         }
       }
 
+      if (!currentMember) {
+        throw new BadRequestError("Member not found");
+      }
+      this.applyCategoryVisibilityFilter(where, currentMember);
+
       const [posts, total] = await this.postRepo.findAndCount({
         where,
         skip: page * limit,
@@ -960,10 +1051,26 @@ export class MobilePostController {
       const userId = req.user.userId;
 
       const post = await this.postRepo.findOne({
-        where: { _id: new ObjectId(id), isDeleted: false }
+        where: { _id: new ObjectId(id), isDeleted: false, status: { $ne: "reported" } }
       });
 
       if (!post) throw new NotFoundError("Post not found");
+
+      // Validate category/subcategory visibility if requester is not the owner
+      if (post.memberId.toString() !== userId) {
+        const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
+        if (!currentMember) throw new BadRequestError("Member not found");
+
+        if (post.subCategoryIds && post.subCategoryIds.length > 0) {
+          const memberSub = currentMember.subCategory ? currentMember.subCategory.toString() : null;
+          const match = post.subCategoryIds.some(catId => catId.toString() === memberSub);
+          if (!match) throw new BadRequestError("You do not have access to view this post");
+        } else if (post.categoryIds && post.categoryIds.length > 0) {
+          const memberCat = currentMember.businessCategory ? currentMember.businessCategory.toString() : null;
+          const match = post.categoryIds.some(catId => catId.toString() === memberCat);
+          if (!match) throw new BadRequestError("You do not have access to view this post");
+        }
+      }
 
       const member = await this.memberRepo.findOneBy({ _id: post.memberId });
 
@@ -1057,6 +1164,19 @@ export class MobilePostController {
       const inputRegionIds = data.regionIds || (data as any).regions;
       if (Array.isArray(inputRegionIds)) {
         post.regionIds = inputRegionIds
+          .map(getObjectIdStr)
+          .filter((id): id is string => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
+      }
+
+      if (Array.isArray(data.categoryIds)) {
+        post.categoryIds = data.categoryIds
+          .map(getObjectIdStr)
+          .filter((id): id is string => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
+      }
+      if (Array.isArray(data.subCategoryIds)) {
+        post.subCategoryIds = data.subCategoryIds
           .map(getObjectIdStr)
           .filter((id): id is string => !!id && ObjectId.isValid(id))
           .map(id => new ObjectId(id));
@@ -1498,6 +1618,14 @@ export class MobilePostController {
       report.comments = comments;
 
       const savedReport = await postReportRepo.save(report);
+
+      // 5. Count total reports for this post and block if >= 10
+      const reportCount = await postReportRepo.count({ where: { postId } as any });
+      if (reportCount >= 10) {
+        post.status = "reported";
+        await this.postRepo.save(post);
+        console.log(`[PostReport] Post ${postId} reached ${reportCount} reports. Status updated to 'reported'.`);
+      }
 
       return res.status(StatusCodes.CREATED).json({
         success: true,

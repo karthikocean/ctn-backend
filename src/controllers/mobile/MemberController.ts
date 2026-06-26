@@ -92,6 +92,7 @@ export class MobileMemberController {
       }
 
       member.isDeleted = false;
+      member.dob = data.dob ? new Date(data?.dob) : undefined;
       member.status = MemberStatus.ACTIVE; // Or PENDING if you have an approval flow
 
       const saved = await this.memberRepo.save(member);
@@ -387,7 +388,9 @@ export class MobileMemberController {
           member.businessRegion = null;
         }
       }
-
+      if (data.dob) {
+        member.dob = new Date(data.dob);
+      }
       const saved = await this.memberRepo.save(member);
       return res.status(StatusCodes.OK).json({
         success: true,

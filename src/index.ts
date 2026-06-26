@@ -23,6 +23,7 @@ import { SpotlightCronService } from "./services/spotlightCron.service";
 import { OnlineStallCronService } from "./services/onlineStallCron.service";
 import { AnnouncementCronService } from "./services/announcementCron.service";
 import { PostDeactivationCronService } from "./services/postDeactivationCron.service";
+import { ReminderCronService } from "./services/reminderCron.service";
 // import { migrateRegions } from "./migrations/migrateRegions";
 AppDataSource.initialize()
   .then(async () => {
@@ -137,6 +138,9 @@ AppDataSource.initialize()
 
       // Initialize Post Deactivation Cron Job
       PostDeactivationCronService.init();
+
+      // Initialize Reminder Cron Job
+      ReminderCronService.init();
     });
 
     // ✅ Graceful Shutdown Handlers

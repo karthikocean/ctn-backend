@@ -13,7 +13,7 @@ export class PostDeactivationCronService {
   static init() {
     console.log("⏰ Initializing Post Deactivation Cron Job...");
 
-    cron.schedule("5 0 * * *", async () => {
+    cron.schedule("* * * * *", async () => {
       try {
         console.log("🕒 Running Post Deactivation Cron...");
         await this.deactivateExpiredPosts();

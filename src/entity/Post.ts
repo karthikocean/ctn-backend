@@ -67,11 +67,20 @@ export class PostModel {
   @Column({ nullable: true })
     regionIds?: ObjectId[];
 
+  @Column({ nullable: true })
+    categoryIds?: ObjectId[];
+
+  @Column({ nullable: true })
+    subCategoryIds?: ObjectId[];
+
   @Column({ default: false })
     isDeleted!: boolean;
 
   @Column({ default: true })
     isActive!: boolean;
+
+  @Column({ default: "active" })
+    status!: string;
 
   @Column({
     type: "enum",

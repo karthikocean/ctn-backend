@@ -91,7 +91,7 @@ export async function insertPushNotification(
 
     notification.sub = subject ?? "";
     notification.msg = content ?? "";
-    notification.moduleName = moduleName as NotificationModule;
+    notification.moduleName = moduleName as NotificationModule.REMINDER;
 
     if (moduleId)
       notification.moduleId = new ObjectId(moduleId);

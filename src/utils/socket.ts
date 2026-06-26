@@ -185,6 +185,16 @@ export const initSocket = (server: HttpServer) => {
 
     socket.on("join_conversation", (conversationId: string) => {
       console.log(`👤 User ${userId} joined conversation: ${conversationId}`);
+
+      // Leave any other conversation rooms the socket is currently in
+      const currentRooms = Array.from(socket.rooms);
+      for (const room of currentRooms) {
+        if (room.startsWith("conversation_") && room !== `conversation_${conversationId}`) {
+          socket.leave(room);
+          console.log(`👤 User ${userId} left room: ${room}`);
+        }
+      }
+
       socket.join(`conversation_${conversationId}`);
     });
 
