@@ -537,7 +537,7 @@ export class MobileChatController {
       newMessage.content = message || "Hi, I'm interested in your post.";
       newMessage.type = MessageType.POST_RESPONSE;
       newMessage.postId = new ObjectId(postId);
-
+      newMessage.isDeleted = false;
       // Check if receiver is in the chat room
       const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
       if (isReceiverActive) {
