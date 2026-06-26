@@ -70,6 +70,9 @@ export class PostModel {
   @Column({ default: false })
     isDeleted!: boolean;
 
+  @Column({ default: true })
+    isActive!: boolean;
+
   @Column({
     type: "enum",
     enum: RequirementVisibility,

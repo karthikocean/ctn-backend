@@ -10,3 +10,7 @@ const subscriptionService = new SubscriptionService();
 export async function validateModuleUsage(memberId: ObjectId, moduleName: string): Promise<void> {
   await subscriptionService.validateModuleUsage(memberId, moduleName);
 }
+
+export async function validateRequirementResponseLimit(memberId: ObjectId): Promise<void> {
+  await subscriptionService.validateRequirementResponseLimit(memberId);
+}

@@ -17,6 +17,7 @@ import { AppDataSource } from "../../data-source";
 import { AdminUser } from "../../entity/AdminUser";
 import { Role } from "../../entity/Role.Permission";
 import { Franchise } from "../../entity/Franchise";
+import { Member } from "../../entity/Member";
 import { CreateAdminUserDto, UpdateAdminUserDto, UpdateAdminUserStatusDto } from "../../dto/admin/AdminUser.dto";
 import bcrypt from "bcryptjs";
 import { ObjectId } from "mongodb";
@@ -186,6 +187,22 @@ export class AdminUserController {
       // Filter out users who are already assigned to other franchises
       const filteredUsers = users.filter(user => !assignedUserIds.has(user.id.toString()));
 
+      // Look up linked members to get businessName
+      const memberIds = filteredUsers
+        .filter(u => u.memberId)
+        .map(u => new ObjectId(u.memberId!.toString()));
+
+      let memberMap = new Map<string, string>();
+      if (memberIds.length > 0) {
+        const memberRepo = AppDataSource.getMongoRepository(Member);
+        const members = await memberRepo.find({
+          where: { _id: { $in: memberIds } }
+        });
+        memberMap = new Map(
+          members.map(m => [m._id.toString(), m.businessName || ""])
+        );
+      }
+
       const mappedUsers = filteredUsers.map(user => ({
         id: user.id,
         name: user.name,
@@ -195,7 +212,8 @@ export class AdminUserController {
         roleId: user.roleId,
         roleName: roleMap.get(user.roleId.toString()) || "N/A",
         isActive: user.isActive,
-        profileImage: user.profileImage
+        profileImage: user.profileImage,
+        businessName: user.memberId ? (memberMap.get(user.memberId.toString()) || "") : ""
       }));
 
       return res.status(StatusCodes.OK).json(mappedUsers);

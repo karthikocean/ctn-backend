@@ -11,7 +11,7 @@ import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import handleErrorResponse from "../../utils/commonFunction";
 import { validateModuleUsage } from "../../services/moduleUsage.service";
 import { PointService } from "../../services/point.service";
-import { PointConfig, PointConfigType } from "../../entity/PointConfig";
+import { PointConfig } from "../../entity/PointConfig";
 import { SubscriptionService } from "../../services/subscription.service";
 
 @JsonController("/trainings")

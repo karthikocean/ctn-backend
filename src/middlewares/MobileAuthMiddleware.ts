@@ -1,6 +1,5 @@
 import {
   ExpressMiddlewareInterface,
-  NotFoundError,
   UnauthorizedError,
 } from "routing-controllers";
 import { Request, Response, NextFunction } from "express";
@@ -51,7 +50,7 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
             success: false,
             message: "Session expired. Please login again."
           });
-          return
+          return;
         }
         throw new UnauthorizedError("Invalid token");
       }
