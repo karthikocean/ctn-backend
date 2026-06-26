@@ -50,6 +50,9 @@ import { LocationVisibility } from "../../entity/Member";
  *           type: string
  *         yearsOfExperience:
  *           type: integer
+ *         dob:
+ *           type: string
+ *           example: "28-06-2000"
  *     UpdateProfileDto:
  *       type: object
  *       properties:
@@ -131,6 +134,10 @@ export class ServiceLocationDto {
 }
 
 export class CreateMemberDto {
+  @IsString()
+  @IsOptional()
+    dob?: string;
+
   @IsString()
     fullName!: string;
 
@@ -362,6 +369,9 @@ export class UpdateProfileDto {
   @IsString()
   @IsOptional()
     fcmToken?: string;
+  @IsString()
+  @IsOptional()
+    dob?: string;
 }
 
 export class SetPinDto {

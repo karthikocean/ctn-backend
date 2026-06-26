@@ -49,6 +49,18 @@ import { PostType, RequirementVisibility } from "../../entity/Post";
  *             type: string
  *           example: ["6a0ec23d2d4c78a8d7cdfb6f"]
  *           description: Optional list of region area ObjectIds (from /mobile-api/common/business-regions)
+ *         categoryIds:
+ *           type: array
+ *           items:
+ *             type: string
+ *           example: ["6a0ec23d2d4c78a8d7cdfb6a"]
+ *           description: Optional list of category ObjectIds
+ *         subCategoryIds:
+ *           type: array
+ *           items:
+ *             type: string
+ *           example: ["6a0ec23d2d4c78a8d7cdfb6b"]
+ *           description: Optional list of sub-category ObjectIds
  *     UpdatePostDto:
  *       type: object
  *       properties:
@@ -78,6 +90,18 @@ import { PostType, RequirementVisibility } from "../../entity/Post";
  *           type: array
  *           items:
  *             type: string
+ *         categoryIds:
+ *           type: array
+ *           items:
+ *             type: string
+ *           example: ["6a0ec23d2d4c78a8d7cdfb6a"]
+ *           description: Optional list of category ObjectIds
+ *         subCategoryIds:
+ *           type: array
+ *           items:
+ *             type: string
+ *           example: ["6a0ec23d2d4c78a8d7cdfb6b"]
+ *           description: Optional list of sub-category ObjectIds
  */
 
 export class CreatePostDto {
@@ -118,6 +142,16 @@ export class CreatePostDto {
   @IsMongoId({ each: true })
   @IsOptional()
     regionIds?: string[];
+
+  @IsArray()
+  @IsMongoId({ each: true })
+  @IsOptional()
+    categoryIds?: string[];
+
+  @IsArray()
+  @IsMongoId({ each: true })
+  @IsOptional()
+    subCategoryIds?: string[];
 }
 
 export class UpdatePostDto {
@@ -158,4 +192,14 @@ export class UpdatePostDto {
   @IsMongoId({ each: true })
   @IsOptional()
     regionIds?: string[];
+
+  @IsArray()
+  @IsMongoId({ each: true })
+  @IsOptional()
+    categoryIds?: string[];
+
+  @IsArray()
+  @IsMongoId({ each: true })
+  @IsOptional()
+    subCategoryIds?: string[];
 }
