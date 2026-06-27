@@ -110,6 +110,13 @@ export class BusinessRegionController {
       region.state = state._id;
       region.city = city._id;
       region.status = data.status || region.status;
+
+      // Check for duplicate area names (case-insensitive)
+      const areaNames = (data.areas ?? []).map(a => a.name.trim().toLowerCase()).filter(n => n !== "");
+      if (areaNames.length !== new Set(areaNames).size) {
+        throw new BadRequestError("Duplicate area names are not allowed within a region");
+      }
+
       region.areas = data.areas?.map((e) => ({ _id: new ObjectId(), name: e.name })) ?? [];
       region.isDeleted = false;
 
@@ -345,6 +352,12 @@ export class BusinessRegionController {
       region.city = cityId;
       if (data.status) region.status = data.status;
       if (data.areas !== undefined) {
+        // Check for duplicate area names (case-insensitive)
+        const areaNames = (data.areas ?? []).map((a: any) => a.name.trim().toLowerCase()).filter((n: string) => n !== "");
+        if (areaNames.length !== new Set(areaNames).size) {
+          throw new BadRequestError("Duplicate area names are not allowed within a region");
+        }
+
         region.areas = data.areas ? data.areas.map((e: any) => {
           const idVal = e._id || e.id;
           return {

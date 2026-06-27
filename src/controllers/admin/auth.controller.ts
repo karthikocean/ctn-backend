@@ -66,6 +66,11 @@ export class AuthController {
         throw new UnauthorizedError("User Pin is incorrect!!");
       }
 
+      // Check if the account is active
+      if (!user.isActive) {
+        throw new UnauthorizedError("Account is inactive. Please contact admin.");
+      }
+
       // Check if token already exists in user_tokens collection
       const tokenRepo = AppDataSource.getMongoRepository(UserToken);
       const existingToken = await tokenRepo.findOne({

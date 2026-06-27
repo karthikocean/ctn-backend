@@ -82,6 +82,9 @@ export class PostModel {
   @Column({ default: "active" })
     status!: string;
 
+  @Column({ nullable: true })
+    statusReason?: string;
+
   @Column({
     type: "enum",
     enum: RequirementVisibility,
