@@ -41,6 +41,8 @@ export async function seedModules() {
     { name: "Connections" },
     { name: "Contributions" },
     { name: "Reports" },
+    { name: "Franchise Commission Report", parentSlug: "reports" },
+    { name: "Report History", parentSlug: "reports" },
     { name: "Plans" },
     { name: "Franchises" },
     { name: "Referral" },

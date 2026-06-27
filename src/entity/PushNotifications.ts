@@ -9,15 +9,30 @@ import { ObjectId } from "mongodb";
 
 export enum NotificationModule {
   GENERAL = "GENERAL",
-  CONNECTION = "CONNECTION",
-  CHAT = "CHAT",
+  CONNECTION = "CONNECTION", // Mapped to Follow Requests
+  CHAT = "CHAT", // Mapped to Messages
   POST = "POST",
   ASK = "ASK",
   GIVE = "GIVE",
   REQUIREMENT = "REQUIREMENT",
   WORKORDER = "WORKORDER",
   OTHER = "OTHER",
-  REMINDER = "REMINDER"
+  REMINDER = "REMINDER",
+
+  // New modules requested by user
+  ONE_TO_ONE = "ONE_TO_ONE",
+  THANK_YOU_SLIP = "THANK_YOU_SLIP",
+  FOLLOW_REQUEST = "FOLLOW_REQUEST",
+  REFERRAL = "REFERRAL",
+  SPOTLIGHT = "SPOTLIGHT",
+  MESSAGE = "MESSAGE",
+  MESSAGE_REQUEST = "MESSAGE_REQUEST",
+  EVENT = "EVENT",
+  TRAINING = "TRAINING",
+  PLAN_EXPIRY = "PLAN_EXPIRY",
+  UPGRADE = "UPGRADE",
+  DOWNGRADE = "DOWNGRADE",
+  DAILY_TASK = "DAILY_TASK"
 }
 
 @Entity("push_notifications")

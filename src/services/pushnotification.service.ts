@@ -100,7 +100,8 @@ export async function insertPushNotification(
 
     if (senderId)
       notification.senderId = new ObjectId(senderId);
-
+    notification.isDeleted = false;
+    notification.isRead = false;
     const notificationData = await notificationRepo.save(notification);
     if (notificationData) {
       const contentObj = {

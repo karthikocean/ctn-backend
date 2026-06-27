@@ -8,7 +8,9 @@ import {
   BadRequestError,
   Res,
   UseBefore,
-  Req
+  Req,
+  Put,
+  Body
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { PostModel as PostEntity, PostType } from "../../entity/Post";
@@ -20,12 +22,14 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { canAccess } from "../../middlewares/PermissionMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
+import { PostReport } from "../../entity/PostReport";
 
 @JsonController("/posts")
 @UseBefore(AuthMiddleware, franchiseFilter)
 export class PostController {
   private postRepo = AppDataSource.getMongoRepository(PostEntity);
   private memberRepo = AppDataSource.getMongoRepository(Member);
+  private postReportRepo = AppDataSource.getMongoRepository(PostReport);
 
   /**
    * @swagger
@@ -60,13 +64,124 @@ export class PostController {
     @QueryParam("limit") limit: number,
     @QueryParam("type") type: PostType,
     @QueryParam("search") search: string,
+    @QueryParam("status") status: string,
     @Res() res: any
   ) {
     page = Number(page) || 0;
     limit = Number(limit) || 10;
 
     try {
-      const where: any = { isDeleted: false };
+      const where: any = { isDeleted: false, status: { $ne: "reported" } };
+
+      if (req.isFranchise) {
+        const franchiseMembers = await this.memberRepo.find({
+          where: {
+            businessRegion: { $in: req.franchiseAreaIds },
+            isDeleted: false
+          }
+        });
+        const franchiseMemberIds = franchiseMembers.map(m => m._id);
+
+        if (franchiseMemberIds.length === 0) {
+          return pagination(0, [], limit, page, res);
+        }
+        where.memberId = { $in: franchiseMemberIds };
+      }
+
+      if (type) {
+        where.type = type;
+      }
+
+      if (status) {
+        where.status = status;
+      }
+
+      if (search) {
+        // Fetch matching members first to include their IDs in the post search
+        const matchedMembers = await this.memberRepo.find({
+          where: { fullName: { $regex: search, $options: "i" } } as any,
+          select: ["_id"]
+        });
+        const matchedMemberIds = matchedMembers.map(m => m._id);
+
+        where.$or = [
+          { title: { $regex: search, $options: "i" } },
+          { description: { $regex: search, $options: "i" } },
+          { memberId: { $in: matchedMemberIds } }
+        ];
+      }
+
+      const [posts, total] = await this.postRepo.findAndCount({
+        where,
+        skip: page * limit,
+        take: limit,
+        order: { createdAt: "DESC" }
+      });
+
+      // Populate Member Info
+      const memberIds = [...new Set(posts.map(p => p.memberId))];
+      const members = memberIds.length > 0
+        ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
+        : [];
+
+      const memberMap = new Map(members.map(m => [m._id.toString(), {
+        _id: m._id,
+        fullName: m.fullName,
+        profilePhoto: m.profilePhoto,
+        businessName: m.businessName
+      }]));
+
+      const data = posts.map(p => ({
+        ...p,
+        member: memberMap.get(p.memberId.toString()) || null
+      }));
+
+      return pagination(total, data, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/posts/reported:
+   *   get:
+   *     summary: Get all reported posts with filters and pagination
+   *     tags: [Admin Post]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema: { type: integer, default: 0 }
+   *       - in: query
+   *         name: limit
+   *         schema: { type: integer, default: 10 }
+   *       - in: query
+   *         name: search
+   *         schema: { type: string }
+   *       - in: query
+   *         name: type
+   *         schema: { type: string, enum: [PROMOTION, GIVE, ASK, REQUIREMENT] }
+   *     responses:
+   *       200:
+   *         description: List of reported posts
+   */
+  @Get("/reported")
+  @UseBefore(canAccess("posts", "view"))
+  async getReportedPosts(
+    @Req() req: any,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @QueryParam("type") type: PostType,
+    @QueryParam("search") search: string,
+    @Res() res: any
+  ) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+
+    try {
+      const where: any = { isDeleted: false, status: "reported" };
 
       if (req.isFranchise) {
         const franchiseMembers = await this.memberRepo.find({
@@ -88,9 +203,16 @@ export class PostController {
       }
 
       if (search) {
+        const matchedMembers = await this.memberRepo.find({
+          where: { fullName: { $regex: search, $options: "i" } } as any,
+          select: ["_id"]
+        });
+        const matchedMemberIds = matchedMembers.map(m => m._id);
+
         where.$or = [
           { title: { $regex: search, $options: "i" } },
-          { description: { $regex: search, $options: "i" } }
+          { description: { $regex: search, $options: "i" } },
+          { memberId: { $in: matchedMemberIds } }
         ];
       }
 
@@ -98,10 +220,9 @@ export class PostController {
         where,
         skip: page * limit,
         take: limit,
-        order: { createdAt: "DESC" }
+        order: { updatedAt: "DESC" }
       });
 
-      // Populate Member Info
       const memberIds = [...new Set(posts.map(p => p.memberId))];
       const members = memberIds.length > 0
         ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
@@ -187,6 +308,55 @@ export class PostController {
       await this.postRepo.save(post);
 
       return res.status(StatusCodes.OK).json({ message: "Post deleted successfully" });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/posts/{id}/status:
+   *   put:
+   *     summary: Update post status and reason
+   *     tags: [Admin Post]
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               status:
+   *                 type: string
+   *               reason:
+   *                 type: string
+   */
+  @Put("/:id/status")
+  @UseBefore(canAccess("posts", "update"))
+  async updateStatus(
+    @Param("id") id: string,
+    @Body() body: { status: string; reason?: string },
+    @Res() res: any
+  ) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+
+      const post = await this.postRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
+      if (!post) throw new NotFoundError("Post not found");
+
+      post.status = body.status;
+      if (body.reason) {
+        post.statusReason = body.reason;
+      } else {
+        post.statusReason = "";
+      }
+
+      await this.postRepo.save(post);
+      const history = new PostReport();
+      history.postId = post._id;
+      history.reporterId = post.memberId;
+      history.reason = body.reason ?? "";
+      await this.postReportRepo.save(history);
+      return res.status(StatusCodes.OK).json({ message: "Post status updated successfully", post });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
