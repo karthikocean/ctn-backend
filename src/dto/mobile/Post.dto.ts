@@ -28,6 +28,9 @@ import { PostType, RequirementVisibility } from "../../entity/Post";
  *         period:
  *           type: string
  *           example: "15 Days"
+ *         lastmet:
+ *           type: string
+ *           example: "2026-06-30"
  *         media:
  *           type: array
  *           items:
@@ -74,6 +77,8 @@ import { PostType, RequirementVisibility } from "../../entity/Post";
  *         location:
  *           type: string
  *         period:
+ *           type: string
+ *         lastmet:
  *           type: string
  *         media:
  *           type: array
@@ -125,6 +130,10 @@ export class CreatePostDto {
   @IsOptional()
     period?: string;
 
+  @IsString()
+  @IsOptional()
+    lastmet?: string;
+
   @IsArray()
   @IsOptional()
     media?: string[];
@@ -174,6 +183,10 @@ export class UpdatePostDto {
   @IsString()
   @IsOptional()
     period?: string;
+
+  @IsString()
+  @IsOptional()
+    lastmet?: string;
 
   @IsArray()
   @IsOptional()
