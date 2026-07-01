@@ -76,8 +76,12 @@ export class ReminderCronService {
         const subject = `Reminder: ${reminder.title}`;
         const content = reminder.description || `This is a scheduled reminder for your ${reminder.title}`;
 
+        const notifyByList: string[] = Array.isArray(reminder.notifyBy)
+          ? (reminder.notifyBy as string[])
+          : (typeof reminder.notifyBy === "string" ? [reminder.notifyBy] : []);
+
         // 1. Email Notification
-        if (reminder.notifyBy.includes(NotifyBy.EMAIL) && member.email) {
+        if (notifyByList.includes(NotifyBy.EMAIL) && member.email) {
           console.log(`[ReminderCron] Sending Email to ${member.email}`);
           await MailService.sendEmail(
             member.email,
@@ -87,7 +91,7 @@ export class ReminderCronService {
         }
 
         // 2. Push Notification
-        const hasPush = reminder.notifyBy.includes(NotifyBy.PUSH) || reminder.notifyBy.includes(NotifyBy.APP);
+        const hasPush = notifyByList.includes(NotifyBy.PUSH) || notifyByList.includes(NotifyBy.APP);
         if (hasPush && member.fcmToken) {
           console.log(`[ReminderCron] Sending Push Notification to member ${member.fullName}`);
 
@@ -102,10 +106,10 @@ export class ReminderCronService {
         }
 
         // 3. Other notification channels (SMS / WhatsApp / APP) placeholder log
-        if (reminder.notifyBy.includes(NotifyBy.SMS)) {
+        if (notifyByList.includes(NotifyBy.SMS)) {
           console.log(`[ReminderCron] [SMS Simulation] Sending SMS to ${member.fullName} (${member.mobileNumber || "No Phone"}): ${content}`);
         }
-        if (reminder.notifyBy.includes(NotifyBy.WHATSAPP)) {
+        if (notifyByList.includes(NotifyBy.WHATSAPP)) {
           console.log(`[ReminderCron] [WhatsApp Simulation] Sending WhatsApp to ${member.fullName} (${member.mobileNumber || "No Phone"}): ${content}`);
         }
 
@@ -117,15 +121,24 @@ export class ReminderCronService {
     // Update reminder state
     reminder.lastTriggeredAt = triggerTime;
 
-    if (reminder.repeatType === RepeatType.ONCE) {
+    if (reminder.repeatType === RepeatType.ONCE || !reminder.repeatType) {
       reminder.status = ReminderStatus.COMPLETED;
       reminder.isActive = false; // Mark inactive since it ran once
       console.log(`[ReminderCron] Reminder ${reminder._id} marked as COMPLETED (Once).`);
     } else {
       // Calculate next trigger date
       let nextDate = this.calculateNextReminderDate(reminder.nextReminderDate, reminder.repeatType, reminder.repeatInterval);
+      let safetyCount = 0;
       while (nextDate <= triggerTime) {
+        const prevTime = nextDate.getTime();
         nextDate = this.calculateNextReminderDate(nextDate, reminder.repeatType, reminder.repeatInterval);
+
+        // If the date does not advance (e.g. interval is 0 or repeatType is invalid), break to avoid infinite loop
+        if (nextDate.getTime() <= prevTime || ++safetyCount > 1000) {
+          console.warn(`[ReminderCron] Date did not advance for reminder ${reminder._id}. Breaking to prevent infinite loop.`);
+          nextDate = new Date(triggerTime.getTime() + 24 * 60 * 60 * 1000); // Fallback to tomorrow
+          break;
+        }
       }
       reminder.nextReminderDate = nextDate;
       console.log(`[ReminderCron] Reminder ${reminder._id} scheduled next run for: ${reminder.nextReminderDate.toISOString()}`);

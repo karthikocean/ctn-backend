@@ -16,6 +16,8 @@ import {
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Event, EventStatus } from "../../entity/Event";
+import { notifyAllActiveMembers } from "../../services/pushnotification.service";
+import { NotificationModule } from "../../entity/PushNotifications";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
@@ -56,6 +58,16 @@ export class AdminEventController {
       event.updatedBy = new ObjectId(req.user.userId);
 
       const saved = await this.eventRepo.save(event);
+
+      // Send push notification to all active members
+      await notifyAllActiveMembers({
+        subject: "New Event Created! 📅",
+        content: `Check out the new event: ${event.title}`,
+        moduleName: NotificationModule.EVENT,
+        moduleId: saved._id.toString(),
+        senderId: req.user.userId
+      });
+
       return res.status(StatusCodes.CREATED).json({
         success: true,
         message: "Event created successfully",

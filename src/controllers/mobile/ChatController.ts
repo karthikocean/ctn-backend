@@ -341,6 +341,7 @@ export class MobileChatController {
             senderId: msg.senderId,
             content: "This message was deleted",
             isDeleted: true,
+            isRead: msg.isRead || false,
             isMe: msg.senderId.toString() === req.user.userId,
             createdAt: msg.createdAt
           };
@@ -349,6 +350,7 @@ export class MobileChatController {
         const result: any = {
           ...msg,
           isMe: msg.senderId.toString() === req.user.userId,
+          isRead: msg.isRead || false,
           post: null,
           replyTo: null,
           media: msg.media || [],
@@ -573,12 +575,12 @@ export class MobileChatController {
       // Send Push Notification if receiver is not active in the chat room and has fcmToken
       const receiver = await this.memberRepo.findOneBy({ _id: receiverId, isDeleted: false });
       if (!isReceiverActive && receiver?.fcmToken) {
-        const sender = await this.memberRepo.findOneBy({ _id: senderId });
+        // const sender = await this.memberRepo.findOneBy({ _id: senderId });
         await insertPushNotification({
           token: receiver.fcmToken,
-          subject: sender?.fullName || "New Message",
+          subject: `New Message for ${post.title}`,
           content: newMessage.content,
-          moduleName: NotificationModule.CHAT,
+          moduleName: NotificationModule.MESSAGE_REQUEST,
           moduleId: conversation._id.toString(),
           receiverId: receiverId.toString(),
           senderId: senderId.toString()
@@ -740,12 +742,12 @@ export class MobileChatController {
       // Send Push Notification if receiver is not active in the chat room and has fcmToken
       const receiver = await this.memberRepo.findOneBy({ _id: receiverId, isDeleted: false });
       if (!isReceiverActive && receiver?.fcmToken) {
-        const sender = await this.memberRepo.findOneBy({ _id: senderId });
+        // const sender = await this.memberRepo.findOneBy({ _id: senderId });
         await insertPushNotification({
           token: receiver.fcmToken,
-          subject: sender?.fullName || "New Message",
+          subject: "New Message for product - " + product.productName,
           content: newMessage.content,
-          moduleName: NotificationModule.CHAT,
+          moduleName: NotificationModule.MESSAGE_REQUEST,
           moduleId: conversation._id.toString(),
           receiverId: receiverId.toString(),
           senderId: senderId.toString()
@@ -993,12 +995,21 @@ export class MobileChatController {
       // Send Push Notification if receiver is not active in the chat room and has fcmToken
       const receiver = await this.memberRepo.findOneBy({ _id: receiverId, isDeleted: false });
       if (!isReceiverActive && receiver?.fcmToken) {
-        const sender = await this.memberRepo.findOneBy({ _id: senderId });
+        // const sender = await this.memberRepo.findOneBy({ _id: senderId });
+        let notificationModule = NotificationModule.MESSAGE;
+        if (type === MessageType.ONE_TO_ONE) {
+          notificationModule = NotificationModule.ONE_TO_ONE;
+        } else if (type === MessageType.REFERRAL) {
+          notificationModule = NotificationModule.REFERRAL;
+        } else if (type === MessageType.THANK_YOU_SLIP) {
+          notificationModule = NotificationModule.THANK_YOU_SLIP;
+        }
+
         await insertPushNotification({
           token: receiver.fcmToken,
-          subject: sender?.fullName || "New Message",
+          subject: "New Message",
           content: newMessage.content,
-          moduleName: NotificationModule.CHAT,
+          moduleName: notificationModule,
           moduleId: conversation._id.toString(),
           receiverId: receiverId.toString(),
           senderId: senderId.toString()

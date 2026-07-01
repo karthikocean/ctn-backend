@@ -10,7 +10,9 @@ import {
   NotFoundError,
   BadRequestError,
   HttpCode,
-  Res
+  Res,
+  UseBefore,
+  Req
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Announcement, AnnouncementStatus } from "../../entity/Announcement";
@@ -22,6 +24,9 @@ import { CreateAnnouncementDto, UpdateAnnouncementDto } from "../../dto/admin/An
 import { Member } from "../../entity/Member";
 import { AnnouncementBooking } from "../../entity/AnnouncementBooking";
 import { StallBooking } from "../../entity/StallBooking";
+import { notifyAllActiveMembers } from "../../services/pushnotification.service";
+import { NotificationModule } from "../../entity/PushNotifications";
+import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 
 @JsonController("/announcements")
 export class AdminAnnouncementController {
@@ -73,7 +78,8 @@ export class AdminAnnouncementController {
    */
   @Post("/")
   @HttpCode(StatusCodes.CREATED)
-  async create(@Body() data: CreateAnnouncementDto, @Res() res: any) {
+  @UseBefore(AuthMiddleware)
+  async create(@Req() req: any, @Body() data: CreateAnnouncementDto, @Res() res: any) {
     try {
       this.validateStallConfig(data);
       // ✅ Check for unique title
@@ -105,7 +111,19 @@ export class AdminAnnouncementController {
       announcement.isDeleted = false;
       announcement.status = data.status || AnnouncementStatus.DRAFT;
 
+      announcement.createdBy = new ObjectId(req.user.userId);
+      announcement.updatedBy = new ObjectId(req.user.userId);
       const saved = await this.announcementRepo.save(announcement);
+      if (saved && data.status === AnnouncementStatus.PUBLISHED) {
+        await notifyAllActiveMembers({
+          subject: "New Event Created! 📅",
+          content: `Check out the new event: ${announcement.title}`,
+          moduleName: NotificationModule.EVENT,
+          moduleId: saved._id.toString(),
+          senderId: req.user.userId
+        });
+      }
+
       return res.status(StatusCodes.CREATED).json({
         success: true,
         message: "Announcement created successfully",
@@ -188,7 +206,9 @@ export class AdminAnnouncementController {
    *     tags: [Admin Announcement]
    */
   @Put("/:id")
-  async update(@Param("id") id: string, @Body() data: UpdateAnnouncementDto, @Res() res: any) {
+  @HttpCode(StatusCodes.OK)
+  @UseBefore(AuthMiddleware)
+  async update(@Req() req: any, @Param("id") id: string, @Body() data: UpdateAnnouncementDto, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
       this.validateStallConfig(data);
@@ -217,7 +237,7 @@ export class AdminAnnouncementController {
           };
         });
       }
-
+      announcement.updatedBy = new ObjectId(req.user.userId);
       const saved = await this.announcementRepo.save(announcement);
 
       return res.status(StatusCodes.OK).json({

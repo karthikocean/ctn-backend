@@ -6,8 +6,11 @@ import { ObjectId } from "mongodb";
 import { NotificationModule, PushNotification } from "../entity/PushNotifications";
 import { AppDataSource } from "../data-source";
 import { InsertPushNotificationDto } from "../dto/mobile/InsertPushNotification.dto";
+import { Member, MemberStatus } from "../entity/Member";
+import { Connection, ConnectionStatus } from "../entity/Connection";
+import { PostModel, PostType, RequirementVisibility } from "../entity/Post";
 
-const FCM_ENDPOINT = "https://fcm.googleapis.com/v1/projects/ctn-business-forum/messages:send";
+const FCM_ENDPOINT = "https://fcm.googleapis.com/v1/projects/tn-business-forum/messages:send";
 const serviceAccountPath = path.join(__dirname, "../views", "google-firebase.json");
 
 // Load service account explicitly to ensure it's valid
@@ -128,5 +131,214 @@ export async function insertPushNotification(
     );
 
     return false;
+  }
+}
+
+export async function notifyAllActiveMembers(dto: {
+  subject: string;
+  content: string;
+  moduleName: NotificationModule;
+  moduleId?: string;
+  senderId?: string;
+}) {
+  try {
+    const memberRepo = AppDataSource.getMongoRepository(Member);
+    const notificationRepo = AppDataSource.getMongoRepository(PushNotification);
+    const activeMembers = await memberRepo.find({
+      where: {
+        status: MemberStatus.ACTIVE,
+        isDeleted: false
+      } as any
+    });
+
+    const notifications = activeMembers.map(member => ({
+      sub: dto.subject,
+      msg: dto.content,
+      moduleName: dto.moduleName,
+      moduleId: dto.moduleId ? new ObjectId(dto.moduleId) : undefined,
+      receiverId: member._id,
+      senderId: dto.senderId ? new ObjectId(dto.senderId) : undefined,
+      isRead: false,
+      isDeleted: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }));
+
+    if (notifications.length > 0) {
+      await notificationRepo.insertMany(notifications);
+    }
+
+    // Send push notification to all active members with FCM token
+    const membersWithToken = activeMembers.filter(m => m.fcmToken);
+    const batchSize = 100;
+    for (let i = 0; i < membersWithToken.length; i += batchSize) {
+      const batch = membersWithToken.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(member =>
+          sendPushNotification(member.fcmToken!, dto.subject, {
+            content: dto.content,
+            moduleName: dto.moduleName,
+            moduleId: dto.moduleId
+          }).catch(err => console.error("[notifyAllActiveMembers] FCM error:", err))
+        )
+      );
+    }
+  } catch (error) {
+    console.error("Failed to notify all active members:", error);
+  }
+}
+
+/**
+ * Sends post-creation push notifications to the relevant audience.
+ *
+ * - MUTUAL-FRIEND visibility  → notify only mutual friends of the poster
+ * - categoryIds / subCategoryIds present → notify members whose businessCategory / subCategory matches
+ * - Both conditions → intersection of the above two sets
+ * - None of the above (OVERALL / REGION, no category) → insert DB record only, NO FCM dispatch
+ */
+export async function notifyPostAudience(dto: {
+  post: PostModel;
+  senderId: string;
+  subject: string;
+  content: string;
+}) {
+  try {
+    const { post, senderId, subject, content } = dto;
+    const senderObjectId = new ObjectId(senderId);
+
+    let mappedModule = NotificationModule.GENERAL;
+    if (post.type === PostType.PROMOTION) {
+      mappedModule = NotificationModule.PROMOTION;
+    } else if (post.type === PostType.ASK) {
+      mappedModule = NotificationModule.ASK;
+    } else if (post.type === PostType.GIVE) {
+      mappedModule = NotificationModule.GIVE;
+    } else if (post.type === PostType.REQUIREMENT) {
+      mappedModule = NotificationModule.REQUIREMENT;
+    }
+
+    const memberRepo = AppDataSource.getMongoRepository(Member);
+    const connectionRepo = AppDataSource.getMongoRepository(Connection);
+    const notificationRepo = AppDataSource.getMongoRepository(PushNotification);
+
+    const isMutualFriend = post.requirementVisibility === RequirementVisibility.MUTUAL_FRIEND;
+    const hasCategoryFilter = (post.categoryIds && post.categoryIds.length > 0) ||
+      (post.subCategoryIds && post.subCategoryIds.length > 0);
+
+    // No targeted notification condition — insert DB-only records for active members, skip FCM
+    const dbOnly = !isMutualFriend && !hasCategoryFilter;
+
+    let targetMembers: Member[] = [];
+
+    if (!dbOnly) {
+      let mutualIds: Set<string> | null = null;
+
+      // --- Mutual friends resolution ---
+      if (isMutualFriend) {
+        const following = await connectionRepo.find({
+          where: { senderId: senderObjectId, status: ConnectionStatus.ACCEPTED } as any
+        });
+        const followingIds = new Set(following.map(c => c.receiverId.toString()));
+
+        const followers = await connectionRepo.find({
+          where: { receiverId: senderObjectId, status: ConnectionStatus.ACCEPTED } as any
+        });
+        const followerIds = new Set(followers.map(c => c.senderId.toString()));
+
+        mutualIds = new Set([...followingIds].filter(id => followerIds.has(id)));
+      }
+
+      // --- Category-matched members resolution ---
+      let categoryMemberIds: Set<string> | null = null;
+      if (hasCategoryFilter) {
+        const categoryConditions: any[] = [];
+        if (post.categoryIds && post.categoryIds.length > 0) {
+          categoryConditions.push({ businessCategory: { $in: post.categoryIds } });
+        }
+        if (post.subCategoryIds && post.subCategoryIds.length > 0) {
+          categoryConditions.push({ subCategory: { $in: post.subCategoryIds } });
+        }
+        const categoryWhere: any = {
+          $or: categoryConditions,
+          isDeleted: false,
+          status: MemberStatus.ACTIVE,
+          _id: { $ne: senderObjectId }
+        };
+        if (post.regionIds && post.regionIds.length > 0) {
+          categoryWhere.businessRegion = { $in: post.regionIds };
+        }
+        const categoryMembers = await memberRepo.find({
+          where: categoryWhere
+        });
+        categoryMemberIds = new Set(categoryMembers.map(m => m._id.toString()));
+        targetMembers.push(...categoryMembers);
+      }
+
+      // --- Resolve final target list (apply intersection if both conditions apply) ---
+      if (isMutualFriend && hasCategoryFilter && mutualIds && categoryMemberIds) {
+        // Intersection: member must be a mutual friend AND match the category filter
+        targetMembers = targetMembers.filter(m => mutualIds!.has(m._id.toString()));
+      } else if (isMutualFriend && mutualIds) {
+        // Mutual friends only — fetch the actual member docs
+        const mutualObjectIds = [...mutualIds].map(id => new ObjectId(id));
+        if (mutualObjectIds.length > 0) {
+          const mutualWhere: any = {
+            _id: { $in: mutualObjectIds },
+            isDeleted: false,
+            status: MemberStatus.ACTIVE
+          };
+          if (post.regionIds && post.regionIds.length > 0) {
+            mutualWhere.businessRegion = { $in: post.regionIds };
+          }
+          targetMembers = await memberRepo.find({
+            where: mutualWhere
+          });
+        }
+      }
+    } else {
+      // DB-only: fetch all active members to create inbox records
+      targetMembers = await memberRepo.find({
+        where: { isDeleted: false, status: MemberStatus.ACTIVE, _id: { $ne: senderObjectId } } as any
+      });
+    }
+
+    console.log(`[notifyPostAudience] Notifying ${targetMembers.length} members (dbOnly=${dbOnly}) for post ${post._id}`);
+
+    const notifications = targetMembers.map(member => ({
+      sub: subject,
+      msg: content,
+      moduleName: mappedModule,
+      moduleId: post._id,
+      receiverId: member._id,
+      senderId: senderObjectId,
+      isRead: false,
+      isDeleted: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }));
+
+    if (notifications.length > 0) {
+      await notificationRepo.insertMany(notifications);
+    }
+
+    // FCM dispatch only for targeted audiences (not DB-only)
+    if (!dbOnly) {
+      const membersWithToken = targetMembers.filter(m => m.fcmToken);
+      const batchSize = 100;
+      for (let i = 0; i < membersWithToken.length; i += batchSize) {
+        const batch = membersWithToken.slice(i, i + batchSize);
+        await Promise.all(
+          batch.map(member =>
+            sendPushNotification(member.fcmToken!, subject, {
+              content,
+              moduleName: mappedModule,
+              moduleId: post._id?.toString()
+            }).catch(err => console.error("[notifyPostAudience] FCM error:", err))
+          )
+        );
+      }
+    }
+  } catch (error) {
+    console.error("[notifyPostAudience] Failed:", error);
   }
 }

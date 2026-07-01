@@ -1,16 +1,17 @@
-import { JsonController, Post, Body, Res, HttpCode, UnauthorizedError, BadRequestError } from "routing-controllers";
+import { JsonController, Post, Body, Res, HttpCode, UnauthorizedError, BadRequestError, UseBefore, Req } from "routing-controllers";
 import { StatusCodes } from "http-status-codes";
 import jwt from "jsonwebtoken";
 import { AppDataSource } from "../../data-source";
 import { Member } from "../../entity/Member";
 import { Verification } from "../../entity/Verification";
 import { UserToken } from "../../entity/UserToken";
-import { MobileLoginDto, MobileSendOtpDto, MobileVerifyOtpLoginDto, ResetPinDto } from "../../dto/mobile/Auth.dto";
+import { MobileLoginDto, MobileSendOtpDto, MobileVerifyOtpLoginDto } from "../../dto/mobile/Auth.dto";
 import handleErrorResponse from "../../utils/commonFunction";
 import { MailService } from "../../services/mail.service";
 import { sendOTPSMS } from "../../utils/sms";
 import bcrypt from "bcryptjs";
-
+import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
+import { ObjectId } from "mongodb";
 @JsonController("/auth")
 export class MobileAuthController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
@@ -237,29 +238,13 @@ export class MobileAuthController {
    */
   @Post("/reset-pin")
   @HttpCode(StatusCodes.OK)
-  async resetPin(@Body() body: ResetPinDto, @Res() res: any) {
+  @UseBefore(MobileAuthMiddleware)
+  async resetPin(@Req() req: any, @Body() body: any, @Res() res: any) {
     try {
-      const { identifier, type, newPin } = body;
+      const { newPin } = body;
+      const memberId = req.user.userId;
 
-      const verification = await this.verificationRepo.findOne({
-        where: { identifier, type, isVerified: true },
-        order: { createdAt: "DESC" }
-      });
-
-      if (!verification) {
-        throw new BadRequestError("Please verify your " + type + " first");
-      }
-
-      // Check if verification is recent (e.g., within last 15 minutes)
-      const fifteenMinutesAgo = new Date();
-      fifteenMinutesAgo.setMinutes(fifteenMinutesAgo.getMinutes() - 15);
-      if (verification.createdAt < fifteenMinutesAgo) {
-        throw new BadRequestError("Verification expired. Please request a new OTP.");
-      }
-
-      const member = await this.memberRepo.findOne({
-        where: type === "email" ? { email: identifier } : { mobileNumber: identifier }
-      });
+      const member = await this.memberRepo.findOne({ where: { _id: new ObjectId(memberId) } });
 
       if (!member) {
         throw new BadRequestError("Member not found");
@@ -267,10 +252,6 @@ export class MobileAuthController {
 
       member.pin = await bcrypt.hash(newPin, 10);
       await this.memberRepo.save(member);
-
-      // Optionally, consume the verification
-      verification.isVerified = false;
-      await this.verificationRepo.save(verification);
 
       return res.status(StatusCodes.OK).json({
         success: true,

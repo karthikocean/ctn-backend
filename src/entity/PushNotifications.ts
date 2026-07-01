@@ -10,14 +10,16 @@ import { ObjectId } from "mongodb";
 export enum NotificationModule {
   GENERAL = "GENERAL",
   CONNECTION = "CONNECTION", // Mapped to Follow Requests
-  CHAT = "CHAT", // Mapped to Messages
-  POST = "POST",
+  // CHAT = "CHAT", // Mapped to Messages
+  PROMOTION = "PROMOTION",
   ASK = "ASK",
   GIVE = "GIVE",
   REQUIREMENT = "REQUIREMENT",
   WORKORDER = "WORKORDER",
   OTHER = "OTHER",
   REMINDER = "REMINDER",
+  BIRTHDAY = "BIRTHDAY",
+  TRIAL = "TRIAL",
 
   // New modules requested by user
   ONE_TO_ONE = "ONE_TO_ONE",

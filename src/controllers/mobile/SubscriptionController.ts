@@ -25,6 +25,8 @@ import { StartTrialDto, UpgradeSubscriptionDto, BuySubscriptionDto, DowngradeSub
 import handleErrorResponse from "../../utils/commonFunction";
 import { ObjectId } from "mongodb";
 import jwt from "jsonwebtoken";
+import { insertPushNotification } from "../../services/pushnotification.service";
+import { NotificationModule } from "../../entity/PushNotifications";
 
 @JsonController("/subscription")
 export class MobileSubscriptionController {
@@ -208,6 +210,18 @@ export class MobileSubscriptionController {
     try {
       const memberId = req.user.userId;
       const sub = await this.subscriptionService.startTrial(memberId, body.planId);
+      const member = await this.memberRepo.findOneBy({ _id: new ObjectId(memberId) });
+      if (!member) {
+        throw new BadRequestError("Member not found");
+      }
+      await insertPushNotification({
+        token: member.fcmToken || "",
+        subject: "Welcome to Your Free Trial! 🎉",
+        content: "Your free trial has started. Enjoy full access to the available features during your trial period.",
+        moduleName: NotificationModule.TRIAL,
+        moduleId: body.planId,
+        receiverId: member._id.toString()
+      });
       return res.status(StatusCodes.CREATED).json({
         success: true,
         message: "Free Trial activated successfully!",
@@ -408,7 +422,18 @@ export class MobileSubscriptionController {
         memberId,
         planId
       );
-
+      const member = await this.memberRepo.findOneBy({ _id: new ObjectId(memberId) });
+      if (!member) {
+        throw new BadRequestError("Member not found");
+      }
+      await insertPushNotification({
+        token: member.fcmToken || "",
+        subject: "Plan Downgraded",
+        content: "Your subscription plan has been downgraded successfully. Your new plan is now active.",
+        moduleName: NotificationModule.DOWNGRADE,
+        moduleId: planId.toString(),
+        receiverId: member._id.toString()
+      });
       return res.status(StatusCodes.OK).json(result);
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -444,7 +469,18 @@ export class MobileSubscriptionController {
         memberId,
         planId
       );
-
+      const member = await this.memberRepo.findOneBy({ _id: new ObjectId(memberId) });
+      if (!member) {
+        throw new BadRequestError("Member not found");
+      }
+      await insertPushNotification({
+        token: member.fcmToken || "",
+        subject: "Plan Upgraded Successfully",
+        content: "Congratulations! Your subscription plan has been upgraded successfully.",
+        moduleName: NotificationModule.UPGRADE,
+        moduleId: planId.toString(),
+        receiverId: member._id.toString()
+      });
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Razorpay payment transaction initiated.",
