@@ -29,7 +29,7 @@ export class ReminderService {
     }
 
     reminder.reminderTime = data.reminderTime;
-    reminder.repeatType = data.repeatType;
+    // reminder.repeatType = data.repeatType;
     reminder.repeatInterval = data.repeatInterval || 1;
     reminder.status = ReminderStatus.PENDING;
     reminder.isActive = true;
@@ -38,9 +38,9 @@ export class ReminderService {
     reminder.createdBy = creatorId;
     reminder.updatedBy = creatorId;
 
-    if (data.notifyBy) {
-      reminder.notifyBy = data.notifyBy;
-    }
+    // if (data.notifyBy) {
+    //   reminder.notifyBy = data.notifyBy;
+    // }
 
     reminder.recipients = [creatorId];
 
