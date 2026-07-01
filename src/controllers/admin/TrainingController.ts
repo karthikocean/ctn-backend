@@ -11,12 +11,15 @@ import {
   BadRequestError,
   HttpCode,
   Res,
+  Req,
   UseBefore
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Training } from "../../entity/Training";
 import { TrainingCategory } from "../../entity/TrainingCategory";
 import { CreateTrainingDto, UpdateTrainingDto } from "../../dto/admin/Training.dto";
+import { notifyAllActiveMembers } from "../../services/pushnotification.service";
+import { NotificationModule } from "../../entity/PushNotifications";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
@@ -50,7 +53,7 @@ export class TrainingController {
   @Post("/")
   @UseBefore(canAccess("trainings", "add"))
   @HttpCode(StatusCodes.CREATED)
-  async create(@Body() data: CreateTrainingDto, @Res() res: any) {
+  async create(@Req() req: any, @Body() data: CreateTrainingDto, @Res() res: any) {
     try {
       const training = new Training();
       Object.assign(training, data);
@@ -72,6 +75,16 @@ export class TrainingController {
       }
 
       const saved = await this.trainingRepo.save(training);
+
+      // Send push notification to all active members
+      await notifyAllActiveMembers({
+        subject: "New Training Course Published! 🎓",
+        content: `A new training course is available: ${training.title}`,
+        moduleName: NotificationModule.TRAINING,
+        moduleId: saved._id.toString(),
+        senderId: req.user.userId
+      });
+
       return res.status(StatusCodes.CREATED).json({
         message: "Training course published successfully",
         data: saved

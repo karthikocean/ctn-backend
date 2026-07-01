@@ -35,14 +35,17 @@ export const waitForDisconnects = async (timeoutMs: number = 2000): Promise<void
 };
 
 export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => void) => {
+  console.log(`[SocketAuth] Handshake started for socket: ${socket.id}`);
   const token = socket.handshake.auth.token || socket.handshake.headers.authorization;
 
   if (!token) {
+    console.log(`[SocketAuth] Rejecting: Token missing for socket: ${socket.id}`);
     return next(new Error("Authentication error: Token missing"));
   }
 
   try {
     const cleanToken = token.replace("Bearer ", "");
+    console.log(`[SocketAuth] Clean token: ${cleanToken.substring(0, 15)}...`);
     let decoded: any;
     let isExpired = false;
 
@@ -54,43 +57,55 @@ export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => v
         try {
           decoded = jwt.verify(cleanToken, process.env.JWT_SECRET as string, { ignoreExpiration: true }) as any;
         } catch {
+          console.log(`[SocketAuth] Rejecting: Invalid expired token for socket: ${socket.id}`);
           return next(new Error("Authentication error: Invalid token"));
         }
       } else {
+        console.log(`[SocketAuth] Rejecting: Invalid token verification for socket: ${socket.id}`, error.message);
         return next(new Error("Authentication error: Invalid token"));
       }
     }
 
     const userId = decoded.userId || decoded.id;
     if (!decoded || typeof decoded !== "object" || !userId || !ObjectId.isValid(userId)) {
+      console.log(`[SocketAuth] Rejecting: Invalid payload for socket: ${socket.id}`);
       return next(new Error("Authentication error: Invalid token payload"));
     }
 
+    console.log(`[SocketAuth] Token verified. Decoded user ID: ${userId}, isExpired: ${isExpired}`);
+
     // 1. Verify User exists and is active in database
     const userOid = new ObjectId(userId);
-    const isMember = decoded.userType === "MEMBER" || decoded.userId !== undefined;
+    let isMember = false;
 
-    if (isMember) {
-      const memberRepo = AppDataSource.getMongoRepository(Member);
-      const member = await memberRepo.findOneBy({ _id: userOid, isDeleted: false });
-      if (!member) {
-        return next(new Error("Authentication error: Member not found"));
-      }
+    console.log(`[SocketAuth] Querying Member in DB for userOid: ${userOid}`);
+    const memberRepo = AppDataSource.getMongoRepository(Member);
+    const member = await memberRepo.findOneBy({ _id: userOid, isDeleted: false });
+
+    if (member) {
+      console.log(`[SocketAuth] User found in Member collection. Status: ${member.status}`);
+      isMember = true;
       if (member.status !== MemberStatus.ACTIVE) {
+        console.log("[SocketAuth] Rejecting: Member status inactive");
         return next(new Error("Authentication error: Account is inactive"));
       }
     } else {
+      console.log("[SocketAuth] User not found in Member collection. Querying AdminUser in DB...");
       const adminRepo = AppDataSource.getMongoRepository(AdminUser);
       const admin = await adminRepo.findOneBy({ _id: userOid, isDeleted: false });
       if (!admin) {
-        return next(new Error("Authentication error: Admin user not found"));
+        console.log("[SocketAuth] Rejecting: User not found in Member or AdminUser collection");
+        return next(new Error("Authentication error: User not found"));
       }
       if (!admin.isActive) {
+        console.log("[SocketAuth] Rejecting: Admin status inactive");
         return next(new Error("Authentication error: Account is inactive"));
       }
+      console.log("[SocketAuth] User is Admin");
     }
 
     // 2. Verify Session (UserToken) in database
+    console.log(`[SocketAuth] Querying UserToken in DB for userOid: ${userOid}`);
     const tokenRepo = AppDataSource.getMongoRepository(UserToken);
     let activeTokenRecord = await tokenRepo.findOneBy({
       userId: userOid,
@@ -98,6 +113,7 @@ export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => v
     });
 
     if (!activeTokenRecord) {
+      console.log("[SocketAuth] Token not found in DB. Checking older token...");
       // Handle concurrent/rotation grace period
       const dbRecord = await tokenRepo.findOneBy({ userId: userOid });
       if (dbRecord) {
@@ -107,6 +123,7 @@ export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => v
           if (decodedDb && decodedClient && (decodedClient.iat || 0) <= (decodedDb.iat || 0)) {
             activeTokenRecord = dbRecord;
             socket.data.newToken = dbRecord.token;
+            console.log("[SocketAuth] Accepted valid older token.");
           }
         } catch (e) {
           console.error("[SocketAuth] Error during older token verification:", e);
@@ -115,11 +132,13 @@ export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => v
     }
 
     if (!activeTokenRecord) {
+      console.log("[SocketAuth] Rejecting: Session expired (Token not found in DB)");
       return next(new Error("Authentication error: Session expired"));
     }
 
     // 3. Regenerate token if it was expired and database record was exact match
     if (isExpired && !socket.data.newToken) {
+      console.log("[SocketAuth] Regenerating token...");
       const newToken = jwt.sign(
         isMember
           ? { userId: userId.toString(), userType: "MEMBER" }
@@ -134,6 +153,8 @@ export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => v
     }
 
     socket.data.userId = userId;
+    socket.data.isMember = isMember;
+    console.log(`[SocketAuth] Authentication successful for user: ${userId}. Calling next().`);
     next();
   } catch (err: any) {
     console.error("[SocketAuth] Unexpected error during authentication:", err);
@@ -148,7 +169,8 @@ export const initSocket = (server: HttpServer) => {
       methods: ["GET", "POST"]
     },
     pingInterval: 10000,
-    pingTimeout: 20000
+    pingTimeout: 20000,
+    allowEIO3: true
   });
 
   // ✅ JWT Authentication Middleware
@@ -163,7 +185,7 @@ export const initSocket = (server: HttpServer) => {
       console.log(`[SocketAuth] Emitted regenerated token to client: ${userId}`);
     }
 
-    if (userId && ObjectId.isValid(userId)) {
+    if (socket.data.isMember && userId && ObjectId.isValid(userId)) {
       try {
         const memberRepo = AppDataSource.getMongoRepository(Member);
         await memberRepo.updateOne(
@@ -199,7 +221,7 @@ export const initSocket = (server: HttpServer) => {
     });
 
     socket.on("set_status", async (data: { isOnline: boolean }) => {
-      if (!userId || !ObjectId.isValid(userId)) return;
+      if (!socket.data.isMember || !userId || !ObjectId.isValid(userId)) return;
       try {
         const memberRepo = AppDataSource.getMongoRepository(Member);
         const lastSeen = new Date();
@@ -287,7 +309,7 @@ export const initSocket = (server: HttpServer) => {
 
     socket.on("disconnect", async () => {
       console.log(`❌ User disconnected: ${userId}`);
-      if (!userId || !ObjectId.isValid(userId)) return;
+      if (!socket.data.isMember || !userId || !ObjectId.isValid(userId)) return;
 
       activeDisconnects++;
       try {

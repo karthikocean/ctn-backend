@@ -6,12 +6,14 @@ import { pagination } from "../../utils";
 import { InsertPushNotificationDto } from "../../dto/mobile/InsertPushNotification.dto";
 import { AppDataSource } from "../../data-source";
 import { PushNotification, NotificationModule } from "../../entity/PushNotifications";
+import { Member } from "../../entity/Member";
 import { ObjectId } from "mongodb";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 
 @JsonController("/push-notification")
 export class PushNotificationController {
   private pushNotificationRepo = AppDataSource.getMongoRepository(PushNotification);
+  private memberRepo = AppDataSource.getMongoRepository(Member);
 
   /**
    * @swagger
@@ -141,8 +143,7 @@ export class PushNotificationController {
   @UseBefore(MobileAuthMiddleware)
   async getGroups(@Req() req: any, @Res() res: any) {
     try {
-      const userId = new ObjectId(req.user._id);
-
+      const userId = new ObjectId(req.user.userId);
       // Fetch unread notifications for the user
       const unreadNotifications = await this.pushNotificationRepo.find({
         where: { receiverId: userId, isRead: false, isDeleted: false }
@@ -174,12 +175,13 @@ export class PushNotificationController {
         Communication: {
           totalUnread: getCount([
             NotificationModule.MESSAGE,
-            NotificationModule.CHAT, // mapped to messages
+            // NotificationModule.CHAT,
             NotificationModule.MESSAGE_REQUEST
           ]),
           items: [
-            { module: NotificationModule.MESSAGE, label: "Messages", unreadCount: getCount([NotificationModule.MESSAGE, NotificationModule.CHAT]) },
+            { module: NotificationModule.MESSAGE, label: "Messages", unreadCount: getCount([NotificationModule.MESSAGE]) },
             { module: NotificationModule.MESSAGE_REQUEST, label: "Message Requests", unreadCount: getCount([NotificationModule.MESSAGE_REQUEST]) },
+            // { module: NotificationModule.CHAT, label: "Chats", unreadCount: getCount([NotificationModule.CHAT]) },
           ]
         },
         Posts: {
@@ -198,18 +200,22 @@ export class PushNotificationController {
           ]
         },
         Membership: {
-          totalUnread: getCount([NotificationModule.PLAN_EXPIRY, NotificationModule.UPGRADE, NotificationModule.DOWNGRADE]),
+          totalUnread: getCount([NotificationModule.PLAN_EXPIRY, NotificationModule.UPGRADE, NotificationModule.DOWNGRADE, NotificationModule.TRIAL]),
           items: [
             { module: NotificationModule.PLAN_EXPIRY, label: "Plan Expiry", unreadCount: getCount([NotificationModule.PLAN_EXPIRY]) },
             { module: NotificationModule.UPGRADE, label: "Upgrade", unreadCount: getCount([NotificationModule.UPGRADE]) },
             { module: NotificationModule.DOWNGRADE, label: "Downgrade", unreadCount: getCount([NotificationModule.DOWNGRADE]) },
+            { module: NotificationModule.TRIAL, label: "Trial", unreadCount: getCount([NotificationModule.TRIAL]) },
           ]
         },
         Reminders: {
-          totalUnread: getCount([NotificationModule.DAILY_TASK, NotificationModule.REMINDER]),
+          totalUnread: getCount([NotificationModule.DAILY_TASK, NotificationModule.REMINDER,
+            NotificationModule.BIRTHDAY
+          ]),
           items: [
             { module: NotificationModule.DAILY_TASK, label: "Daily Tasks", unreadCount: getCount([NotificationModule.DAILY_TASK]) },
             { module: NotificationModule.REMINDER, label: "Reminder", unreadCount: getCount([NotificationModule.REMINDER]) },
+            { module: NotificationModule.BIRTHDAY, label: "Birthdays", unreadCount: getCount([NotificationModule.BIRTHDAY]) },
           ]
         }
       };
@@ -256,31 +262,63 @@ export class PushNotificationController {
     @Res() res: any
   ) {
     try {
-      if (!moduleName) {
-        return res.status(StatusCodes.BAD_REQUEST).json({ success: false, message: "moduleName is required" });
-      }
+      // if (!moduleName) {
+      //   return res.status(StatusCodes.BAD_REQUEST).json({ success: false, message: "moduleName is required" });
+      // }
 
-      const userId = new ObjectId(req.user._id);
+      const userId = new ObjectId(req.user.userId);
       page = Number(page) || 0;
       limit = Number(limit) || 20;
 
       // Handle mapped enums so older notifications still show up
       const targetModules = [moduleName as NotificationModule];
       if (moduleName === NotificationModule.FOLLOW_REQUEST) targetModules.push(NotificationModule.CONNECTION);
-      if (moduleName === NotificationModule.MESSAGE) targetModules.push(NotificationModule.CHAT);
-
+      if (moduleName === NotificationModule.MESSAGE) targetModules.push(NotificationModule.MESSAGE);
+      const match: any = {
+        receiverId: userId,
+        // moduleName: { $in: targetModules } as any,
+        isDeleted: false
+      };
+      if (moduleName) {
+        match.moduleName = { $in: targetModules } as any;
+      }
       const [notifications, total] = await this.pushNotificationRepo.findAndCount({
-        where: {
-          receiverId: userId,
-          moduleName: { $in: targetModules } as any,
-          isDeleted: false
-        },
+        where: match,
         order: { createdAt: "DESC" },
         take: limit,
         skip: page * limit
       });
 
-      return pagination(total, notifications, limit, page, res);
+      // Collect unique senderIds
+      const senderIds = [...new Set(
+        notifications
+          .filter(n => n.senderId)
+          .map(n => n.senderId!.toString())
+      )];
+
+      // Fetch sender members in one query
+      let senderMap: Record<string, { fullName: string; mobileNumber: string; profilePhoto?: string }> = {};
+      if (senderIds.length > 0) {
+        const senderObjectIds = senderIds.map(id => new ObjectId(id));
+        const senders = await this.memberRepo.find({
+          where: { _id: { $in: senderObjectIds } as any }
+        });
+        senders.forEach(s => {
+          senderMap[s._id.toString()] = {
+            fullName: s.fullName,
+            mobileNumber: s.mobileNumber,
+            profilePhoto: s.profilePhoto
+          };
+        });
+      }
+
+      // Attach sender info to each notification
+      const enrichedNotifications = notifications.map(n => ({
+        ...n,
+        sender: n.senderId ? (senderMap[n.senderId.toString()] ?? null) : null
+      }));
+
+      return pagination(total, enrichedNotifications, limit, page, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
@@ -314,7 +352,7 @@ export class PushNotificationController {
   @UseBefore(MobileAuthMiddleware)
   async markAsRead(@Req() req: any, @Body() body: { notificationIds?: string[], moduleName?: string }, @Res() res: any) {
     try {
-      const userId = new ObjectId(req.user._id);
+      const userId = new ObjectId(req.user.userId);
       const { notificationIds, moduleName } = body;
 
       if (notificationIds && notificationIds.length > 0) {
@@ -326,7 +364,7 @@ export class PushNotificationController {
       } else if (moduleName) {
         const targetModules = [moduleName as NotificationModule];
         if (moduleName === NotificationModule.FOLLOW_REQUEST) targetModules.push(NotificationModule.CONNECTION);
-        if (moduleName === NotificationModule.MESSAGE) targetModules.push(NotificationModule.CHAT);
+        if (moduleName === NotificationModule.MESSAGE) targetModules.push(NotificationModule.MESSAGE);
 
         await this.pushNotificationRepo.update(
           { moduleName: { $in: targetModules } as any, receiverId: userId, isRead: false },

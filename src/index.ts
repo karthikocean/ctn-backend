@@ -7,6 +7,7 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { useExpressServer } from "routing-controllers";
 import { AppDataSource } from "./data-source";
+import { Member } from "./entity/Member";
 import fileUpload from "express-fileupload";
 
 // ✅ Swagger
@@ -29,6 +30,15 @@ import { BirthdayCronService } from "./services/birthdayCron.service";
 AppDataSource.initialize()
   .then(async () => {
     console.log("✅ Database connected");
+
+    // Reset all members' online status to offline on startup
+    try {
+      const memberRepo = AppDataSource.getMongoRepository(Member);
+      await memberRepo.updateMany({}, { $set: { isOnline: false } });
+      console.log("🔄 Reset all members to offline status on startup");
+    } catch (err) {
+      console.error("❌ Failed to reset members' online status on startup:", err);
+    }
 
     const app = express();
     // seed default modules

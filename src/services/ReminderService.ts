@@ -1,5 +1,5 @@
 import { AppDataSource } from "../data-source";
-import { Reminder, ReminderStatus } from "../entity/Reminder";
+import { NotifyBy, Reminder, ReminderStatus, RepeatType } from "../entity/Reminder";
 import { CreateReminderDto } from "../dto/mobile/CreateReminderDto";
 import { UpdateReminderDto } from "../dto/mobile/UpdateReminderDto";
 import { ReminderListDto } from "../dto/mobile/ReminderListDto";
@@ -29,7 +29,7 @@ export class ReminderService {
     }
 
     reminder.reminderTime = data.reminderTime;
-    // reminder.repeatType = data.repeatType;
+    reminder.repeatType = RepeatType.ONCE;
     reminder.repeatInterval = data.repeatInterval || 1;
     reminder.status = ReminderStatus.PENDING;
     reminder.isActive = true;
@@ -37,11 +37,7 @@ export class ReminderService {
     reminder.nextReminderDate = new Date(reminder.reminderDate);
     reminder.createdBy = creatorId;
     reminder.updatedBy = creatorId;
-
-    // if (data.notifyBy) {
-    //   reminder.notifyBy = data.notifyBy;
-    // }
-
+    reminder.notifyBy = NotifyBy.PUSH as any;
     reminder.recipients = [creatorId];
 
     return await this.reminderRepo.save(reminder);

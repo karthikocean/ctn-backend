@@ -26,6 +26,8 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { canAccess } from "../../middlewares/PermissionMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
+import { insertPushNotification } from "../../services/pushnotification.service";
+import { NotificationModule } from "../../entity/PushNotifications";
 
 @JsonController("/spotlights")
 @UseBefore(AuthMiddleware, franchiseFilter)
@@ -371,6 +373,14 @@ export class SpotlightController {
       if (member) {
         member.updatedAt = new Date();
         await this.memberRepo.save(member);
+        await insertPushNotification({
+          token: member.fcmToken || "",
+          subject: "Spotlight request approved",
+          content: "Your spotlight request has been approved successfully.",
+          moduleName: NotificationModule.SPOTLIGHT,
+          moduleId: id,
+          receiverId: member._id.toString()
+        });
       }
 
       return res.status(StatusCodes.OK).json({
@@ -419,7 +429,20 @@ export class SpotlightController {
 
       request.status = SpotlightRequestStatus.REJECTED;
       await this.spotlightRequestRepo.save(request);
-
+      const member = await this.memberRepo.findOneBy({
+        _id: request.memberId,
+        isDeleted: false
+      });
+      if (member) {
+        await insertPushNotification({
+          token: member.fcmToken || "",
+          subject: "Spotlight request rejected",
+          content: "Your spotlight request has been rejected successfully.",
+          moduleName: NotificationModule.SPOTLIGHT,
+          moduleId: id,
+          receiverId: member._id.toString()
+        });
+      }
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Spotlight request rejected successfully",

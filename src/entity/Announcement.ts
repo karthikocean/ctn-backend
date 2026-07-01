@@ -83,7 +83,11 @@ export class Announcement {
 
   @Column({ default: false })
     isDeleted!: boolean;
+  @Column({ nullable: true })
+    createdBy?: ObjectId;
 
+  @Column({ nullable: true })
+    updatedBy?: ObjectId;
   @CreateDateColumn()
     createdAt!: Date;
 

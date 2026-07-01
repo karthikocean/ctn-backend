@@ -4,6 +4,7 @@ import { Member } from "../entity/Member";
 import { Connection, ConnectionStatus } from "../entity/Connection";
 import { insertPushNotification } from "./pushnotification.service";
 import { ObjectId } from "mongodb";
+import { NotificationModule } from "../entity/PushNotifications";
 
 export class BirthdayCronService {
   private static memberRepo = AppDataSource.getMongoRepository(Member);
@@ -117,7 +118,7 @@ export class BirthdayCronService {
             token: friend.fcmToken,
             subject,
             content,
-            moduleName: "BIRTHDAY",
+            moduleName: NotificationModule.BIRTHDAY,
             moduleId: memberId.toString(),
             receiverId: friend._id.toString(),
             senderId: memberId.toString()

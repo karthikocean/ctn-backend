@@ -34,6 +34,7 @@ import { validateModuleUsage } from "../../services/moduleUsage.service";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
 import { DailyScoreService } from "../../services/dailyScore.service";
+import { notifyPostAudience } from "../../services/pushnotification.service";
 
 const getObjectIdStr = (val: any): string | null => {
   if (!val) return null;
@@ -191,6 +192,14 @@ export class MobilePostController {
       delete (post as any).regions;
 
       const savedPost = await this.postRepo.save(post);
+
+      // Notify relevant members about the new post (non-blocking)
+      notifyPostAudience({
+        post: savedPost,
+        senderId: userId,
+        subject: `New ${data.type.charAt(0) + data.type.slice(1).toLowerCase()} Post`,
+        content: "A new post has been shared"
+      }).catch(err => console.error("[PostController] notifyPostAudience error:", err));
 
       let pointsResult = { awarded: 0, balance: 0 };
       // 2. Award Points
@@ -439,23 +448,17 @@ export class MobilePostController {
       const memberCity = currentMember.city;
       const memberBusinessRegion = currentMember.businessRegion;
 
-      if (!memberCity && !memberBusinessRegion) {
-        // If member has no location, return empty list
-        return pagination(0, [], limit, page, res);
-      }
+      let regionMemberIds: ObjectId[] = [];
+      if (memberCity || memberBusinessRegion) {
+        // 2. Find members in the same region
+        const locationCondition: any = { isDeleted: false };
+        if (memberCity) locationCondition.city = memberCity;
+        if (memberBusinessRegion) locationCondition.businessRegion = memberBusinessRegion;
 
-      // 2. Find members in the same region
-      const locationCondition: any = { isDeleted: false };
-      if (memberCity) locationCondition.city = memberCity;
-      if (memberBusinessRegion) locationCondition.businessRegion = memberBusinessRegion;
-
-      const regionMembers = await this.memberRepo.find({ where: locationCondition });
-      const regionMemberIds = regionMembers
-        .filter(m => m._id.toString() !== userId)
-        .map(m => m._id);
-
-      if (regionMemberIds.length === 0) {
-        return pagination(0, [], limit, page, res);
+        const regionMembers = await this.memberRepo.find({ where: locationCondition });
+        regionMemberIds = regionMembers
+          .filter(m => m._id.toString() !== userId)
+          .map(m => m._id);
       }
 
       // Fetch mutual friends to evaluate MUTUAL_FRIEND requirement visibility
@@ -473,20 +476,34 @@ export class MobilePostController {
         .filter(id => followerIds.includes(id))
         .map(id => new ObjectId(id));
 
-      // 3. Find REQUIREMENT posts from these members
+      // 3. Find REQUIREMENT posts
       const where: any = {
         type: PostType.REQUIREMENT,
-        memberId: { $in: regionMemberIds },
         isDeleted: false,
         status: { $ne: "reported" }
       };
 
-      const visibilityOrArray = [
-        { requirementVisibility: { $exists: false } },
-        { requirementVisibility: null },
-        { requirementVisibility: RequirementVisibility.REGION },
-        { requirementVisibility: RequirementVisibility.MUTUAL_FRIEND, memberId: { $in: mutualIds } }
+      const visibilityOrArray: any[] = [
+        { requirementVisibility: RequirementVisibility.OVERALL }
       ];
+
+      if (mutualIds.length > 0) {
+        visibilityOrArray.push({
+          requirementVisibility: RequirementVisibility.MUTUAL_FRIEND,
+          memberId: { $in: mutualIds }
+        });
+      }
+
+      if (regionMemberIds.length > 0) {
+        visibilityOrArray.push({
+          memberId: { $in: regionMemberIds },
+          $or: [
+            { requirementVisibility: { $exists: false } },
+            { requirementVisibility: null },
+            { requirementVisibility: RequirementVisibility.REGION }
+          ]
+        });
+      }
 
       if (search) {
         const searchOrArray = [
@@ -503,7 +520,7 @@ export class MobilePostController {
       }
 
       this.applyCategoryVisibilityFilter(where, currentMember);
-
+      // console.log(JSON.stringify(where), 'where')
       const [posts, total] = await this.postRepo.findAndCount({
         where,
         skip: page * limit,
@@ -597,7 +614,7 @@ export class MobilePostController {
     const userId = req.user.userId;
 
     try {
-      const allowedTypes = [PostType.PROMOTION, PostType.ASK];
+      const allowedTypes = [PostType.PROMOTION];
       const where: any = {
         isDeleted: false,
         status: { $ne: "reported" },
@@ -925,6 +942,7 @@ export class MobilePostController {
         visibilityOrArray.push(
           { requirementVisibility: { $exists: false } },
           { requirementVisibility: null },
+          { requirementVisibility: RequirementVisibility.OVERALL },
           { memberId: new ObjectId(userId) },
           { requirementVisibility: RequirementVisibility.MUTUAL_FRIEND, memberId: { $in: mutualIds } },
           { requirementVisibility: RequirementVisibility.REGION, memberId: { $in: regionMemberIds } }
@@ -934,6 +952,7 @@ export class MobilePostController {
           { type: { $ne: PostType.REQUIREMENT } },
           { type: PostType.REQUIREMENT, requirementVisibility: { $exists: false } },
           { type: PostType.REQUIREMENT, requirementVisibility: null },
+          { type: PostType.REQUIREMENT, requirementVisibility: RequirementVisibility.OVERALL },
           { type: PostType.REQUIREMENT, memberId: new ObjectId(userId) },
           { type: PostType.REQUIREMENT, requirementVisibility: RequirementVisibility.MUTUAL_FRIEND, memberId: { $in: mutualIds } },
           { type: PostType.REQUIREMENT, requirementVisibility: RequirementVisibility.REGION, memberId: { $in: regionMemberIds } }
