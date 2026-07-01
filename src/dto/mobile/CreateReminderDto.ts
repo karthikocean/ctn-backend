@@ -1,5 +1,5 @@
-import { IsString, IsNotEmpty, IsOptional, IsEnum, IsNumber, IsArray } from "class-validator";
-import { RepeatType, NotifyBy } from "../../entity/Reminder";
+import { IsString, IsNotEmpty, IsOptional, IsNumber } from "class-validator";
+// import { RepeatType, NotifyBy } from "../../entity/Reminder";
 
 /**
  * @swagger
@@ -9,13 +9,9 @@ import { RepeatType, NotifyBy } from "../../entity/Reminder";
  *       type: object
  *       required:
  *         - title
- *         - module
  *         - reminderDate
  *         - reminderTime
- *         - repeatType
  *         - repeatInterval
- *         - notifyBy
- *         - recipients
  *       properties:
  *         title:
  *           type: string
@@ -23,12 +19,6 @@ import { RepeatType, NotifyBy } from "../../entity/Reminder";
  *         description:
  *           type: string
  *           example: "Follow up about the contract"
- *         module:
- *           type: string
- *           example: "EVENT"
- *         moduleId:
- *           type: string
- *           example: "6a3e56f9c93671c42134be40"
  *         reminderDate:
  *           type: string
  *           format: date-time
@@ -36,24 +26,9 @@ import { RepeatType, NotifyBy } from "../../entity/Reminder";
  *         reminderTime:
  *           type: string
  *           example: "10:30 AM"
- *         repeatType:
- *           type: string
- *           enum: [Once, Daily, Weekly, Monthly, Yearly]
- *           example: "Daily"
  *         repeatInterval:
  *           type: number
  *           example: 1
- *         notifyBy:
- *           type: array
- *           items:
- *             type: string
- *             enum: [APP, EMAIL, SMS, WHATSAPP, PUSH]
- *           example: ["PUSH", "EMAIL"]
- *         recipients:
- *           type: array
- *           items:
- *             type: string
- *           example: ["6a3e56f9c93671c42134be3e"]
  */
 export class CreateReminderDto {
   @IsString()
@@ -64,13 +39,13 @@ export class CreateReminderDto {
   @IsOptional()
     description?: string;
 
-  @IsString()
-  @IsNotEmpty()
-    module!: string;
+  // @IsString()
+  // @IsNotEmpty()
+  //   module!: string;
 
-  @IsString()
-  @IsOptional()
-    moduleId?: string;
+  // @IsString()
+  // @IsOptional()
+  //   moduleId?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -80,17 +55,16 @@ export class CreateReminderDto {
   @IsNotEmpty()
     reminderTime!: string;
 
-  @IsEnum(RepeatType)
-  @IsNotEmpty()
-    repeatType!: RepeatType;
+  // @IsEnum(RepeatType)
+  // @IsNotEmpty()
+  //   repeatType!: RepeatType;
 
   @IsNumber()
   @IsNotEmpty()
     repeatInterval!: number;
 
-  @IsArray()
-  @IsEnum(NotifyBy, { each: true })
-  @IsNotEmpty()
-    notifyBy!: NotifyBy[];
-
+  // @IsArray()
+  // @IsEnum(NotifyBy, { each: true })
+  // @IsNotEmpty()
+  //   notifyBy!: NotifyBy[];
 }

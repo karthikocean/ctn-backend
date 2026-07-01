@@ -49,6 +49,9 @@ export class PostModel {
   @Column({ nullable: true })
     period?: string;
 
+  @Column({ nullable: true })
+    lastmet?: string;
+
   @Column("simple-array", { nullable: true })
     media?: string[];
 
