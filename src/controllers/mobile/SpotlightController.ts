@@ -14,6 +14,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Spotlight, SpotlightStatus } from "../../entity/Spotlight";
 import { SpotlightRequest, SpotlightRequestStatus } from "../../entity/SpotlightRequest";
+import { SpotlightHistory, SpotlightHistoryAction } from "../../entity/SpotlightHistory";
 import { Member } from "../../entity/Member";
 import { Category } from "../../entity/Category";
 import { ObjectId } from "mongodb";
@@ -28,6 +29,7 @@ import { PointConfig, PointConfigType } from "../../entity/PointConfig";
 export class MobileSpotlightController {
   private spotlightRepo = AppDataSource.getMongoRepository(Spotlight);
   private spotlightRequestRepo = AppDataSource.getMongoRepository(SpotlightRequest);
+  private spotlightHistoryRepo = AppDataSource.getMongoRepository(SpotlightHistory);
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
   private configRepo = AppDataSource.getMongoRepository(PointConfig);
@@ -155,6 +157,18 @@ export class MobileSpotlightController {
       request.isDeleted = false;
 
       const saved = await this.spotlightRequestRepo.save(request);
+
+      try {
+        const history = new SpotlightHistory();
+        history.memberId = new ObjectId(memberId);
+        history.action = SpotlightHistoryAction.REQUEST_CREATED;
+        history.performedBy = new ObjectId(memberId);
+        history.moduleId = saved._id;
+        history.msg = "Spotlight request submitted.";
+        await this.spotlightHistoryRepo.save(history);
+      } catch (historyError) {
+        console.error("Failed to log spotlight request creation history:", historyError);
+      }
 
       let remainingPoints = 0;
       if (pointsToDeduct > 0 && member) {

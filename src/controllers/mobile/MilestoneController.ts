@@ -423,7 +423,7 @@ export class MobileMilestoneController {
       if (isReceiverActive) {
         unreadCounts[ownerId.toString()] = 0;
       } else {
-        unreadCounts[ownerId.toString()] = (unreadCounts[ownerId.toString()] || 0 + 1);
+        unreadCounts[ownerId.toString()] = (unreadCounts[ownerId.toString()] || 0) + 1;
       }
       conversation.unreadCounts = { ...unreadCounts };
 

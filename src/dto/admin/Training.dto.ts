@@ -5,7 +5,8 @@ import {
   IsOptional,
   IsNumber,
   IsArray,
-  ValidateNested
+  ValidateNested,
+  IsBoolean
 } from "class-validator";
 import { Type } from "class-transformer";
 import { TrainingStatus } from "../../entity/Training";
@@ -84,6 +85,10 @@ export class CreateTrainingDto {
   @IsString()
   @IsOptional()
     categoryId?: string;
+
+  @IsBoolean()
+  @IsOptional()
+    isFree?: boolean;
 }
 
 export class UpdateTrainingDto {
@@ -132,4 +137,8 @@ export class UpdateTrainingDto {
   @IsString()
   @IsOptional()
     categoryId?: string;
+
+  @IsBoolean()
+  @IsOptional()
+    isFree?: boolean;
 }

@@ -65,6 +65,9 @@ export class Training {
     lessons!: Lesson[];
 
   @Column({ default: false })
+    isFree!: boolean;
+
+  @Column({ default: false })
     isDeleted!: boolean;
 
   @CreateDateColumn()

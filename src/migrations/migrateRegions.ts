@@ -7,9 +7,6 @@ export async function migrateRegions() {
   console.log("🏃 Running BusinessRegion migration script...");
   try {
     const regionRepo = AppDataSource.getMongoRepository(BusinessRegion);
-    const stateRepo = AppDataSource.getMongoRepository(State);
-    const cityRepo = AppDataSource.getMongoRepository(City);
-
     // Fetch all business regions
     const regions = await regionRepo.find({ city: { $ne: "Chennai" } });
     await regionRepo.deleteMany({ city: { $ne: "Chennai" } });
