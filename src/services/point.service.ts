@@ -96,7 +96,7 @@ export class PointService {
     try {
       const plan = await this.subscriptionService.getMemberPlan(memberOid);
       multiplier = plan.benefits?.pointMultiplier || 1;
-    } catch (e) {
+    } catch {
       // Gracefully fall back to 1x multiplier if member has no active subscription/trial
       multiplier = 1;
     }

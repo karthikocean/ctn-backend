@@ -17,6 +17,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Spotlight } from "../../entity/Spotlight";
 import { SpotlightRequest, SpotlightRequestStatus } from "../../entity/SpotlightRequest";
+import { SpotlightHistory, SpotlightHistoryAction } from "../../entity/SpotlightHistory";
 import { Member } from "../../entity/Member";
 import { CreateSpotlightDto, UpdateSpotlightDto } from "../../dto/admin/Spotlight.dto";
 import { ObjectId } from "mongodb";
@@ -34,6 +35,7 @@ import { NotificationModule } from "../../entity/PushNotifications";
 export class SpotlightController {
   private spotlightRepo = AppDataSource.getMongoRepository(Spotlight);
   private spotlightRequestRepo = AppDataSource.getMongoRepository(SpotlightRequest);
+  private spotlightHistoryRepo = AppDataSource.getMongoRepository(SpotlightHistory);
   private memberRepo = AppDataSource.getMongoRepository(Member);
 
   /**
@@ -70,6 +72,22 @@ export class SpotlightController {
       spotlight.updatedBy = new ObjectId(req.user.userId);
 
       const saved = await this.spotlightRepo.save(spotlight);
+
+      try {
+        for (const memberId of saved.members) {
+          const history = new SpotlightHistory();
+          history.memberId = memberId;
+          history.action = SpotlightHistoryAction.ASSIGNED;
+          history.scheduleDate = saved.scheduleDate;
+          history.performedBy = new ObjectId(req.user.userId);
+          history.moduleId = saved._id;
+          history.msg = `Assigned in spotlight for ${saved.scheduleDate.toISOString().split("T")[0]}.`;
+          await this.spotlightHistoryRepo.save(history);
+        }
+      } catch (historyError) {
+        console.error("Failed to log spotlight schedule creation history:", historyError);
+      }
+
       return res.status(StatusCodes.CREATED).json({
         message: "Spotlight scheduled successfully",
         data: saved
@@ -193,6 +211,127 @@ export class SpotlightController {
       }));
 
       return pagination(total, spotlightsWithMembers, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/spotlights/history:
+   *   get:
+   *     summary: Get history of all spotlight requests and assignments (Admin)
+   *     tags: [Spotlight]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema: { type: integer, default: 0 }
+   *       - in: query
+   *         name: limit
+   *         schema: { type: integer, default: 10 }
+   *       - in: query
+   *         name: search
+   *         schema: { type: string }
+   *       - in: query
+   *         name: action
+   *         schema: { type: string }
+   *     responses:
+   *       200:
+   *         description: List of spotlight histories
+   */
+  @Get("/history")
+  @UseBefore(canAccess("spotlight", "view"))
+  async getHistory(
+    @Req() req: any,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @QueryParam("search") search: string,
+    @QueryParam("action") action: string,
+    @Res() res: any
+  ) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+    try {
+      const query: any = {};
+      if (action) {
+        query.action = action;
+      }
+
+      // If search is provided, we need to find member IDs matching search first
+      let limitToMembers = false;
+      let targetMemberIds: ObjectId[] = [];
+
+      if (search && search.trim()) {
+        const matchingMembers = await this.memberRepo.find({
+          where: {
+            isDeleted: false,
+            $or: [
+              { fullName: { $regex: search.trim(), $options: "i" } },
+              { businessName: { $regex: search.trim(), $options: "i" } }
+            ]
+          }
+        });
+        targetMemberIds = matchingMembers.map(m => m._id);
+        limitToMembers = true;
+      }
+
+      if (req.isFranchise) {
+        // If franchise user, limit to their franchise members
+        const franchiseMembers = await this.memberRepo.find({
+          where: {
+            franchiseId: new ObjectId(req.user.franchiseId),
+            isDeleted: false
+          }
+        });
+        const franchiseMemberIds = franchiseMembers.map(m => m._id.toString());
+
+        if (limitToMembers) {
+          targetMemberIds = targetMemberIds.filter(id => franchiseMemberIds.includes(id.toString()));
+        } else {
+          targetMemberIds = franchiseMembers.map(m => m._id);
+          limitToMembers = true;
+        }
+      }
+
+      if (limitToMembers) {
+        query.memberId = { $in: targetMemberIds };
+      }
+
+      const [history, totalCount] = await this.spotlightHistoryRepo.findAndCount({
+        where: query,
+        order: { createdAt: "DESC" },
+        skip: page * limit,
+        take: limit
+      });
+
+      // Fetch member details for returning with records
+      const fetchedMemberIds = history.map(h => h.memberId).filter(id => id);
+      const members = fetchedMemberIds.length > 0 ? await this.memberRepo.find({
+        where: { _id: { $in: fetchedMemberIds } }
+      }) : [];
+      const memberMap = new Map(members.map(m => [m._id.toString(), m]));
+
+      const data = history.map(h => {
+        const member = memberMap.get(h.memberId.toString());
+        return {
+          ...h,
+          member: member ? {
+            fullName: member.fullName,
+            businessName: member.businessName,
+            profilePhoto: member.profilePhoto
+          } : null
+        };
+      });
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        currentPage: page
+      });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
@@ -344,6 +483,7 @@ export class SpotlightController {
   @Put("/requests/:id/approve")
   @UseBefore(canAccess("spotlight", "edit"))
   async approveRequest(
+    @Req() req: any,
     @Param("id") id: string,
     @Res() res: any
   ) {
@@ -364,6 +504,18 @@ export class SpotlightController {
       // 1. Update the request status
       request.status = SpotlightRequestStatus.APPROVED;
       await this.spotlightRequestRepo.save(request);
+
+      try {
+        const history = new SpotlightHistory();
+        history.memberId = request.memberId;
+        history.action = SpotlightHistoryAction.REQUEST_APPROVED;
+        history.performedBy = new ObjectId(req.user.userId);
+        history.moduleId = request._id;
+        history.msg = "Spotlight request approved.";
+        await this.spotlightHistoryRepo.save(history);
+      } catch (historyError) {
+        console.error("Failed to log spotlight request approval history:", historyError);
+      }
 
       // Update the member's updatedAt timestamp
       const member = await this.memberRepo.findOneBy({
@@ -412,9 +564,16 @@ export class SpotlightController {
    */
   @Put("/requests/:id/reject")
   @UseBefore(canAccess("spotlight", "edit"))
-  async rejectRequest(@Param("id") id: string, @Res() res: any) {
+  async rejectRequest(
+    @Req() req: any,
+    @Param("id") id: string, @Body() body: { reason: string }, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+
+      const { reason } = body || {};
+      if (!reason || typeof reason !== "string" || !reason.trim()) {
+        throw new BadRequestError("Reason is required");
+      }
 
       const request = await this.spotlightRequestRepo.findOneBy({
         _id: new ObjectId(id),
@@ -428,7 +587,21 @@ export class SpotlightController {
       }
 
       request.status = SpotlightRequestStatus.REJECTED;
+      request.reason = reason.trim();
       await this.spotlightRequestRepo.save(request);
+
+      try {
+        const history = new SpotlightHistory();
+        history.memberId = request.memberId;
+        history.action = SpotlightHistoryAction.REQUEST_REJECTED;
+        history.reason = reason.trim();
+        history.performedBy = new ObjectId(req.user.userId);
+        history.moduleId = request._id;
+        history.msg = `Spotlight request rejected. Reason: ${reason.trim()}`;
+        await this.spotlightHistoryRepo.save(history);
+      } catch (historyError) {
+        console.error("Failed to log spotlight request rejection history:", historyError);
+      }
       const member = await this.memberRepo.findOneBy({
         _id: request.memberId,
         isDeleted: false
@@ -437,7 +610,7 @@ export class SpotlightController {
         await insertPushNotification({
           token: member.fcmToken || "",
           subject: "Spotlight request rejected",
-          content: "Your spotlight request has been rejected successfully.",
+          content: `Your spotlight request has been rejected. Reason: ${reason.trim()}`,
           moduleName: NotificationModule.SPOTLIGHT,
           moduleId: id,
           receiverId: member._id.toString()
@@ -556,6 +729,9 @@ export class SpotlightController {
         }
       }
 
+      const oldMembers = spotlight.members ? spotlight.members.map(m => m.toString()) : [];
+      const oldDate = spotlight.scheduleDate;
+
       if (data.members) spotlight.members = data.members.map(id => new ObjectId(id));
       if (data.scheduleDate) {
         const date = new Date(data.scheduleDate);
@@ -566,6 +742,29 @@ export class SpotlightController {
       spotlight.updatedBy = new ObjectId(req.user.userId);
 
       const saved = await this.spotlightRepo.save(spotlight);
+
+      try {
+        const newMembers = saved.members || [];
+        const newDate = saved.scheduleDate;
+        const dateChanged = oldDate ? oldDate.getTime() !== newDate.getTime() : true;
+
+        for (const memberId of newMembers) {
+          const memberIdStr = memberId.toString();
+          if (dateChanged || !oldMembers.includes(memberIdStr)) {
+            const history = new SpotlightHistory();
+            history.memberId = memberId;
+            history.action = SpotlightHistoryAction.ASSIGNED;
+            history.scheduleDate = newDate;
+            history.performedBy = new ObjectId(req.user.userId);
+            history.moduleId = saved._id;
+            history.msg = `Assigned in spotlight for ${newDate.toISOString().split("T")[0]}.`;
+            await this.spotlightHistoryRepo.save(history);
+          }
+        }
+      } catch (historyError) {
+        console.error("Failed to log spotlight schedule update history:", historyError);
+      }
+
       return res.status(StatusCodes.OK).json({
         message: "Spotlight updated successfully",
         data: saved

@@ -11,7 +11,6 @@ import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import handleErrorResponse from "../../utils/commonFunction";
 import { validateModuleUsage } from "../../services/moduleUsage.service";
 import { PointService } from "../../services/point.service";
-import { PointConfig } from "../../entity/PointConfig";
 import { SubscriptionService } from "../../services/subscription.service";
 
 @JsonController("/trainings")
@@ -22,7 +21,7 @@ export class MobileTrainingController {
   private progressRepo = AppDataSource.getMongoRepository(LessonProgress);
   private enrollmentRepo = AppDataSource.getMongoRepository(MemberTraining);
   private trainingCategoryRepo = AppDataSource.getMongoRepository(TrainingCategory);
-  private configRepo = AppDataSource.getMongoRepository(PointConfig);
+  // private configRepo = AppDataSource.getMongoRepository(PointConfig);
 
   /**
    * @swagger
@@ -32,6 +31,22 @@ export class MobileTrainingController {
    *     tags: [Mobile Training]
    *     security:
    *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *         description: Page number
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *         description: Items per page
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *         description: Search query for title and description
    *     responses:
    *       200:
    *         description: List of active trainings
@@ -41,6 +56,7 @@ export class MobileTrainingController {
     @Req() req: any,
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
+    @QueryParam("search") search: string,
     @Res() res: any
   ) {
     page = Number(page) || 0;
@@ -60,11 +76,20 @@ export class MobileTrainingController {
         // No active plan — no discount
       }
 
+      const whereClause: any = {
+        status: TrainingStatus.ACTIVE,
+        isDeleted: false
+      };
+
+      if (search && search.trim()) {
+        whereClause.$or = [
+          { title: { $regex: new RegExp(search.trim(), "i") } },
+          { description: { $regex: new RegExp(search.trim(), "i") } }
+        ];
+      }
+
       const trainings = await this.trainingRepo.find({
-        where: {
-          status: TrainingStatus.ACTIVE,
-          isDeleted: false
-        },
+        where: whereClause,
         order: { createdAt: "DESC" }
       });
 
@@ -134,7 +159,7 @@ export class MobileTrainingController {
           completedLessonsCount: completedCount,
           totalLessonsCount: totalLessons,
           totalDuration,
-          isUnlocked: !!enrollment,
+          isUnlocked: t.isFree || !!enrollment,
           lastWatchedLessonId,
           lastWatchedLessonProgress: lastWatchedProgress ? {
             position: lastWatchedProgress.lastWatchedPosition,
@@ -290,7 +315,7 @@ export class MobileTrainingController {
           lessons: lessonsWithProgress,
           totalDuration: this.sumDurations(training.lessons?.map(l => l.duration) || [])
         },
-        isUnlocked: !!isUnlocked,
+        isUnlocked: training.isFree || !!isUnlocked,
         remainingPoints: member.points
       });
     } catch (error: any) {
@@ -328,10 +353,10 @@ export class MobileTrainingController {
         memberId: userId,
         trainingId: training._id
       });
-      if (isUnlocked) {
+      if (isUnlocked || training.isFree) {
         return res.status(StatusCodes.OK).json({
           success: true,
-          message: "Training already unlocked",
+          message: training.isFree ? "Free training course" : "Training already unlocked",
           isUnlocked: true
         });
       }

@@ -31,6 +31,9 @@ export class SpotlightRequest {
   @Column({ default: false })
     isDeleted!: boolean;
 
+  @Column({ nullable: true })
+    reason?: string;
+
   @CreateDateColumn()
     createdAt!: Date;
 

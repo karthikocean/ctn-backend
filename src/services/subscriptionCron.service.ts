@@ -5,11 +5,12 @@ import { Plan } from "../entity/Plan";
 import { insertPushNotification } from "./pushnotification.service";
 import { MailService } from "./mail.service";
 import cron from "node-cron";
+import { NotificationModule } from "../entity/PushNotifications";
 
 export class SubscriptionCronService {
   private static memberRepo = AppDataSource.getMongoRepository(Member);
   private static subRepo = AppDataSource.getMongoRepository(MemberSubscription);
-  private static planRepo = AppDataSource.getMongoRepository(Plan);
+  // private static planRepo = AppDataSource.getMongoRepository(Plan);
 
   /**
    * Initializes the cron job to run daily at 12:01 AM
@@ -79,7 +80,7 @@ export class SubscriptionCronService {
             token: member.fcmToken,
             subject: "Subscription Expired",
             content: messageText,
-            moduleName: "GENERAL",
+            moduleName: NotificationModule.PLAN_EXPIRY,
             receiverId: member._id.toString()
           });
         }
@@ -138,7 +139,7 @@ export class SubscriptionCronService {
             token: member.fcmToken,
             subject: "Subscription Ending Soon",
             content: messageText,
-            moduleName: "GENERAL",
+            moduleName: NotificationModule.PLAN_EXPIRY,
             receiverId: member._id.toString()
           });
         }

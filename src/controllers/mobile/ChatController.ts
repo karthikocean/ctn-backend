@@ -68,6 +68,11 @@ export class MobileChatController {
    *         schema:
    *           type: integer
    *         description: Items per page (default 20)
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *         description: Search by participant name, post/product/milestone title, or last message
    *     security:
    *       - bearerAuth: []
    */
@@ -76,13 +81,77 @@ export class MobileChatController {
     @Req() req: any,
     @QueryParam("page") page: number = 0,
     @QueryParam("limit") limit: number = 20,
+    @QueryParam("search") search: string,
     @Res() res: any
   ) {
     try {
       const userId = new ObjectId(req.user.userId);
 
+      const whereClause: any = {
+        participants: { $all: [userId] }
+      };
+
+      if (search && search.trim()) {
+        const queryRegex = { $regex: new RegExp(search.trim(), "i") };
+
+        // Find matching members (exclude self to avoid matching all own conversations)
+        const matchedMembers = await this.memberRepo.find({
+          where: {
+            fullName: queryRegex,
+            isDeleted: false
+          } as any
+        });
+        const matchedMemberIds = matchedMembers
+          .map(m => m._id)
+          .filter(id => !id.equals(userId));
+
+        // Find matching posts
+        const matchedPosts = await this.postRepo.find({
+          where: {
+            title: queryRegex,
+            isDeleted: false
+          } as any
+        });
+        const matchedPostIds = matchedPosts.map(p => p._id);
+
+        // Find matching products
+        const matchedProducts = await this.productRepo.find({
+          where: {
+            title: queryRegex,
+            isDeleted: false
+          } as any
+        });
+        const matchedProductIds = matchedProducts.map(p => p._id);
+
+        // Find matching milestones
+        const matchedMilestones = await this.milestoneRepo.find({
+          where: {
+            title: queryRegex,
+            isDeleted: false
+          } as any
+        });
+        const matchedMilestoneIds = matchedMilestones.map(m => m._id);
+
+        const orClauses: any[] = [{ lastMessage: queryRegex }];
+
+        if (matchedMemberIds.length > 0) {
+          orClauses.push({ participants: { $in: matchedMemberIds } });
+        }
+        if (matchedPostIds.length > 0) {
+          orClauses.push({ postId: { $in: matchedPostIds } });
+        }
+        if (matchedProductIds.length > 0) {
+          orClauses.push({ productId: { $in: matchedProductIds } });
+        }
+        if (matchedMilestoneIds.length > 0) {
+          orClauses.push({ milestoneId: { $in: matchedMilestoneIds } });
+        }
+
+        whereClause.$or = orClauses;
+      }
+
       const [conversations, total] = await this.conversationRepo.findAndCount({
-        where: { participants: { $all: [userId] } } as any,
+        where: whereClause as any,
         order: { updatedAt: "DESC" },
         take: limit,
         skip: page * limit
@@ -535,13 +604,13 @@ export class MobileChatController {
         conversation.status = "PENDING";
         conversation = await this.conversationRepo.save(conversation);
       } else {
-        // Check if sender already responded to this post in this conversation
+        // Check if sender already responded or shared this post in this conversation
         const existingResponse = await this.messageRepo.findOne({
           where: {
             conversationId: conversation._id,
             senderId: senderId,
-            type: MessageType.POST_RESPONSE,
-            postId: new ObjectId(postId)
+            postId: new ObjectId(postId),
+            type: { $in: [MessageType.POST_RESPONSE, MessageType.POST_SHARE] }
           } as any
         });
 
@@ -905,19 +974,12 @@ export class MobileChatController {
         else if (type === MessageType.THANK_YOU_SLIP) moduleName = "Thank you Slip";
 
         // await validateModuleUsage(senderId, moduleName);
-
-        console.log(type === MessageType.ONE_TO_ONE, "type === MessageType.ONE_TO_ONE");
-
         if (type === MessageType.ONE_TO_ONE) {
-          console.log("sssssssssscc   ");
-
           const oto = new OneToOne();
           oto.senderId = senderId;
           oto.receiverId = receiverId;
           oto.media = media; // Store the screenshot in the business record too
           const savedOto = await this.oneToOneRepo.save(oto);
-          console.log(savedOto, "savedOto");
-
           newMessage.businessActionId = savedOto._id;
 
           // Award Points (Response type for One to One)

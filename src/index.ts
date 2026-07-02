@@ -170,7 +170,7 @@ AppDataSource.initialize()
           await waitForDisconnects(2000);
         }
       } catch (err) {
-        console.log("Socket.io server was not initialized or already closed.");
+        console.log("Socket.io server was not initialized or already closed.", err);
       }
 
       server.close(async () => {

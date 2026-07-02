@@ -543,17 +543,51 @@ export class MobilePostController {
         businessRegion: m.businessRegion
       }]));
 
+      // Fetch categories & subcategories bulk
+      const categoryIdsToFetch = new Set<string>();
+      posts.forEach(p => {
+        if (p.categoryIds) {
+          p.categoryIds.forEach(id => categoryIdsToFetch.add(id.toString()));
+        }
+        if (p.subCategoryIds) {
+          p.subCategoryIds.forEach(id => categoryIdsToFetch.add(id.toString()));
+        }
+      });
+
+      const uniqueCategoryIds = Array.from(categoryIdsToFetch).map(id => new ObjectId(id));
+      const categoriesList = uniqueCategoryIds.length > 0
+        ? await this.categoryRepo.find({ where: { _id: { $in: uniqueCategoryIds } } as any })
+        : [];
+      const categoriesMap = new Map(categoriesList.map(c => [c._id.toString(), c.name]));
+
       // // 5. Check which posts are saved by current user
       // const savedPosts = await this.savedPostRepo.find({
       //   where: { memberId: new ObjectId(userId), postId: { $in: posts.map(p => p._id) } } as any
       // });
       // const savedPostIds = new Set(savedPosts.map(s => s.postId.toString()));
 
-      const data = posts.map(p => ({
-        ...p,
-        member: memberMap.get(p.memberId.toString()) || null,
-        // isSaved: savedPostIds.has(p._id.toString())
-      }));
+      const data = posts.map(p => {
+        const categories = p.categoryIds
+          ? p.categoryIds.map(id => ({
+              _id: id,
+              name: categoriesMap.get(id.toString()) || ""
+            }))
+          : [];
+        const subCategories = p.subCategoryIds
+          ? p.subCategoryIds.map(id => ({
+              _id: id,
+              name: categoriesMap.get(id.toString()) || ""
+            }))
+          : [];
+
+        return {
+          ...p,
+          member: memberMap.get(p.memberId.toString()) || null,
+          categories,
+          subCategories
+          // isSaved: savedPostIds.has(p._id.toString())
+        };
+      });
 
       return pagination(total, data, limit, page, res);
     } catch (error: any) {
@@ -1093,6 +1127,35 @@ export class MobilePostController {
 
       const member = await this.memberRepo.findOneBy({ _id: post.memberId });
 
+      // Fetch categories & subcategories bulk for the single post
+      const categoryIdsToFetch = new Set<string>();
+      if (post.categoryIds) {
+        post.categoryIds.forEach(id => categoryIdsToFetch.add(id.toString()));
+      }
+      if (post.subCategoryIds) {
+        post.subCategoryIds.forEach(id => categoryIdsToFetch.add(id.toString()));
+      }
+
+      const uniqueCategoryIds = Array.from(categoryIdsToFetch).map(id => new ObjectId(id));
+      const categoriesList = uniqueCategoryIds.length > 0
+        ? await this.categoryRepo.find({ where: { _id: { $in: uniqueCategoryIds } } as any })
+        : [];
+      const categoriesMap = new Map(categoriesList.map(c => [c._id.toString(), c.name]));
+
+      const categories = post.categoryIds
+        ? post.categoryIds.map(id => ({
+            _id: id,
+            name: categoriesMap.get(id.toString()) || ""
+          }))
+        : [];
+
+      const subCategories = post.subCategoryIds
+        ? post.subCategoryIds.map(id => ({
+            _id: id,
+            name: categoriesMap.get(id.toString()) || ""
+          }))
+        : [];
+
       // Check if saved
       const isSaved = !!(await this.savedPostRepo.findOneBy({
         memberId: new ObjectId(userId),
@@ -1107,6 +1170,8 @@ export class MobilePostController {
           profilePhoto: member.profilePhoto,
           businessName: member.businessName
         } : null,
+        categories,
+        subCategories,
         isSaved
       };
 
@@ -1295,32 +1360,23 @@ export class MobilePostController {
       const post = await this.postRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!post) throw new NotFoundError("Post not found");
 
-      // Increment share count
-      post.sharedCount = (post.sharedCount || 0) + 1;
-      await this.postRepo.save(post);
-
       const recId = new ObjectId(receiverId);
-      // Find or Create conversation between userId and receiverId
+      // Find or Create conversation between userId and receiverId specific to this post
       let targetConversation = await this.conversationRepo.findOne({
         where: {
           participants: { $all: [userId, recId] },
-          postId: { $exists: false } // General chat
+          postId: post._id
         } as any
       });
 
-      if (!targetConversation) {
-        targetConversation = new Conversation();
-        targetConversation.participants = [userId, recId];
-        targetConversation.status = "PENDING";
-        targetConversation = await this.conversationRepo.save(targetConversation);
-      } else {
-        // Check if already shared in this conversation by this user
+      if (targetConversation) {
+        // Check if already shared or responded to this post in this conversation by this user
         const existingShare = await this.messageRepo.findOne({
           where: {
             conversationId: targetConversation._id,
             senderId: userId,
-            type: MessageType.POST_SHARE,
-            postId: post._id
+            postId: post._id,
+            type: { $in: [MessageType.POST_SHARE, MessageType.POST_RESPONSE] }
           } as any
         });
 
@@ -1328,12 +1384,22 @@ export class MobilePostController {
           return res.status(StatusCodes.OK).json({
             success: true,
             message: "You have already shared this post with this member",
-            sharedCount: post.sharedCount,
+            sharedCount: post.sharedCount || 0,
             conversationId: targetConversation._id,
             existingShare
           });
         }
+      } else {
+        targetConversation = new Conversation();
+        targetConversation.participants = [userId, recId];
+        targetConversation.postId = post._id;
+        targetConversation.status = "PENDING";
+        targetConversation = await this.conversationRepo.save(targetConversation);
       }
+
+      // Increment share count
+      post.sharedCount = (post.sharedCount || 0) + 1;
+      await this.postRepo.save(post);
 
       // If targetConversation is found or created, send the post into the chat
       if (targetConversation) {
@@ -1365,7 +1431,7 @@ export class MobilePostController {
         if (isReceiverActive) {
           unreadCounts[otherId.toString()] = 0;
         } else {
-          unreadCounts[otherId.toString()] = (unreadCounts[otherId.toString()] || 0 + 1);
+          unreadCounts[otherId.toString()] = (unreadCounts[otherId.toString()] || 0) + 1;
         }
         targetConversation.unreadCounts = { ...unreadCounts };
 
