@@ -23,6 +23,7 @@ import { RazorpayUpgradeService, RazorpayVerificationService } from "../../servi
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { StartTrialDto, UpgradeSubscriptionDto, BuySubscriptionDto, DowngradeSubscriptionDto, VerifyRazorpayPaymentDto } from "../../dto/mobile/Subscription.dto";
 import handleErrorResponse from "../../utils/commonFunction";
+import pagination from "../../utils/pagination";
 import { ObjectId } from "mongodb";
 import jwt from "jsonwebtoken";
 import { insertPushNotification } from "../../services/pushnotification.service";
@@ -704,6 +705,141 @@ export class MobileSubscriptionController {
           trialConversionRate: `${trialConversionRate}%`
         }
       });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/subscription/payment-history:
+   *   get:
+   *     summary: Get payment history with subscription details and plan name for logged-in member (Mobile)
+   *     tags: [Mobile Subscription]
+   *     security:
+   *       - bearerAuth: []
+    *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       200:
+   *         description: Payment records list with plan and subscription details
+   */
+  @Get("/payment-history")
+  @UseBefore(MobileAuthMiddleware)
+  async getPaymentHistory(
+    @Req() req: any,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @Res() res: any
+  ) {
+    try {
+      const memberId = req.user.userId;
+      const pageNum = Number(page) || 0;
+      const limitNum = Number(limit) || 10;
+
+      const [payments, total] = await this.paymentRepo.findAndCount({
+        where: {
+          memberId: new ObjectId(memberId),
+          isDeleted: false
+        },
+        order: { createdAt: "DESC" },
+        skip: pageNum * limitNum,
+        take: limitNum
+      });
+
+      if (payments.length === 0) {
+        return pagination(total, [], limitNum, pageNum, res);
+      }
+
+      // Fetch all plans and subscriptions to build maps
+      const planIds = [...new Set(payments.map(p => p.planId).filter(id => id))];
+      const previousPlanIds = [...new Set(payments.map(p => p.previousPlanId).filter((id): id is ObjectId => !!id))];
+
+      const allPlanIds = [...new Set([...planIds, ...previousPlanIds])];
+
+      const plans = allPlanIds.length > 0
+        ? await this.planRepo.find({ where: { _id: { $in: allPlanIds } } as any })
+        : [];
+      const planMap = new Map(plans.map(p => [p._id.toString(), p]));
+
+      // Query all member subscriptions to find historical matches for date details
+      const subscriptions = await this.subRepo.find({
+        where: {
+          memberId: new ObjectId(memberId),
+          isDeleted: false
+        }
+      });
+      const subMap = new Map(subscriptions.map(s => [s._id.toString(), s]));
+
+      const getSubForPlan = (planId: ObjectId | undefined, paymentCreatedAt: Date, excludeSubId?: ObjectId) => {
+        if (!planId) return null;
+        const planIdStr = planId.toString();
+        const candidateSubs = subscriptions.filter(s =>
+          s.planId &&
+          s.planId.toString() === planIdStr &&
+          (!excludeSubId || s._id.toString() !== excludeSubId.toString())
+        );
+        if (candidateSubs.length === 0) return null;
+
+        // Find the one closest to paymentCreatedAt
+        candidateSubs.sort((a, b) => {
+          const diffA = Math.abs(a.startDate.getTime() - paymentCreatedAt.getTime());
+          const diffB = Math.abs(b.startDate.getTime() - paymentCreatedAt.getTime());
+          return diffA - diffB;
+        });
+        return candidateSubs[0];
+      };
+
+      const data = payments.map(p => {
+        const plan = p.planId ? planMap.get(p.planId.toString()) : null;
+        const previousPlan = p.previousPlanId ? planMap.get(p.previousPlanId.toString()) : null;
+        const sub = p.subscriptionId ? subMap.get(p.subscriptionId.toString()) : null;
+
+        // Find matching subscriptions for plan and previousPlan to extract dates
+        const newSub = sub || getSubForPlan(p.planId, p.createdAt);
+        const oldSub = getSubForPlan(p.previousPlanId, p.createdAt, p.subscriptionId);
+
+        return {
+          ...p,
+          planName: plan ? plan.title : "Unknown Plan",
+          action: p.action || "payment",
+          oldPlanDetails: previousPlan ? {
+            _id: previousPlan._id,
+            title: previousPlan.title,
+            amount: previousPlan.amount,
+            billingType: previousPlan.billingType,
+            billingCycle: previousPlan.billingCycle,
+            startDate: oldSub ? oldSub.startDate : null,
+            endDate: oldSub ? oldSub.endDate : null
+          } : null,
+          updatedPlanDetails: plan ? {
+            _id: plan._id,
+            title: plan.title,
+            amount: plan.amount,
+            billingType: plan.billingType,
+            billingCycle: plan.billingCycle,
+            startDate: newSub ? newSub.startDate : null,
+            endDate: newSub ? newSub.endDate : null
+          } : null,
+          currentSubscriptionDetails: sub ? {
+            _id: sub._id,
+            type: sub.type,
+            status: sub.status,
+            startDate: sub.startDate,
+            endDate: sub.endDate,
+            isTrial: sub.isTrial
+          } : null
+        };
+      });
+
+      return pagination(total, data, limitNum, pageNum, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

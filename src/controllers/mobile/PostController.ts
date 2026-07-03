@@ -192,15 +192,15 @@ export class MobilePostController {
       delete (post as any).regions;
 
       const savedPost = await this.postRepo.save(post);
-
-      // Notify relevant members about the new post (non-blocking)
-      notifyPostAudience({
-        post: savedPost,
-        senderId: userId,
-        subject: `New ${data.type.charAt(0) + data.type.slice(1).toLowerCase()} Post`,
-        content: "A new post has been shared"
-      }).catch(err => console.error("[PostController] notifyPostAudience error:", err));
-
+      if (post.type !== PostType.PROMOTION) {
+        // Notify relevant members about the new post (non-blocking)
+        notifyPostAudience({
+          post: savedPost,
+          senderId: userId,
+          subject: `New ${data.type.charAt(0) + data.type.slice(1).toLowerCase()} Post`,
+          content: "A new post has been shared"
+        }).catch(err => console.error("[PostController] notifyPostAudience error:", err));
+      }
       let pointsResult = { awarded: 0, balance: 0 };
       // 2. Award Points
       try {
@@ -569,15 +569,15 @@ export class MobilePostController {
       const data = posts.map(p => {
         const categories = p.categoryIds
           ? p.categoryIds.map(id => ({
-              _id: id,
-              name: categoriesMap.get(id.toString()) || ""
-            }))
+            _id: id,
+            name: categoriesMap.get(id.toString()) || ""
+          }))
           : [];
         const subCategories = p.subCategoryIds
           ? p.subCategoryIds.map(id => ({
-              _id: id,
-              name: categoriesMap.get(id.toString()) || ""
-            }))
+            _id: id,
+            name: categoriesMap.get(id.toString()) || ""
+          }))
           : [];
 
         return {
@@ -803,20 +803,47 @@ export class MobilePostController {
 
       const memberBusinessRegion = currentMember.businessRegion;
 
-      if (!memberBusinessRegion) {
-        // If member has no business region, they cannot view regional posts
+      // Fetch mutual friends to evaluate MUTUAL_FRIEND requirement visibility
+      const following = await this.connectionRepo.find({
+        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+      });
+      const followingIds = following.map(f => f.receiverId.toString());
+
+      const followers = await this.connectionRepo.find({
+        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+      });
+      const followerIds = followers.map(f => f.senderId.toString());
+
+      const mutualIds = followingIds
+        .filter(id => followerIds.includes(id))
+        .map(id => new ObjectId(id));
+
+      const visibilityOrArray: any[] = [];
+
+      if (memberBusinessRegion) {
+        const memberRegionId = new ObjectId(memberBusinessRegion);
+        visibilityOrArray.push({ regionIds: { $elemMatch: { $eq: memberRegionId } } });
+      }
+
+      if (mutualIds.length > 0) {
+        visibilityOrArray.push({
+          requirementVisibility: RequirementVisibility.MUTUAL_FRIEND,
+          memberId: { $in: mutualIds }
+        });
+      }
+
+      if (visibilityOrArray.length === 0) {
+        // If member has no business region and no mutual friends, return empty pagination results
         return pagination(0, [], limit, page, res);
       }
 
-      const memberRegionId = new ObjectId(memberBusinessRegion);
-
-      // 2. Find ASK / PROMOTION posts targeted to this region
+      // 2. Find ASK / PROMOTION posts targeted to region or from mutual friends
       const allowedTypes = [PostType.PROMOTION, PostType.ASK];
       const where: any = {
         isDeleted: false,
         status: { $ne: "reported" },
         memberId: { $ne: new ObjectId(userId) },
-        regionIds: { $elemMatch: { $eq: memberRegionId } }
+        $or: visibilityOrArray
       };
 
       if (type) {
@@ -1144,16 +1171,16 @@ export class MobilePostController {
 
       const categories = post.categoryIds
         ? post.categoryIds.map(id => ({
-            _id: id,
-            name: categoriesMap.get(id.toString()) || ""
-          }))
+          _id: id,
+          name: categoriesMap.get(id.toString()) || ""
+        }))
         : [];
 
       const subCategories = post.subCategoryIds
         ? post.subCategoryIds.map(id => ({
-            _id: id,
-            name: categoriesMap.get(id.toString()) || ""
-          }))
+          _id: id,
+          name: categoriesMap.get(id.toString()) || ""
+        }))
         : [];
 
       // Check if saved

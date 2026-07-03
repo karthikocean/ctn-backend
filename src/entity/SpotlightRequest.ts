@@ -34,6 +34,9 @@ export class SpotlightRequest {
   @Column({ nullable: true })
     reason?: string;
 
+  @Column({ nullable: true })
+    assignedDate?: Date;
+
   @CreateDateColumn()
     createdAt!: Date;
 

@@ -26,6 +26,7 @@ import { AnnouncementCronService } from "./services/announcementCron.service";
 import { PostDeactivationCronService } from "./services/postDeactivationCron.service";
 import { ReminderCronService } from "./services/reminderCron.service";
 import { BirthdayCronService } from "./services/birthdayCron.service";
+import { DailyTaskCronService } from "./services/dailyTaskCron.service";
 // import { migrateRegions } from "./migrations/migrateRegions";
 AppDataSource.initialize()
   .then(async () => {
@@ -155,6 +156,9 @@ AppDataSource.initialize()
 
       // Initialize Birthday Notification Cron Job
       BirthdayCronService.init();
+
+      // Initialize Daily Task Reminder Cron Job
+      DailyTaskCronService.init();
     });
 
     // ✅ Graceful Shutdown Handlers

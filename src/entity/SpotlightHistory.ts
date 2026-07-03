@@ -8,9 +8,9 @@ import {
 import { ObjectId } from "mongodb";
 
 export enum SpotlightHistoryAction {
-  REQUEST_CREATED = "request_created",
-  REQUEST_APPROVED = "request_approved",
-  REQUEST_REJECTED = "request_rejected",
+  REQUEST_CREATED = "pending",
+  REQUEST_APPROVED = "approved",
+  REQUEST_REJECTED = "rejected",
   ASSIGNED = "assigned"
 }
 

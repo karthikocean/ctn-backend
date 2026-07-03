@@ -40,6 +40,12 @@ export class Payment {
     source!: string; // "app" | "admin"
 
   @Column({ nullable: true })
+    action?: string; // "payment" | "upgrade" | "downgrade" | "buy"
+
+  @Column({ nullable: true })
+    previousPlanId?: ObjectId;
+
+  @Column({ nullable: true })
     remarks?: string;
 
   @Column({ nullable: true })
