@@ -1,7 +1,5 @@
 import { AppDataSource } from "../data-source";
 import { BusinessRegion } from "../entity/BusinessRegion";
-import { State } from "../entity/State";
-import { City } from "../entity/City";
 
 export async function migrateRegions() {
   console.log("🏃 Running BusinessRegion migration script...");

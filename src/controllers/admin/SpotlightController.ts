@@ -15,11 +15,12 @@ import {
   Req
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
-import { Spotlight } from "../../entity/Spotlight";
+import { Spotlight, SpotlightStatus } from "../../entity/Spotlight";
 import { SpotlightRequest, SpotlightRequestStatus } from "../../entity/SpotlightRequest";
 import { SpotlightHistory, SpotlightHistoryAction } from "../../entity/SpotlightHistory";
 import { Member } from "../../entity/Member";
 import { CreateSpotlightDto, UpdateSpotlightDto } from "../../dto/admin/Spotlight.dto";
+import { ApproveSpotlightRequestDto } from "../../dto/admin/SpotlightRequest.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
@@ -83,9 +84,25 @@ export class SpotlightController {
           history.moduleId = saved._id;
           history.msg = `Assigned in spotlight for ${saved.scheduleDate.toISOString().split("T")[0]}.`;
           await this.spotlightHistoryRepo.save(history);
+
+          // Update the related pending spotlight request if it exists
+          const request = await this.spotlightRequestRepo.findOne({
+            where: {
+              memberId: memberId,
+              status: SpotlightRequestStatus.PENDING,
+              isDeleted: false
+            },
+            order: { createdAt: "DESC" }
+          });
+
+          if (request) {
+            request.status = SpotlightRequestStatus.APPROVED;
+            request.assignedDate = saved.scheduleDate;
+            await this.spotlightRequestRepo.save(request);
+          }
         }
       } catch (historyError) {
-        console.error("Failed to log spotlight schedule creation history:", historyError);
+        console.error("Failed to log spotlight schedule creation history or update spotlight request:", historyError);
       }
 
       return res.status(StatusCodes.CREATED).json({
@@ -485,6 +502,7 @@ export class SpotlightController {
   async approveRequest(
     @Req() req: any,
     @Param("id") id: string,
+    @Body() body: ApproveSpotlightRequestDto,
     @Res() res: any
   ) {
     try {
@@ -501,8 +519,45 @@ export class SpotlightController {
         throw new BadRequestError(`Cannot approve a request with status: ${request.status}`);
       }
 
-      // 1. Update the request status
+      // 1. Update the request status and assignedDate
       request.status = SpotlightRequestStatus.APPROVED;
+      if (body && body.scheduleDate) {
+        const date = new Date(body.scheduleDate);
+        date.setMinutes(date.getMinutes() + 330); // Adjust for 5.30 hours timezone difference
+        request.assignedDate = date;
+
+        // Check if there is already a spotlight scheduled for this date
+        let spotlight = await this.spotlightRepo.findOne({
+          where: {
+            scheduleDate: date,
+            isDeleted: false
+          }
+        });
+
+        if (spotlight) {
+          if (spotlight.members && spotlight.members.length >= 1) {
+            throw new BadRequestError("This date is already assigned/scheduled for another spotlight");
+          }
+          const memberIdStr = request.memberId.toString();
+          if (!spotlight.members.some(m => m.toString() === memberIdStr)) {
+            spotlight.members.push(request.memberId);
+          }
+          if (body.status) {
+            spotlight.status = body.status as SpotlightStatus;
+          }
+          await this.spotlightRepo.save(spotlight);
+        } else {
+          // Create new spotlight schedule
+          spotlight = new Spotlight();
+          spotlight.members = [request.memberId];
+          spotlight.scheduleDate = date;
+          spotlight.status = (body.status as SpotlightStatus) || SpotlightStatus.SCHEDULE;
+          spotlight.isDeleted = false;
+          spotlight.createdBy = new ObjectId(req.user.userId);
+          spotlight.updatedBy = new ObjectId(req.user.userId);
+          await this.spotlightRepo.save(spotlight);
+        }
+      }
       await this.spotlightRequestRepo.save(request);
 
       try {
@@ -660,6 +715,31 @@ export class SpotlightController {
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Spotlight request deleted successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  @Get("/booked-dates")
+  @UseBefore(canAccess("spotlight", "view"))
+  async getBookedDates(@Res() res: any) {
+    try {
+      const spotlights = await this.spotlightRepo.find({
+        where: {
+          isDeleted: false,
+          members: { $exists: true, $not: { $size: 0 } }
+        }
+      });
+      const bookedDates = spotlights.map(s => {
+        const year = s.scheduleDate.getUTCFullYear();
+        const month = String(s.scheduleDate.getUTCMonth() + 1).padStart(2, "0");
+        const date = String(s.scheduleDate.getUTCDate()).padStart(2, "0");
+        return `${year}-${month}-${date}`;
+      });
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: bookedDates
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

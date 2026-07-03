@@ -1250,4 +1250,160 @@ export class MobileChatController {
       return handleErrorResponse(error, res);
     }
   }
+
+  /**
+   * @swagger
+   * /mobile-api/chats/birthday-wish:
+   *   post:
+   *     summary: Send a birthday wish and create/find direct conversation
+   *     tags: [Mobile Chat]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               receiverId:
+   *                 type: string
+   *                 example: "60c72b2f9b1d8e1f5c8b4567"
+   *               message:
+   *                 type: string
+   *                 example: "Happy Birthday! Wishing you a great year ahead. 🎉"
+   */
+  @Post("/birthday-wish")
+  async birthdayWish(
+    @Req() req: any,
+    @Body() data: { receiverId: string; },
+    @Res() res: any
+  ) {
+    try {
+      const senderId = new ObjectId(req.user.userId);
+      const { receiverId } = data;
+
+      if (!receiverId || !ObjectId.isValid(receiverId)) {
+        throw new BadRequestError("Invalid receiver ID");
+      }
+
+      const recId = new ObjectId(receiverId);
+      if (senderId.equals(recId)) {
+        throw new BadRequestError("You cannot send a birthday wish to yourself");
+      }
+
+      const receiver = await this.memberRepo.findOneBy({ _id: recId, isDeleted: false });
+      if (!receiver) {
+        throw new NotFoundError("Receiver not found");
+      }
+
+      // // Find or create direct conversation between sender and receiver (no post/product/milestone context)
+      // let conversation = await this.conversationRepo.findOne({
+      //   where: {
+      //     participants: { $all: [senderId, recId] },
+      //     postId: { $exists: false },
+      //     productId: { $exists: false },
+      //     milestoneId: { $exists: false }
+      //   } as any
+      // });
+
+      // if (!conversation) {
+      let conversation = new Conversation();
+      conversation.participants = [senderId, recId];
+      conversation.status = "ACCEPTED";
+      conversation = await this.conversationRepo.save(conversation);
+      // }
+
+      const content = "Happy Birthday! 🎂🎉";
+
+      const newMessage = new Message();
+      newMessage.conversationId = conversation._id;
+      newMessage.senderId = senderId;
+      newMessage.content = content;
+      newMessage.type = MessageType.TEXT;
+      newMessage.isDeleted = false;
+
+      // Check if receiver is in the chat room
+      const isReceiverActive = isUserInConversation(recId.toString(), conversation._id.toString());
+      if (isReceiverActive) {
+        newMessage.isRead = true;
+      }
+
+      const savedMessage = await this.messageRepo.save(newMessage);
+
+      // Send Push Notification if receiver is not active in the chat room and has fcmToken
+      if (!isReceiverActive && receiver.fcmToken) {
+        await insertPushNotification({
+          token: receiver.fcmToken,
+          subject: "Birthday Wish! 🎂",
+          content: content,
+          moduleName: NotificationModule.BIRTHDAY,
+          moduleId: conversation._id.toString(),
+          receiverId: recId.toString(),
+          senderId: senderId.toString()
+        });
+      }
+
+      // Update conversation details
+      conversation.lastMessage = content;
+      conversation.lastMessageTime = new Date();
+      conversation.lastMessageSenderId = senderId;
+
+      const unreadCounts = conversation.unreadCounts || {};
+      if (isReceiverActive) {
+        unreadCounts[recId.toString()] = 0;
+      } else {
+        unreadCounts[recId.toString()] = (unreadCounts[recId.toString()] || 0) + 1;
+      }
+      conversation.unreadCounts = { ...unreadCounts };
+
+      await this.conversationRepo.save(conversation);
+
+      // Emit sockets
+      const io = getIO();
+      const populatedMessage = {
+        ...savedMessage,
+        isMe: false,
+        businessAction: null
+      };
+
+      io.to(recId.toString()).emit("new_message", populatedMessage);
+
+      const sender = await this.memberRepo.findOneBy({ _id: senderId });
+      let senderCategoryName = null;
+      if (sender && sender.businessCategory) {
+        const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
+        senderCategoryName = cat ? cat.name : null;
+      }
+
+      const unreadCount = conversation.unreadCounts?.[recId.toString()] || 0;
+
+      io.to(recId.toString()).emit("conversation_updated", {
+        ...conversation,
+        lastMessage: content,
+        lastMessageTime: savedMessage.createdAt,
+        lastMessageSenderId: senderId,
+        otherUser: sender ? {
+          _id: sender._id,
+          fullName: sender.fullName,
+          profilePhoto: sender.profilePhoto,
+          categoryName: senderCategoryName,
+          isOnline: sender.isOnline || false,
+          lastSeen: sender.lastSeen || null
+        } : null,
+        unreadCount
+      });
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Birthday wish sent successfully",
+        data: {
+          conversationId: conversation._id,
+          message: savedMessage
+        }
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
 }

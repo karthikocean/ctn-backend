@@ -18,6 +18,7 @@ import { AppDataSource } from "../../data-source";
 import { Payment } from "../../entity/Payment";
 import { Member } from "../../entity/Member";
 import { Plan } from "../../entity/Plan";
+import { MemberSubscription } from "../../entity/MemberSubscription";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
@@ -63,6 +64,24 @@ export class AdminBillingController {
       payment.source = "admin";
       payment.status = "COMPLETED";
       payment.isDeleted = false;
+      payment.action = "payment";
+
+      try {
+        const subRepo = AppDataSource.getMongoRepository(MemberSubscription);
+        const activeSub = await subRepo.findOne({
+          where: {
+            memberId: new ObjectId(data.memberId),
+            status: "ACTIVE",
+            isDeleted: false
+          },
+          order: { startDate: "DESC" }
+        });
+        if (activeSub && activeSub.planId) {
+          payment.previousPlanId = activeSub.planId;
+        }
+      } catch (e) {
+        console.error("Failed to query active subscription for admin billing payment record previousPlanId:", e);
+      }
 
       if (req.user && req.user.userId) {
         payment.createdBy = new ObjectId(req.user.userId);

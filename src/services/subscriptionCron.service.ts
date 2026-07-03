@@ -1,7 +1,6 @@
 import { AppDataSource } from "../data-source";
 import { Member } from "../entity/Member";
 import { MemberSubscription } from "../entity/MemberSubscription";
-import { Plan } from "../entity/Plan";
 import { insertPushNotification } from "./pushnotification.service";
 import { MailService } from "./mail.service";
 import cron from "node-cron";

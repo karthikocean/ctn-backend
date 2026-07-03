@@ -9,8 +9,10 @@ import {
   UseBefore,
   BadRequestError,
   NotFoundError,
-  HttpCode
+  HttpCode,
+  QueryParam
 } from "routing-controllers";
+import pagination from "../../utils/pagination";
 import { AppDataSource } from "../../data-source";
 import { Spotlight, SpotlightStatus } from "../../entity/Spotlight";
 import { SpotlightRequest, SpotlightRequestStatus } from "../../entity/SpotlightRequest";
@@ -316,6 +318,54 @@ export class MobileSpotlightController {
         success: true,
         data: configs
       });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/spotlights/history:
+   *   get:
+   *     summary: Get spotlight history for the logged-in member (Mobile)
+   *     tags: [Mobile Spotlight]
+   *     security:
+   *       - bearerAuth: []
+    *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       200:
+   *         description: Spotlight history list
+   */
+  @Get("/history")
+  async getHistory(
+    @Req() req: any,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @Res() res: any
+  ) {
+    try {
+      const memberId = req.user.userId;
+      const pageNum = Number(page) || 0;
+      const limitNum = Number(limit) || 10;
+
+      const [history, total] = await this.spotlightHistoryRepo.findAndCount({
+        where: {
+          memberId: new ObjectId(memberId)
+        },
+        order: { createdAt: "DESC" },
+        skip: pageNum * limitNum,
+        take: limitNum
+      });
+
+      return pagination(total, history, limitNum, pageNum, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

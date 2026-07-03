@@ -210,7 +210,7 @@ export class PushNotificationController {
         },
         Reminders: {
           totalUnread: getCount([NotificationModule.DAILY_TASK, NotificationModule.REMINDER,
-            NotificationModule.BIRTHDAY
+          NotificationModule.BIRTHDAY
           ]),
           items: [
             { module: NotificationModule.DAILY_TASK, label: "Daily Tasks", unreadCount: getCount([NotificationModule.DAILY_TASK]) },
@@ -350,15 +350,14 @@ export class PushNotificationController {
    */
   @Put("/read")
   @UseBefore(MobileAuthMiddleware)
-  async markAsRead(@Req() req: any, @Body() body: { notificationIds?: string[], moduleName?: string }, @Res() res: any) {
+  async markAsRead(@Req() req: any, @Body() body: { notificationIds?: string, moduleName?: string }, @Res() res: any) {
     try {
       const userId = new ObjectId(req.user.userId);
       const { notificationIds, moduleName } = body;
 
       if (notificationIds && notificationIds.length > 0) {
-        const ids = notificationIds.map(id => new ObjectId(id));
         await this.pushNotificationRepo.update(
-          { _id: { $in: ids } as any, receiverId: userId },
+          { _id: new ObjectId(notificationIds), receiverId: userId },
           { isRead: true }
         );
       } else if (moduleName) {
@@ -375,6 +374,71 @@ export class PushNotificationController {
       }
 
       return res.status(StatusCodes.OK).json({ success: true, message: "Marked as read successfully" });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/push-notification/read-all:
+   *   put:
+   *     summary: Mark all notifications as read for the logged-in user
+   *     tags: [Push Notification]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: All notifications marked as read
+   */
+  @Put("/read-all")
+  @UseBefore(MobileAuthMiddleware)
+  async readAll(@Req() req: any, @Res() res: any) {
+    try {
+      const userId = new ObjectId(req.user.userId);
+      await this.pushNotificationRepo.updateMany(
+        { receiverId: userId, isRead: false, isDeleted: false } as any,
+        { $set: { isRead: true } } as any
+      );
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "All notifications marked as read successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/push-notification/unread-count:
+   *   get:
+   *     summary: Get the total count of unread notifications for the logged-in user
+   *     tags: [Push Notification]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Total unread notifications count
+   */
+  @Get("/unread-count")
+  @UseBefore(MobileAuthMiddleware)
+  async getUnreadCount(@Req() req: any, @Res() res: any) {
+    try {
+      const userId = new ObjectId(req.user.userId);
+      const count = await this.pushNotificationRepo.count({
+        receiverId: userId,
+        isRead: false,
+        isDeleted: false
+      } as any);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: {
+          unreadCount: count
+        }
+      });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

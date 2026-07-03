@@ -144,6 +144,10 @@ export class RazorpayUpgradeService {
     payment.transactionId = rzpOrder.id; // Using RZP Order ID for tracking
     payment.status = "PENDING";
     payment.isDeleted = false;
+    payment.action = "upgrade";
+    if (breakdown.currentPlan && breakdown.currentPlan.id) {
+      payment.previousPlanId = new ObjectId(breakdown.currentPlan.id);
+    }
     await this.paymentRepo.save(payment);
 
     return {
@@ -192,6 +196,10 @@ export class RazorpayUpgradeService {
     payment.transactionId = rzpOrder.id; // Using RZP Order ID for tracking
     payment.status = "PENDING";
     payment.isDeleted = false;
+    payment.action = "buy";
+    if (activeSub && activeSub.planId) {
+      payment.previousPlanId = new ObjectId(activeSub.planId);
+    }
     await this.paymentRepo.save(payment);
 
     return {
@@ -318,6 +326,10 @@ export class RazorpayUpgradeService {
     payment.status = "COMPLETED";
     payment.subscriptionId = savedSub._id;
     payment.isDeleted = false;
+    payment.action = "downgrade";
+    if (breakdown.currentPlan && breakdown.currentPlan.id) {
+      payment.previousPlanId = new ObjectId(breakdown.currentPlan.id);
+    }
     await this.paymentRepo.save(payment);
 
     return {
