@@ -33,6 +33,8 @@ export class Milestone {
 
   @Column({ default: false })
     isDeleted!: boolean;
+  @Column()
+    expiresAt!: Date;
 
   @CreateDateColumn()
     createdAt!: Date;

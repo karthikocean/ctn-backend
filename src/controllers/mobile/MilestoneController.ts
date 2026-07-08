@@ -75,7 +75,8 @@ export class MobileMilestoneController {
       milestone.viewCount = 0;
       milestone.clapsCount = 0;
       milestone.isDeleted = false;
-
+      // Expire after 48 hours
+      milestone.expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
       const saved = await this.milestoneRepo.save(milestone);
 
       let pointsResult = { awarded: 0, balance: 0 };
@@ -156,9 +157,13 @@ export class MobileMilestoneController {
       const milestones = await this.milestoneRepo.find({
         where: {
           memberId: { $in: followingIds },
-          isDeleted: false
-        },
-        order: { createdAt: "DESC" }
+          isDeleted: false,
+          isActive: true,
+          expiresAt: { $gt: new Date() }
+        } as any,
+        order: {
+          createdAt: "DESC"
+        }
       });
 
       // 3. Group by memberId
