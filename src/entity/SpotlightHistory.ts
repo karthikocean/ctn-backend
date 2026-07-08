@@ -17,35 +17,35 @@ export enum SpotlightHistoryAction {
 @Entity("spotlight_histories")
 export class SpotlightHistory {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   @Column()
-  memberId!: ObjectId;
+    memberId!: ObjectId;
 
   @Column({
     type: "enum",
     enum: SpotlightHistoryAction
   })
-  action!: SpotlightHistoryAction;
+    action!: SpotlightHistoryAction;
 
   @Column({ nullable: true })
-  scheduleDate?: Date;
+    scheduleDate?: Date;
 
   @Column({ nullable: true })
-  reason?: string;
+    reason?: string;
 
   @Column({ nullable: true })
-  performedBy?: ObjectId;
+    performedBy?: ObjectId;
 
   @Column({ nullable: true })
-  moduleId?: ObjectId;
+    moduleId?: ObjectId;
 
   @Column({ nullable: true })
-  msg?: string;
+    msg?: string;
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }

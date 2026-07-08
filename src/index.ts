@@ -27,6 +27,8 @@ import { PostDeactivationCronService } from "./services/postDeactivationCron.ser
 import { ReminderCronService } from "./services/reminderCron.service";
 import { BirthdayCronService } from "./services/birthdayCron.service";
 import { DailyTaskCronService } from "./services/dailyTaskCron.service";
+import { SpotlightRequestCronService } from "./services/spotlightRequestCron.service";
+import { MilestoneCronService } from "./services/milestoneCron.service";
 // import { migrateRegions } from "./migrations/migrateRegions";
 AppDataSource.initialize()
   .then(async () => {
@@ -159,6 +161,12 @@ AppDataSource.initialize()
 
       // Initialize Daily Task Reminder Cron Job
       DailyTaskCronService.init();
+
+      // Initialize Spotlight Request Cleanup Cron Job (soft-delete after 48hrs)
+      SpotlightRequestCronService.init();
+
+      // Initialize Milestone Cleanup Cron Job (soft-delete after 48hrs)
+      MilestoneCronService.init();
     });
 
     // ✅ Graceful Shutdown Handlers
