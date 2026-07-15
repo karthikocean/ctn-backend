@@ -113,6 +113,7 @@ export class MobileSubscriptionController {
               }
             }
           } catch (err) {
+            console.log("Token verification error:", err);
             // Ignore token error for optional auth
           }
         }
