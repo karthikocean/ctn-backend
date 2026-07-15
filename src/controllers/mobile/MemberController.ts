@@ -1136,8 +1136,8 @@ export class MobileMemberController {
       });
       const todayBirthdaysFormatted = await this.formatMembersList(birthdayMembers);
 
-      // Check if it's up to the 20th day of the month or forced
-      const showMonthly = today.getDate() <= 20 || forceMonthly === true || String(req.query.forceMonthly) === "true";
+      // Check if it's within the 1st–7th day of the month or forced
+      const showMonthly = today.getDate() <= 7 || forceMonthly === true || String(req.query.forceMonthly) === "true";
 
       let topThankYouSlips: any[] = [];
       let topReferrals: any[] = [];
