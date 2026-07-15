@@ -197,6 +197,53 @@ export class MobilePointController {
         } as any
       });
 
+      // Build date range boundaries for PointHistory count aggregation
+      const datesSorted = [...dateStrings].sort();
+      const rangeStart = new Date(`${datesSorted[0]}T00:00:00.000Z`);
+      const rangeEnd = new Date(`${datesSorted[datesSorted.length - 1]}T23:59:59.999Z`);
+
+      // Aggregate PointHistory counts grouped by date string + moduleName
+      const pointCountAgg = await this.historyRepo.aggregate([
+        {
+          $match: {
+            memberId,
+            type: "earned",
+            createdAt: { $gte: rangeStart, $lte: rangeEnd }
+          }
+        },
+        {
+          $group: {
+            _id: {
+              date: {
+                $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: "+05:30" }
+              },
+              moduleName: "$moduleName"
+            },
+            count: { $sum: 1 }
+          }
+        }
+      ]).toArray();
+
+      // Build lookup map: date -> moduleName -> count
+      // Normalize raw PointHistory module names to match checklist names
+      const normalizeForChecklist = (raw: string): string => {
+        const n = raw.toLowerCase().trim();
+        if (n === "post" || n === "promotion") return "Post";
+        if (n === "ask") return "Ask";
+        if (n === "give") return "Give";
+        if (n === "requirement" || n === "requirements") return "Requirement";
+        if (n === "milestone" || n === "milestones" || n === "mile stone") return "Milestone";
+        return raw;
+      };
+
+      const countMap: Record<string, Record<string, number>> = {};
+      for (const row of pointCountAgg) {
+        const d = row._id.date;
+        const m = normalizeForChecklist(row._id.moduleName);
+        if (!countMap[d]) countMap[d] = {};
+        countMap[d][m] = (countMap[d][m] || 0) + row.count;
+      }
+
       const checklistModules = ["Post", "Ask", "Give", "Requirement", "Milestone"];
 
       const results = dateStrings.map(dateStr => {
@@ -205,9 +252,11 @@ export class MobilePointController {
 
         const history = checklistModules.map(moduleName => {
           const found = dayLogs.find(h => h.moduleName === moduleName);
+          const count = countMap[dateStr]?.[moduleName] ?? 0;
           return {
             moduleName,
             score: found ? found.score : 0,
+            count,
             createdAt: found ? found.createdAt : null
           };
         });

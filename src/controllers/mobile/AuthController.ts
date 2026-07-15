@@ -282,6 +282,7 @@ export class MobileAuthController {
         await this.tokenRepo.save(existingToken);
         return token;
       } catch (error: any) {
+        console.log(error);
         const token = jwt.sign(
           {
             userId: member._id.toString(),
