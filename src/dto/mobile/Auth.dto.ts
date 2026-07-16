@@ -66,6 +66,22 @@ import { IsString, IsNotEmpty, Length, IsEnum, IsOptional } from "class-validato
  *         newPin:
  *           type: string
  *           example: "1234"
+ *     ChangePinDto:
+ *       type: object
+ *       required:
+ *         - oldPin
+ *         - newPin
+ *       properties:
+ *         oldPin:
+ *           type: string
+ *           minLength: 4
+ *           maxLength: 4
+ *           example: "1234"
+ *         newPin:
+ *           type: string
+ *           minLength: 4
+ *           maxLength: 4
+ *           example: "5678"
  */
 
 export class MobileLoginDto {
@@ -120,5 +136,17 @@ export class ResetPinDto {
   @IsNotEmpty()
   @IsString()
   @Length(4, 4)
+    newPin!: string;
+}
+
+export class ChangePinDto {
+  @IsNotEmpty({ message: "Old PIN is required" })
+  @IsString()
+  @Length(4, 4, { message: "Old PIN must be exactly 4 digits" })
+    oldPin!: string;
+
+  @IsNotEmpty({ message: "New PIN is required" })
+  @IsString()
+  @Length(4, 4, { message: "New PIN must be exactly 4 digits" })
     newPin!: string;
 }

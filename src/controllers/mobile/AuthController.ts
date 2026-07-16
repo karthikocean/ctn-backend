@@ -5,7 +5,7 @@ import { AppDataSource } from "../../data-source";
 import { Member } from "../../entity/Member";
 import { Verification } from "../../entity/Verification";
 import { UserToken } from "../../entity/UserToken";
-import { MobileLoginDto, MobileSendOtpDto, MobileVerifyOtpLoginDto } from "../../dto/mobile/Auth.dto";
+import { MobileLoginDto, MobileSendOtpDto, MobileVerifyOtpLoginDto, ChangePinDto } from "../../dto/mobile/Auth.dto";
 import handleErrorResponse from "../../utils/commonFunction";
 import { MailService } from "../../services/mail.service";
 import { sendOTPSMS } from "../../utils/sms";
@@ -256,6 +256,70 @@ export class MobileAuthController {
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "PIN reset successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/auth/change-pin:
+   *   post:
+   *     summary: Change PIN using old PIN and new PIN (requires authentication)
+   *     tags: [Mobile Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/ChangePinDto'
+   *     responses:
+   *       200:
+   *         description: PIN changed successfully
+   *       400:
+   *         description: Validation error (invalid old PIN, same PIN, etc.)
+   *       401:
+   *         description: Unauthorized
+   */
+  @Post("/change-pin")
+  @HttpCode(StatusCodes.OK)
+  @UseBefore(MobileAuthMiddleware)
+  async changePin(@Req() req: any, @Body() body: ChangePinDto, @Res() res: any) {
+    try {
+      const { oldPin, newPin } = body;
+      const memberId = req.user.userId;
+
+      // Validate that old PIN and new PIN are not the same
+      if (oldPin === newPin) {
+        throw new BadRequestError("New PIN must be different from the current PIN");
+      }
+
+      const member = await this.memberRepo.findOne({ where: { _id: new ObjectId(memberId) } });
+
+      if (!member) {
+        throw new BadRequestError("Member not found");
+      }
+
+      if (!member.pin) {
+        throw new BadRequestError("No PIN is configured for this account. Please use reset-pin instead.");
+      }
+
+      // Verify old PIN matches the stored hashed PIN
+      const isOldPinValid = await bcrypt.compare(oldPin, member.pin);
+      if (!isOldPinValid) {
+        throw new BadRequestError("Current PIN is incorrect");
+      }
+
+      // Hash and save the new PIN
+      member.pin = await bcrypt.hash(newPin, 10);
+      await this.memberRepo.save(member);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "PIN changed successfully"
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
