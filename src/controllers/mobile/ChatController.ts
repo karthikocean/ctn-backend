@@ -51,7 +51,7 @@ export class MobileChatController {
   private tySlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
   private milestoneRepo = AppDataSource.getMongoRepository(Milestone);
   private productRepo = AppDataSource.getMongoRepository(OnlineStallProduct);
-  private contactRepo = AppDataSource.getMongoRepository(Contact)
+  private contactRepo = AppDataSource.getMongoRepository(Contact);
   /**
    * @swagger
    * /mobile-api/chats/conversations:

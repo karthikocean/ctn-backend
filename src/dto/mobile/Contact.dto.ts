@@ -55,39 +55,39 @@ import { ContactType } from "../../entity/Contact";
 export class CreateContactDto {
   @IsString()
   @IsNotEmpty()
-  name!: string;
+    name!: string;
 
   @IsString()
   @IsNotEmpty()
-  phoneNumber!: string;
+    phoneNumber!: string;
 
   @IsEnum(ContactType)
   @IsOptional()
-  type!: ContactType;
+    type!: ContactType;
 
   @IsString()
   @IsOptional()
-  referredBy?: string;
+    referredBy?: string;
 }
 
 export class UpdateContactDto {
   @IsString()
   @IsOptional()
-  name?: string;
+    name?: string;
 
   @IsString()
   @IsOptional()
-  phoneNumber?: string;
+    phoneNumber?: string;
 
   @IsEnum(ContactType)
   @IsOptional()
-  type?: ContactType;
+    type?: ContactType;
 
   @IsString()
   @IsOptional()
-  referredBy?: string;
+    referredBy?: string;
 
   @IsBoolean()
   @IsOptional()
-  isActive?: boolean;
+    isActive?: boolean;
 }
