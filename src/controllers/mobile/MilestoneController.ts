@@ -158,14 +158,13 @@ export class MobileMilestoneController {
         where: {
           memberId: { $in: followingIds },
           isDeleted: false,
-          isActive: true,
+          // isActive: true,
           expiresAt: { $gt: new Date() }
         } as any,
         order: {
           createdAt: "DESC"
         }
       });
-
       // 3. Group by memberId
       const grouped = new Map<string, Milestone[]>();
       milestones.forEach(m => {

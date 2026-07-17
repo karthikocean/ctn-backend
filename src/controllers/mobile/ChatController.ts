@@ -36,6 +36,7 @@ import { NotificationModule } from "../../entity/PushNotifications";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
 import { validateRequirementResponseLimit } from "../../services/moduleUsage.service";
+import { Contact, ContactType } from "../../entity/Contact";
 
 @JsonController("/chats")
 @UseBefore(MobileAuthMiddleware)
@@ -50,7 +51,7 @@ export class MobileChatController {
   private tySlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
   private milestoneRepo = AppDataSource.getMongoRepository(Milestone);
   private productRepo = AppDataSource.getMongoRepository(OnlineStallProduct);
-
+  private contactRepo = AppDataSource.getMongoRepository(Contact)
   /**
    * @swagger
    * /mobile-api/chats/conversations:
@@ -952,6 +953,18 @@ export class MobileChatController {
         else if (type === MessageType.THANK_YOU_SLIP) content = "Sent a Thank You Slip";
         else if (type === MessageType.IMAGE) content = "Sent an Image";
         else content = "";
+      }
+      if (type === MessageType.REFERRAL) {
+        const contact = new Contact();
+        contact.name = actionData.name;
+        contact.phoneNumber = actionData.phone;
+        contact.type = ContactType.REFERRED;
+        contact.createdBy = senderId;
+        contact.modifiedBy = senderId;
+        contact.isActive = true;
+        contact.isDeleted = false;
+        contact.referredBy = receiverId;
+        await this.contactRepo.save(contact);
       }
 
       const newMessage = new Message();
