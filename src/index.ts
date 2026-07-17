@@ -30,52 +30,116 @@ import { DailyTaskCronService } from "./services/dailyTaskCron.service";
 import { SpotlightRequestCronService } from "./services/spotlightRequestCron.service";
 import { MilestoneCronService } from "./services/milestoneCron.service";
 // import { migrateRegions } from "./migrations/migrateRegions";
+
+// ─────────────────────────────────────────────────────────
+// 🚀 STEP 1: Create app & HTTP server IMMEDIATELY
+//    The port is open before the DB even connects.
+// ─────────────────────────────────────────────────────────
+let isReady = false;
+
+const app = express();
+const PORT = process.env.PORT || 4000;
+const httpServer = createServer(app);
+
+// Gate: return 503 while startup is in progress
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (!isReady && req.path !== "/api/health" && req.path !== "/") {
+    return res.status(503).json({
+      success: false,
+      message: "Server is starting up, please retry in a moment."
+    });
+  }
+  next();
+});
+
+app.use(express.json());
+
+app.use(
+  cors({
+    origin: "*",  // ✅ Allow all domains
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Origin", "Content-Type", "Authorization"],
+    credentials: false  // ⚠️ Must be false when origin is "*"
+  })
+);
+
+app.use(
+  fileUpload({
+    limits: { fileSize: 50 * 1024 * 1024 },
+    abortOnLimit: true,
+    useTempFiles: false
+  })
+);
+app.use(express.static("public"));
+
+// Health & root always respond instantly (bypasses the 503 gate)
+app.get("/api/health", (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: isReady ? "ready" : "starting",
+    database: AppDataSource.isInitialized ? "connected" : "connecting"
+  });
+});
+
+app.get("/", (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: isReady ? "ok" : "starting",
+    timestamp: new Date().toISOString(),
+    database: AppDataSource.isInitialized ? "connected" : "disconnected",
+    nodeVersion: process.version,
+    uptime: process.uptime()
+  });
+});
+
+// ─────────────────────────────────────────────────────────
+// 🚀 STEP 2: Bind to port IMMEDIATELY — accepts connections right away
+// ─────────────────────────────────────────────────────────
+initSocket(httpServer);
+const server = httpServer.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT} (starting up...)`);
+  console.log(`📄 Swagger: http://localhost:${PORT}/api-docs`);
+});
+
+// ─────────────────────────────────────────────────────────
+// ✅ Graceful Shutdown
+// ─────────────────────────────────────────────────────────
+const closeServer = async () => {
+  console.log("Shutting down server...");
+  try {
+    const io = getIO();
+    if (io) {
+      console.log("Closing Socket.io server and disconnecting clients...");
+      io.close();
+      await waitForDisconnects(2000);
+    }
+  } catch (err) {
+    console.log("Socket.io server was not initialized or already closed.", err);
+  }
+  server.close(async () => {
+    console.log("Server closed.");
+    if (AppDataSource.isInitialized) {
+      await AppDataSource.destroy();
+      console.log("Database connection closed.");
+    }
+    process.exit(0);
+  });
+};
+
+process.on("SIGINT", closeServer);
+process.on("SIGTERM", closeServer);
+process.on("SIGUSR2", closeServer); // For nodemon restarts
+
+// ─────────────────────────────────────────────────────────
+// 🔄 STEP 3: Connect DB & register routes in the background
+// ─────────────────────────────────────────────────────────
 AppDataSource.initialize()
   .then(async () => {
     console.log("✅ Database connected");
-
-    // Reset all members' online status to offline on startup
-    try {
-      const memberRepo = AppDataSource.getMongoRepository(Member);
-      await memberRepo.updateMany({}, { $set: { isOnline: false } });
-      console.log("🔄 Reset all members to offline status on startup");
-    } catch (err) {
-      console.error("❌ Failed to reset members' online status on startup:", err);
-    }
-
-    const app = express();
-    // seed default modules
-    await seedModules();
-    // seed default admin user
-    await seedAdmin();
-    // migrate old business region documents
-    // await migrateRegions();
-    // seed default subscription plans
-    // await seedPlans();
-    app.use(express.json());
-
-    app.use(
-      cors({
-        origin: "*",  // ✅ Allow all domains
-        methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Origin", "Content-Type", "Authorization"],
-        credentials: false  // ⚠️ Must be false when origin is "*"
-      })
-    );
-
-    app.use(
-      fileUpload({
-        limits: { fileSize: 50 * 1024 * 1024 }, // ✅ Increased to 50MB to match MediaController
-        abortOnLimit: true,
-        useTempFiles: false
-      })
-    );
-    app.use(express.static("public"));
 
     // ✅ Swagger route
     app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
     const ext = __filename.endsWith(".ts") ? "ts" : "js";
+
     // ✅ Admin APIs
     useExpressServer(app, {
       routePrefix: "/api/admin",
@@ -108,20 +172,8 @@ AppDataSource.initialize()
       validation: true,
       classTransformer: true
     });
-    app.get("/api/health", (req, res) => {
-      res.status(200).send("Server is alive");
-    });
 
-    app.get("/", (_req, res) => {
-
-      res.status(200).json({
-        status: "ok",
-        timestamp: new Date().toISOString(),
-        database: AppDataSource.isInitialized ? "connected" : "disconnected",
-        nodeVersion: process.version,
-        uptime: process.uptime()
-      });
-    });
+    // Global error handler
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       console.error(err);
       const isProd = process.env.NODE_ENV === "production";
@@ -131,76 +183,43 @@ AppDataSource.initialize()
       });
     });
 
-    const PORT = process.env.PORT || 4000;
+    // ✅ Mark server as ready — 503 gate is lifted, all API traffic flows normally
+    isReady = true;
+    console.log("✅ Server is ready — accepting API requests");
 
-    const httpServer = createServer(app);
-    initSocket(httpServer);
-    const server = httpServer.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📄 Swagger: http://localhost:${PORT}/api-docs`);
+    // ─────────────────────────────────────────────────────
+    // 🔄 Background tasks (non-blocking, after ready)
+    // ─────────────────────────────────────────────────────
+    setImmediate(async () => {
+      try {
+        const memberRepo = AppDataSource.getMongoRepository(Member);
+        await memberRepo.updateMany({}, { $set: { isOnline: false } });
+        console.log("🔄 Reset all members to offline status on startup");
+      } catch (err) {
+        console.error("❌ Failed to reset members' online status on startup:", err);
+      }
 
-      // Initialize Subscription Daily Cron Job
+      try {
+        await seedModules();
+        await seedAdmin();
+      } catch (err) {
+        console.error("❌ Seeding error:", err);
+      }
+
+      // Initialize Cron Jobs
       SubscriptionCronService.init();
-
-      // Initialize Daily Score Cron Jobs
       DailyScoreCronService.init();
       SpotlightCronService.init();
       OnlineStallCronService.init();
-
-      // Initialize Announcement Activation & Deactivation Cron Jobs
       AnnouncementCronService.init();
-
-      // Initialize Post Deactivation Cron Job
       PostDeactivationCronService.init();
-
-      // Initialize Reminder Cron Job
       ReminderCronService.init();
-
-      // Initialize Birthday Notification Cron Job
       BirthdayCronService.init();
-
-      // Initialize Daily Task Reminder Cron Job
       DailyTaskCronService.init();
-
-      // Initialize Spotlight Request Cleanup Cron Job (soft-delete after 48hrs)
       SpotlightRequestCronService.init();
-
-      // Initialize Milestone Cleanup Cron Job (soft-delete after 48hrs)
       MilestoneCronService.init();
     });
-
-    // ✅ Graceful Shutdown Handlers
-    const closeServer = async () => {
-      console.log("Shutting down server...");
-
-      try {
-        const io = getIO();
-        if (io) {
-          console.log("Closing Socket.io server and disconnecting clients...");
-          io.close();
-          // Wait for any active disconnect DB writes to complete before closing the DB
-          await waitForDisconnects(2000);
-        }
-      } catch (err) {
-        console.log("Socket.io server was not initialized or already closed.", err);
-      }
-
-      server.close(async () => {
-        console.log("Server closed.");
-        if (AppDataSource.isInitialized) {
-          await AppDataSource.destroy();
-          console.log("Database connection closed.");
-        }
-        process.exit(0);
-      });
-    };
-
-    process.on("SIGINT", closeServer);
-    process.on("SIGTERM", closeServer);
-    process.on("SIGUSR2", closeServer); // For nodemon restarts
-
   })
   .catch((error) => {
     console.error("❌ DB Error:", error);
   });
-// Trigger nodemon restart
