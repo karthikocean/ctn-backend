@@ -210,7 +210,7 @@ export class SubscriptionService {
     );
 
     if (!planModule) {
-      throw new BadRequestError(`Access denied: Module "${moduleName}" is not included in your active plan.`);
+      throw new BadRequestError(`Module "${moduleName}" is not included in your active plan.`);
     }
 
     if (planModule.countLimit === -1) {
@@ -235,7 +235,7 @@ export class SubscriptionService {
     // Get response limit from benefits config
     const limit = plan.benefits?.requirementResponseLimit;
     if (limit === undefined || limit === null) {
-      throw new BadRequestError("Access denied: Requirement response benefit is not configured in your active plan.");
+      throw new BadRequestError("Requirement response benefit is not configured in your active plan.");
     }
 
     if (limit === -1) {
@@ -388,27 +388,27 @@ export class SubscriptionService {
     const startDate = new Date();
 
     switch (frequency.toLowerCase()) {
-    case "daily":
-      startDate.setDate(endDate.getDate() - frequencyValue + 1);
-      startDate.setHours(0, 0, 0, 0);
-      break;
-    case "weekly":
-      const day = endDate.getDay();
-      startDate.setDate(endDate.getDate() - day - (7 * (frequencyValue - 1)));
-      startDate.setHours(0, 0, 0, 0);
-      break;
-    case "monthly":
-      startDate.setMonth(endDate.getMonth() - frequencyValue + 1);
-      startDate.setDate(1);
-      startDate.setHours(0, 0, 0, 0);
-      break;
-    case "yearly":
-      startDate.setFullYear(endDate.getFullYear() - frequencyValue + 1);
-      startDate.setMonth(0, 1);
-      startDate.setHours(0, 0, 0, 0);
-      break;
-    default:
-      throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
+      case "daily":
+        startDate.setDate(endDate.getDate() - frequencyValue + 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "weekly":
+        const day = endDate.getDay();
+        startDate.setDate(endDate.getDate() - day - (7 * (frequencyValue - 1)));
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "monthly":
+        startDate.setMonth(endDate.getMonth() - frequencyValue + 1);
+        startDate.setDate(1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "yearly":
+        startDate.setFullYear(endDate.getFullYear() - frequencyValue + 1);
+        startDate.setMonth(0, 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      default:
+        throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
     }
 
     return { startDate, endDate };

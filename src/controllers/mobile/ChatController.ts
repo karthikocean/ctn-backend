@@ -37,6 +37,7 @@ import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
 import { validateRequirementResponseLimit } from "../../services/moduleUsage.service";
 import { Contact, ContactType } from "../../entity/Contact";
+import { Connection, ConnectionStatus } from "../../entity/Connection";
 
 @JsonController("/chats")
 @UseBefore(MobileAuthMiddleware)
@@ -52,6 +53,30 @@ export class MobileChatController {
   private milestoneRepo = AppDataSource.getMongoRepository(Milestone);
   private productRepo = AppDataSource.getMongoRepository(OnlineStallProduct);
   private contactRepo = AppDataSource.getMongoRepository(Contact);
+  private connectionRepo = AppDataSource.getMongoRepository(Connection);
+
+  private async isBlocked(userA: ObjectId, userB: ObjectId): Promise<boolean> {
+    const blockedConnection = await this.connectionRepo.findOne({
+      where: {
+        $or: [
+          { senderId: userA, receiverId: userB, status: ConnectionStatus.BLOCKED },
+          { senderId: userB, receiverId: userA, status: ConnectionStatus.BLOCKED }
+        ]
+      } as any
+    });
+    if (blockedConnection) return true;
+
+    // Check if there is a reported conversation between them
+    const reportedConversation = await this.conversationRepo.findOne({
+      where: {
+        participants: { $all: [userA, userB] },
+        status: "REPORTED"
+      } as any
+    });
+    if (reportedConversation) return true;
+
+    return false;
+  }
   /**
    * @swagger
    * /mobile-api/chats/conversations:
@@ -591,6 +616,10 @@ export class MobileChatController {
       const receiverId = post.memberId;
       if (senderId.equals(receiverId)) throw new BadRequestError("You cannot respond to your own post");
 
+      if (await this.isBlocked(senderId, receiverId)) {
+        throw new BadRequestError("You cannot send messages to this member.");
+      }
+
       let conversation = await this.conversationRepo.findOne({
         where: {
           participants: { $all: [senderId, receiverId] },
@@ -757,6 +786,10 @@ export class MobileChatController {
 
       const receiverId = product.memberId;
       if (senderId.equals(receiverId)) throw new BadRequestError("You cannot respond to your own product");
+
+      if (await this.isBlocked(senderId, receiverId)) {
+        throw new BadRequestError("You cannot send messages to this member.");
+      }
 
       let conversation = await this.conversationRepo.findOne({
         where: {
@@ -945,6 +978,13 @@ export class MobileChatController {
 
       const receiverId = conversation.participants.find(p => !p.equals(senderId));
       if (!receiverId) throw new BadRequestError("No receiver found in this conversation");
+
+      if (conversation.status === "REPORTED") {
+        throw new BadRequestError("You cannot send messages in a reported conversation.");
+      }
+      if (await this.isBlocked(senderId, receiverId)) {
+        throw new BadRequestError("You cannot send messages to this member.");
+      }
 
       // Auto-generate content for Business Actions if missing
       if (!content) {
@@ -1308,6 +1348,10 @@ export class MobileChatController {
       const receiver = await this.memberRepo.findOneBy({ _id: recId, isDeleted: false });
       if (!receiver) {
         throw new NotFoundError("Receiver not found");
+      }
+
+      if (await this.isBlocked(senderId, recId)) {
+        throw new BadRequestError("You cannot send messages to this member.");
       }
 
       // // Find or create direct conversation between sender and receiver (no post/product/milestone context)

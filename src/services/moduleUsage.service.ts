@@ -29,6 +29,6 @@ export async function validateFeatureAccess(
   const plan = await subscriptionService.getMemberPlan(memberId);
   const features = (plan as any).features ?? {};
   if (!features[featureKey]) {
-    throw new Error(`Access denied: "${featureLabel}" is not available in your current subscription plan.`);
+    throw new Error(`"${featureLabel}" is not available in your current subscription plan.`);
   }
 }
