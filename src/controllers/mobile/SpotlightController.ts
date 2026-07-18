@@ -25,6 +25,7 @@ import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import handleErrorResponse from "../../utils/commonFunction";
 import { PointService } from "../../services/point.service";
 import { PointConfig, PointConfigType } from "../../entity/PointConfig";
+import { validateFeatureAccess } from "../../services/moduleUsage.service";
 
 @JsonController("/spotlights")
 @UseBefore(MobileAuthMiddleware)
@@ -124,6 +125,13 @@ export class MobileSpotlightController {
   async createRequest(@Req() req: any, @Res() res: any) {
     try {
       const memberId = req.user.userId;
+
+      // Check if member's plan includes the Spotlights feature
+      await validateFeatureAccess(
+        new ObjectId(memberId),
+        "spotlights",
+        "Spotlights"
+      );
 
       // Verify if member has a pending spotlight request
       const existingRequest = await this.spotlightRequestRepo.findOne({
@@ -318,6 +326,96 @@ export class MobileSpotlightController {
         success: true,
         data: configs
       });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/spotlights/list:
+   *   get:
+   *     summary: Get paginated flat list of members from active spotlights (Mobile)
+   *     tags: [Mobile Spotlight]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 0
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 10
+   *     responses:
+   *       200:
+   *         description: Flat list of members from active spotlights
+   */
+  @Get("/list")
+  async getList(
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @Res() res: any
+  ) {
+    try {
+      const pageNum = Number(page) || 0;
+      const limitNum = Number(limit) || 10;
+
+      // Fetch only active spotlights
+      const spotlights = await this.spotlightRepo.find({
+        where: { isDeleted: false, status: SpotlightStatus.ACTIVE },
+        order: { scheduleDate: "DESC" }
+      });
+
+      if (spotlights.length === 0) {
+        return res.status(StatusCodes.OK).json({ success: true, data: [] });
+      }
+
+      // Collect all unique member IDs across active spotlights
+      const allMemberIds = [
+        ...new Set(
+          spotlights.flatMap(s => s.members.map(id => id.toString()))
+        )
+      ].map(id => new ObjectId(id));
+
+      // Fetch member records
+      const members = allMemberIds.length > 0
+        ? await this.memberRepo.find({ where: { _id: { $in: allMemberIds }, isDeleted: false } as any })
+        : [];
+
+      // Fetch categories for those members
+      const categoryIds = [
+        ...new Set(
+          members.map(m => m.businessCategory?.toString()).filter(Boolean)
+        )
+      ].map(id => new ObjectId(id!));
+
+      let categoryMap = new Map<string, string>();
+      if (categoryIds.length > 0) {
+        const categories = await this.categoryRepo.find({
+          where: { _id: { $in: categoryIds } } as any
+        });
+        categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
+      }
+
+      // Build flat member list with pagination
+      const allMembers = members.map(m => ({
+        _id: m._id,
+        fullName: m.fullName,
+        profilePhoto: m.profilePhoto ?? null,
+        businessName: m.businessName ?? null,
+        categoryName: m.businessCategory
+          ? (categoryMap.get(m.businessCategory.toString()) ?? null)
+          : null
+      }));
+
+      const total = allMembers.length;
+      const data = allMembers.slice(pageNum * limitNum, pageNum * limitNum + limitNum);
+
+      return pagination(total, data, limitNum, pageNum, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

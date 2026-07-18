@@ -9,6 +9,7 @@ import { InsertPushNotificationDto } from "../dto/mobile/InsertPushNotification.
 import { Member, MemberStatus } from "../entity/Member";
 import { Connection, ConnectionStatus } from "../entity/Connection";
 import { PostModel, PostType, RequirementVisibility } from "../entity/Post";
+import { emitUnreadCount } from "../utils/socket";
 
 const FCM_ENDPOINT = "https://fcm.googleapis.com/v1/projects/tn-business-forum/messages:send";
 const serviceAccountPath = path.join(__dirname, "../views", "google-firebase.json");
@@ -119,6 +120,9 @@ export async function insertPushNotification(
         contentObj
       );
 
+      // Emit live unread count to receiver via socket
+      emitUnreadCount(receiverId).catch(() => {});
+
       return true;
     }
 
@@ -166,6 +170,11 @@ export async function notifyAllActiveMembers(dto: {
 
     if (notifications.length > 0) {
       await notificationRepo.insertMany(notifications);
+
+      // Emit live unread count to each receiver via socket
+      activeMembers.forEach(member => {
+        emitUnreadCount(member._id.toString()).catch(() => {});
+      });
     }
 
     // Send push notification to all active members with FCM token
@@ -319,6 +328,11 @@ export async function notifyPostAudience(dto: {
 
     if (notifications.length > 0) {
       await notificationRepo.insertMany(notifications);
+
+      // Emit live unread count to each receiver via socket
+      targetMembers.forEach(member => {
+        emitUnreadCount(member._id.toString()).catch(() => {});
+      });
     }
 
     // FCM dispatch only for targeted audiences (not DB-only)

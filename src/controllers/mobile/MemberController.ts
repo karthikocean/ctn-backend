@@ -16,7 +16,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Member, MemberStatus, LocationVisibility } from "../../entity/Member";
 import { Category } from "../../entity/Category";
-import { CreateMemberDto, UpdateProfileDto, SetPinDto, UpdateLocationDto, CheckLocationDto } from "../../dto/mobile/Member.dto";
+import { CreateMemberDto, UpdateProfileDto, SetPinDto, UpdateLocationDto, CheckLocationDto, UpdateFcmTokenDto } from "../../dto/mobile/Member.dto";
 import { BusinessRegion, Area } from "../../entity/BusinessRegion";
 import { State } from "../../entity/State";
 import { City } from "../../entity/City";
@@ -81,10 +81,10 @@ export class MobileMemberController {
       }
 
       // Check GST number limit (max 2 users per GST)
-      // if (data.gstNumber) {
-      //   const gstCount = await this.memberRepo.count({ gstNumber: data.gstNumber, isDeleted: false });
-      //   if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
-      // }
+      if (data.gstNumber) {
+        const gstCount = await this.memberRepo.count({ gstNumber: data.gstNumber, isDeleted: false });
+        if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
+      }
 
       const member = new Member();
       Object.assign(member, data);
@@ -445,6 +445,50 @@ export class MobileMemberController {
           longitude: saved.longitude,
           locationVisibility: saved.locationVisibility
         }
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/members/fcm-token:
+   *   put:
+   *     summary: Update member FCM token for push notifications
+   *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - fcmToken
+   *             properties:
+   *               fcmToken:
+   *                 type: string
+   *                 example: "fcm_token_here"
+   *     responses:
+   *       200:
+   *         description: FCM Token updated successfully
+   */
+  @Put("/fcm-token")
+  @UseBefore(MobileAuthMiddleware)
+  async updateFcmToken(@Req() req: any, @Body() data: UpdateFcmTokenDto, @Res() res: any) {
+    try {
+      const userId = req.user.userId;
+      const member = await this.memberRepo.findOneBy({ _id: new ObjectId(userId), isDeleted: false });
+      if (!member) throw new NotFoundError("Member not found");
+
+      member.fcmToken = data.fcmToken;
+      await this.memberRepo.save(member);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "FCM token updated successfully"
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

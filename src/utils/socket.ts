@@ -36,6 +36,13 @@ export const waitForDisconnects = async (timeoutMs: number = 2000): Promise<void
 
 export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => void) => {
   console.log(`[SocketAuth] Handshake started for socket: ${socket.id}`);
+
+  // Reject early if DB is not ready yet (server still starting up)
+  if (!AppDataSource.isInitialized) {
+    console.log(`[SocketAuth] Rejecting: Database not ready for socket: ${socket.id}`);
+    return next(new Error("Server is starting up, please retry in a moment"));
+  }
+
   const token = socket.handshake.auth.token || socket.handshake.headers.authorization;
 
   if (!token) {
@@ -383,4 +390,24 @@ export const isUserInConversation = (userId: string, conversationId: string): bo
     if (room.has(socketId)) return true;
   }
   return false;
+};
+
+/**
+ * Emit the live unread notification count to a specific user via their private socket room.
+ * Safe to call even when the user is offline — the emit is a no-op if nobody is in the room.
+ */
+export const emitUnreadCount = async (receiverId: string): Promise<void> => {
+  if (!io) return;
+  try {
+    const { PushNotification } = await import("../entity/PushNotifications");
+    const repo = AppDataSource.getMongoRepository(PushNotification);
+    const count = await repo.count({
+      receiverId: new ObjectId(receiverId),
+      isRead: false,
+      isDeleted: false
+    } as any);
+    io.to(receiverId).emit("unread_count_update", { unreadCount: count });
+  } catch (err) {
+    console.error("[emitUnreadCount] Failed to emit unread count:", err);
+  }
 };
