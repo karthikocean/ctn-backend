@@ -153,7 +153,7 @@ export class MobileChatController {
 
       const [conversations, total] = await this.conversationRepo.findAndCount({
         where: whereClause as any,
-        order: { updatedAt: "DESC" },
+        order: { createdAt: "DESC" },
         take: limit,
         skip: page * limit
       });

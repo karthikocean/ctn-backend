@@ -170,7 +170,9 @@ export class MobileAuthController {
   async verifyOtpLogin(@Body() body: MobileVerifyOtpLoginDto, @Res() res: any) {
     try {
       const { identifier, type, otp, fcmToken } = body;
-
+      if (!fcmToken) {
+        throw new BadRequestError("FCM token is required");
+      }
       // Test bypass
       if (otp !== "1234") {
         const verification = await this.verificationRepo.findOne({

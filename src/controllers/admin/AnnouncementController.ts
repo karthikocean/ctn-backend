@@ -116,7 +116,7 @@ export class AdminAnnouncementController {
       const saved = await this.announcementRepo.save(announcement);
       if (saved && data.status === AnnouncementStatus.PUBLISHED) {
         await notifyAllActiveMembers({
-          subject: "New Event Created! 📅",
+          subject: "New Event Created! 🗓️",
           content: `Check out the new event: ${announcement.title}`,
           moduleName: NotificationModule.EVENT,
           moduleId: saved._id.toString(),

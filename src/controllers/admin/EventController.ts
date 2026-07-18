@@ -61,7 +61,7 @@ export class AdminEventController {
 
       // Send push notification to all active members
       await notifyAllActiveMembers({
-        subject: "New Event Created! 📅",
+        subject: "New Event Created! 🗓️",
         content: `Check out the new event: ${event.title}`,
         moduleName: NotificationModule.EVENT,
         moduleId: saved._id.toString(),

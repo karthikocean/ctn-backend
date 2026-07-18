@@ -49,6 +49,7 @@ export async function seedModules() {
     { name: "Billings" },
     { name: "Coupons" },
     { name: "Marketplace Category" },
+    { name: "Help Center" },
 
     { name: "Modules" },
   ];

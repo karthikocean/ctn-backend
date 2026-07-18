@@ -408,3 +408,10 @@ export class CheckLocationDto {
   @IsNotEmpty()
     longitude!: number;
 }
+
+export class UpdateFcmTokenDto {
+  @IsString()
+  @IsNotEmpty()
+    fcmToken!: string;
+}
+

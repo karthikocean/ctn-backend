@@ -326,9 +326,77 @@ export class CommonController {
 
   /**
    * @swagger
+   * /mobile-api/common/cities:
+   *   get:
+   *     summary: Get cities, optionally filtered by stateIds and/or search term
+   *     tags: [Mobile Common]
+   *     parameters:
+   *       - in: query
+   *         name: stateIds
+   *         schema:
+   *           type: string
+   *         description: Comma-separated list of state ObjectIds to filter cities
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *         description: Search cities by name (case-insensitive)
+   *     responses:
+   *       200:
+   *         description: List of city objects
+   */
+  @Get("/cities")
+  async getCities(
+    @QueryParam("stateIds") stateIds: string,
+    @QueryParam("search") search: string,
+    @Res() res: any
+  ) {
+    try {
+      const cityRepository = AppDataSource.getMongoRepository(City);
+
+      const where: any = { isDeleted: false };
+
+      // Filter by stateIds
+      if (stateIds) {
+        const idList = stateIds.split(",").map(s => s.trim()).filter(Boolean);
+        const validIds = idList
+          .filter(id => ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
+        if (validIds.length > 0) {
+          where.stateId = { $in: validIds };
+        }
+      }
+
+      // Search by name
+      if (search) {
+        where.name = { $regex: search, $options: "i" };
+      }
+
+      const cities = await cityRepository.find({
+        where,
+        order: { name: "ASC" } as any
+      });
+
+      const data = cities.map(c => ({
+        _id: c._id,
+        name: c.name,
+        stateId: c.stateId
+      }));
+
+      return res.status(200).json({
+        success: true,
+        data
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
    * /mobile-api/common/business-regions:
    *   get:
-   *     summary: Get business regions (cities + areas) filtered by selected state IDs
+   *     summary: Get business regions (areas) filtered by state and/or city IDs
    *     tags: [Mobile Common]
    *     parameters:
    *       - in: query
@@ -341,14 +409,20 @@ export class CommonController {
    *         schema:
    *           type: string
    *         description: Comma-separated list of state names (fallback filter)
+   *       - in: query
+   *         name: cityIds
+   *         schema:
+   *           type: string
+   *         description: Comma-separated list of city ObjectIds to filter results
    *     responses:
    *       200:
-   *         description: List of regions grouped by city
+   *         description: List of areas filtered by state and/or city
    */
   @Get("/business-regions")
   async getBusinessRegions(
     @QueryParam("stateIds") stateIds: string,
     @QueryParam("states") states: string,
+    @QueryParam("cityIds") cityIds: string,
     @Res() res: any
   ) {
     try {
@@ -379,10 +453,22 @@ export class CommonController {
         }
       }
 
+      // City filter: cityIds (comma-separated ObjectId strings)
+      let filterCityIds: ObjectId[] = [];
+      if (cityIds) {
+        const cityIdList = cityIds.split(",").map(s => s.trim()).filter(Boolean);
+        filterCityIds = cityIdList
+          .filter(id => ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
+      }
+
       // Build query
       const where: any = { isDeleted: false, status: "active" };
       if (filterStateIds.length > 0) {
         where.state = { $in: filterStateIds };
+      }
+      if (filterCityIds.length > 0) {
+        where.city = { $in: filterCityIds };
       }
 
       const regions = await businessRegionRepository.find({ where });
