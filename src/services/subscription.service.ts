@@ -388,27 +388,27 @@ export class SubscriptionService {
     const startDate = new Date();
 
     switch (frequency.toLowerCase()) {
-      case "daily":
-        startDate.setDate(endDate.getDate() - frequencyValue + 1);
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      case "weekly":
-        const day = endDate.getDay();
-        startDate.setDate(endDate.getDate() - day - (7 * (frequencyValue - 1)));
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      case "monthly":
-        startDate.setMonth(endDate.getMonth() - frequencyValue + 1);
-        startDate.setDate(1);
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      case "yearly":
-        startDate.setFullYear(endDate.getFullYear() - frequencyValue + 1);
-        startDate.setMonth(0, 1);
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      default:
-        throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
+    case "daily":
+      startDate.setDate(endDate.getDate() - frequencyValue + 1);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    case "weekly":
+      const day = endDate.getDay();
+      startDate.setDate(endDate.getDate() - day - (7 * (frequencyValue - 1)));
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    case "monthly":
+      startDate.setMonth(endDate.getMonth() - frequencyValue + 1);
+      startDate.setDate(1);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    case "yearly":
+      startDate.setFullYear(endDate.getFullYear() - frequencyValue + 1);
+      startDate.setMonth(0, 1);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    default:
+      throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
     }
 
     return { startDate, endDate };
