@@ -9,7 +9,9 @@
     "build": "tsc",
     "test": "jest --passWithNoTests",
     "lint": "eslint src --ext .ts,.js",
-    "lint:fix": "eslint src --ext .ts,.js --fix"
+    "lint:fix": "eslint src --ext .ts,.js --fix",
+    "db:clean": "ts-node src/scripts/cleanup.ts",
+    "db:migrate-marketplace": "ts-node src/scripts/migrateMarketplaceCategories.ts"
   },
   "dependencies": {
     "axios": "^1.15.2",
