@@ -11,8 +11,10 @@ import {
   UseBefore,
   NotFoundError,
   BadRequestError,
-  HttpCode
+  HttpCode,
+  QueryParam
 } from "routing-controllers";
+import pagination from "../../utils/pagination";
 import { AppDataSource } from "../../data-source";
 import { OnlineStallProduct } from "../../entity/OnlineStallProduct";
 import { Announcement } from "../../entity/Announcement";
@@ -321,20 +323,44 @@ export class MobileOnlineStallProductController {
    *     tags: [Mobile Online Stall Product]
    *     security:
    *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 0
+   *         description: Page number (0-indexed)
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 10
+   *         description: Number of products per page
    *     responses:
    *       200:
    *         description: List of member's products
    */
   @Get("/my-products")
-  async getMyProducts(@Req() req: any, @Res() res: any) {
+  async getMyProducts(
+    @Req() req: any,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @Res() res: any
+  ) {
     try {
       const userId = req.user.userId;
-      const products = await this.productRepo.find({
+
+      const pageNum = Number(page) || 0;
+      const limitNum = Number(limit) || 10;
+
+      const [products, total] = await this.productRepo.findAndCount({
         where: {
           memberId: new ObjectId(userId),
           isDeleted: false
         },
-        order: { createdAt: "DESC" }
+        order: { createdAt: "DESC" },
+        skip: pageNum * limitNum,
+        take: limitNum
       });
 
       // Extract unique marketplace category IDs from products
@@ -366,10 +392,7 @@ export class MobileOnlineStallProductController {
         };
       });
 
-      return res.status(StatusCodes.OK).json({
-        success: true,
-        data: responseData
-      });
+      return pagination(total, responseData, limitNum, pageNum, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
@@ -395,7 +418,7 @@ export class MobileOnlineStallProductController {
    *       404:
    *         description: Product not found
    */
-  @Get("/:id")
+  @Get("/:id([0-9a-fA-F]{24})")
   async getOne(@Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) {
@@ -444,7 +467,7 @@ export class MobileOnlineStallProductController {
    *       200:
    *         description: Product updated successfully
    */
-  @Put("/:id")
+  @Put("/:id([0-9a-fA-F]{24})")
   async update(
     @Req() req: any,
     @Param("id") id: string,
@@ -509,7 +532,7 @@ export class MobileOnlineStallProductController {
    *       200:
    *         description: Product deleted successfully
    */
-  @Delete("/:id")
+  @Delete("/:id([0-9a-fA-F]{24})")
   async delete(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       const userId = req.user.userId;
