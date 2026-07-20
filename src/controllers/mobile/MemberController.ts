@@ -98,7 +98,7 @@ export class MobileMemberController {
       }
 
       member.isDeleted = false;
-      member.dob = data.dob ? new Date(data?.dob) : undefined;
+      member.dob = data.dob ? parseDob(data.dob) : undefined;
       member.status = MemberStatus.ACTIVE; // Or PENDING if you have an approval flow
 
       const saved = await this.memberRepo.save(member);
@@ -396,7 +396,7 @@ export class MobileMemberController {
         }
       }
       if (data.dob) {
-        member.dob = new Date(data.dob);
+        member.dob = parseDob(data.dob);
       }
       const saved = await this.memberRepo.save(member);
       return res.status(StatusCodes.OK).json({
@@ -1811,4 +1811,24 @@ export class MobileMemberController {
       return handleErrorResponse(error, res);
     }
   }
+}
+
+function parseDob(dobStr: string): Date {
+  const cleanStr = dobStr.trim();
+  const dmyRegex = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/;
+  const dmyMatch = cleanStr.match(dmyRegex);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    const date = new Date(year, month, day);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  const fallbackDate = new Date(cleanStr);
+  if (!isNaN(fallbackDate.getTime())) {
+    return fallbackDate;
+  }
+  throw new BadRequestError("Invalid Date of Birth format. Please use DD-MM-YYYY.");
 }

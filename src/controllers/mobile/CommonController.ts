@@ -2,7 +2,8 @@ import {
   JsonController,
   Get,
   QueryParam,
-  Res
+  Res,
+  BadRequestError
 } from "routing-controllers";
 import axios from "axios";
 import { AppDataSource } from "../../data-source";
@@ -20,6 +21,7 @@ import { City } from "../../entity/City";
 export class CommonController {
   private categoryRepo = AppDataSource.getMongoRepository(Category);
   private marketplaceCategoryRepo = AppDataSource.getMongoRepository(MarketplaceCategory);
+  private memberRepo = AppDataSource.getMongoRepository(Member);
 
   /**
    * @swagger
@@ -153,6 +155,8 @@ export class CommonController {
     if (!gstRegex.test(gstin)) {
       return res.status(400).json({ status: false, message: "Invalid GSTIN format" });
     }
+    const gstCount = await this.memberRepo.count({ gstNumber: gstin, isDeleted: false });
+    if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
 
     try {
       const apiKey = process.env.GSTIN_CHECK_API_KEY;

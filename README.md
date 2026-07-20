@@ -41,3 +41,9 @@ npm run lint:fix
 ```
 npm test
 ```
+
+### Clean Database
+
+```
+npm run db:clean
+```
