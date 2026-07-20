@@ -17,6 +17,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { PostModel as PostEntity, PostType, RequirementVisibility } from "../../entity/Post";
 import { Member } from "../../entity/Member";
+import { State } from "../../entity/State";
 import { Connection, ConnectionStatus } from "../../entity/Connection";
 import { Category } from "../../entity/Category";
 import { Conversation } from "../../entity/Conversation";
@@ -461,6 +462,17 @@ export class MobilePostController {
           .map(m => m._id);
       }
 
+      let memberStateId: ObjectId | null = null;
+      if (currentMember.state) {
+        const stateRepo = AppDataSource.getMongoRepository(State);
+        const stateDoc = await stateRepo.findOne({
+          where: { name: { $regex: new RegExp(`^${currentMember.state}$`, "i") }, isDeleted: false }
+        });
+        if (stateDoc) {
+          memberStateId = stateDoc._id;
+        }
+      }
+
       // Fetch mutual friends to evaluate MUTUAL_FRIEND requirement visibility
       const following = await this.connectionRepo.find({
         where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
@@ -494,14 +506,31 @@ export class MobilePostController {
         });
       }
 
+      const regionConditions: any[] = [];
+      if (memberBusinessRegion) {
+        regionConditions.push({ regionIds: memberBusinessRegion });
+      }
+      if (memberStateId) {
+        regionConditions.push({ stateIds: memberStateId });
+      }
+      if (regionMemberIds.length > 0) {
+        regionConditions.push({ memberId: { $in: regionMemberIds } });
+      }
+
+      if (regionConditions.length > 0) {
+        visibilityOrArray.push({
+          requirementVisibility: RequirementVisibility.REGION,
+          $or: regionConditions
+        });
+      }
+
       if (regionMemberIds.length > 0) {
         visibilityOrArray.push({
-          memberId: { $in: regionMemberIds },
           $or: [
             { requirementVisibility: { $exists: false } },
-            { requirementVisibility: null },
-            { requirementVisibility: RequirementVisibility.REGION }
-          ]
+            { requirementVisibility: null }
+          ],
+          memberId: { $in: regionMemberIds }
         });
       }
 
@@ -580,8 +609,14 @@ export class MobilePostController {
           }))
           : [];
 
+        const plainPost = { ...p };
+        delete plainPost.stateIds;
+        delete plainPost.regionIds;
+        delete plainPost.categoryIds;
+        delete plainPost.subCategoryIds;
+
         return {
-          ...p,
+          ...plainPost,
           member: memberMap.get(p.memberId.toString()) || null,
           categories,
           subCategories
@@ -987,6 +1022,7 @@ export class MobilePostController {
       // 4. Find members in the same region
       const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
       let regionMemberIds: ObjectId[] = [];
+      let memberStateId: ObjectId | null = null;
       if (currentMember) {
         const locationCondition: any = { isDeleted: false };
         if (currentMember.city) locationCondition.city = currentMember.city;
@@ -994,21 +1030,57 @@ export class MobilePostController {
 
         const regionMembers = await this.memberRepo.find({ where: locationCondition });
         regionMemberIds = regionMembers.map(m => m._id);
+
+        if (currentMember.state) {
+          const stateRepo = AppDataSource.getMongoRepository(State);
+          const stateDoc = await stateRepo.findOne({
+            where: { name: { $regex: new RegExp(`^${currentMember.state}$`, "i") }, isDeleted: false }
+          });
+          if (stateDoc) {
+            memberStateId = stateDoc._id;
+          }
+        }
+      }
+
+      const regionConditions: any[] = [];
+      if (currentMember?.businessRegion) {
+        regionConditions.push({ regionIds: currentMember.businessRegion });
+      }
+      if (memberStateId) {
+        regionConditions.push({ stateIds: memberStateId });
+      }
+      if (regionMemberIds.length > 0) {
+        regionConditions.push({ memberId: { $in: regionMemberIds } });
       }
 
       const visibilityOrArray: any[] = [];
       if (type === PostType.GIVE) {
         where.memberId = { $in: mutualIds };
       } else if (type === PostType.REQUIREMENT) {
+        const reqRegionCondition: any = { requirementVisibility: RequirementVisibility.REGION };
+        if (regionConditions.length > 0) {
+          reqRegionCondition.$or = regionConditions;
+        } else {
+          // If no region info, prevent matching any region requirements
+          reqRegionCondition._id = new ObjectId();
+        }
+
         visibilityOrArray.push(
           { requirementVisibility: { $exists: false } },
           { requirementVisibility: null },
           { requirementVisibility: RequirementVisibility.OVERALL },
           { memberId: new ObjectId(userId) },
           { requirementVisibility: RequirementVisibility.MUTUAL_FRIEND, memberId: { $in: mutualIds } },
-          { requirementVisibility: RequirementVisibility.REGION, memberId: { $in: regionMemberIds } }
+          reqRegionCondition
         );
       } else if (!type) {
+        const reqRegionCondition: any = { type: PostType.REQUIREMENT, requirementVisibility: RequirementVisibility.REGION };
+        if (regionConditions.length > 0) {
+          reqRegionCondition.$or = regionConditions;
+        } else {
+          reqRegionCondition._id = new ObjectId();
+        }
+
         visibilityOrArray.push(
           { type: { $ne: PostType.REQUIREMENT } },
           { type: PostType.REQUIREMENT, requirementVisibility: { $exists: false } },
@@ -1016,7 +1088,7 @@ export class MobilePostController {
           { type: PostType.REQUIREMENT, requirementVisibility: RequirementVisibility.OVERALL },
           { type: PostType.REQUIREMENT, memberId: new ObjectId(userId) },
           { type: PostType.REQUIREMENT, requirementVisibility: RequirementVisibility.MUTUAL_FRIEND, memberId: { $in: mutualIds } },
-          { type: PostType.REQUIREMENT, requirementVisibility: RequirementVisibility.REGION, memberId: { $in: regionMemberIds } }
+          reqRegionCondition
         );
       }
 
@@ -1124,7 +1196,7 @@ export class MobilePostController {
    *         schema:
    *           type: string
    */
-  @Get("/:id")
+  @Get("/:id([0-9a-fA-F]{24})")
   async getOne(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
@@ -1141,15 +1213,15 @@ export class MobilePostController {
         const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
         if (!currentMember) throw new BadRequestError("Member not found");
 
-        if (post.subCategoryIds && post.subCategoryIds.length > 0) {
-          const memberSub = currentMember.subCategory ? currentMember.subCategory.toString() : null;
-          const match = post.subCategoryIds.some(catId => catId.toString() === memberSub);
-          if (!match) throw new BadRequestError("You do not have access to view this post");
-        } else if (post.categoryIds && post.categoryIds.length > 0) {
-          const memberCat = currentMember.businessCategory ? currentMember.businessCategory.toString() : null;
-          const match = post.categoryIds.some(catId => catId.toString() === memberCat);
-          if (!match) throw new BadRequestError("You do not have access to view this post");
-        }
+        // if (post.subCategoryIds && post.subCategoryIds.length > 0) {
+        //   const memberSub = currentMember.subCategory ? currentMember.subCategory.toString() : null;
+        //   const match = post.subCategoryIds.some(catId => catId.toString() === memberSub);
+        //   if (!match) throw new BadRequestError("You do not have access to view this post");
+        // } else if (post.categoryIds && post.categoryIds.length > 0) {
+        //   const memberCat = currentMember.businessCategory ? currentMember.businessCategory.toString() : null;
+        //   const match = post.categoryIds.some(catId => catId.toString() === memberCat);
+        //   if (!match) throw new BadRequestError("You do not have access to view this post");
+        // }
       }
 
       const member = await this.memberRepo.findOneBy({ _id: post.memberId });
@@ -1232,7 +1304,7 @@ export class MobilePostController {
    *           schema:
    *             $ref: '#/components/schemas/UpdatePostDto'
    */
-  @Put("/:id")
+  @Put("/:id([0-9a-fA-F]{24})")
   async update(@Req() req: any, @Param("id") id: string, @Body() data: UpdatePostDto, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
@@ -1324,7 +1396,7 @@ export class MobilePostController {
    *         schema:
    *           type: string
    */
-  @Delete("/:id")
+  @Delete("/:id([0-9a-fA-F]{24})")
   async delete(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");

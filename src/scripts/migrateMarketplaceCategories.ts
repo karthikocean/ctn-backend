@@ -59,11 +59,11 @@ async function runMigration() {
     }
 
     console.log("\n🏁 Migration Summary:");
-    console.log(`------------------------------`);
+    console.log("------------------------------");
     console.log(`📂 Total MAIN scanned: ${mainCategories.length}`);
     console.log(`✨ Newly Migrated:     ${migratedCount}`);
     console.log(`⏩ Skipped (Exists):   ${skippedCount}`);
-    console.log(`------------------------------`);
+    console.log("------------------------------");
 
   } catch (error) {
     console.error("❌ Fatal error during marketplace category migration:", error);

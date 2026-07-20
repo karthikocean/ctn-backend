@@ -185,7 +185,7 @@ export class SubscriptionService {
       throw new BadRequestError("Subscription plan has expired.");
     }
 
-    const plan = await this.planRepo.findOneBy({ _id: member.planId, isDeleted: false });
+    const plan = await this.planRepo.findOneBy({ _id: new ObjectId(member.planId), isDeleted: false });
     if (!plan) {
       throw new NotFoundError("Assigned subscription plan not found.");
     }
@@ -388,27 +388,27 @@ export class SubscriptionService {
     const startDate = new Date();
 
     switch (frequency.toLowerCase()) {
-    case "daily":
-      startDate.setDate(endDate.getDate() - frequencyValue + 1);
-      startDate.setHours(0, 0, 0, 0);
-      break;
-    case "weekly":
-      const day = endDate.getDay();
-      startDate.setDate(endDate.getDate() - day - (7 * (frequencyValue - 1)));
-      startDate.setHours(0, 0, 0, 0);
-      break;
-    case "monthly":
-      startDate.setMonth(endDate.getMonth() - frequencyValue + 1);
-      startDate.setDate(1);
-      startDate.setHours(0, 0, 0, 0);
-      break;
-    case "yearly":
-      startDate.setFullYear(endDate.getFullYear() - frequencyValue + 1);
-      startDate.setMonth(0, 1);
-      startDate.setHours(0, 0, 0, 0);
-      break;
-    default:
-      throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
+      case "daily":
+        startDate.setDate(endDate.getDate() - frequencyValue + 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "weekly":
+        const day = endDate.getDay();
+        startDate.setDate(endDate.getDate() - day - (7 * (frequencyValue - 1)));
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "monthly":
+        startDate.setMonth(endDate.getMonth() - frequencyValue + 1);
+        startDate.setDate(1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "yearly":
+        startDate.setFullYear(endDate.getFullYear() - frequencyValue + 1);
+        startDate.setMonth(0, 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      default:
+        throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
     }
 
     return { startDate, endDate };
@@ -670,7 +670,7 @@ export class SubscriptionService {
 
     const newSub = new MemberSubscription();
     newSub.memberId = memberId;
-    newSub.planId = planId;
+    newSub.planId = new ObjectId(planId);
     newSub.type = plan.billingType || "FREE";
     newSub.status = "ACTIVE";
     newSub.startDate = now;
@@ -682,8 +682,8 @@ export class SubscriptionService {
     await this.paymentRepo.update(paymentId, { subscriptionId: savedSub._id });
 
     await this.memberRepo.update(memberId, {
-      subscriptionId: savedSub._id,
-      planId: planId,
+      subscriptionId: new ObjectId(savedSub._id),
+      planId: new ObjectId(planId),
       subscriptionStartDate: now,
       subscriptionEndDate: end
     });
