@@ -299,7 +299,22 @@ export class CategoryController {
       }
       const where: any = { isDeleted: false };
       if (search) {
-        where.name = { $regex: search, $options: "i" };
+        if (type === CategoryType.SUB) {
+          const matchingMainCategories = await this.categoryRepo.find({
+            where: {
+              name: { $regex: search, $options: "i" },
+              type: CategoryType.MAIN,
+              isDeleted: false
+            }
+          });
+          const matchingMainIds = matchingMainCategories.map(m => m._id);
+          where.$or = [
+            { name: { $regex: search, $options: "i" } },
+            { parentCategory: { $in: matchingMainIds } }
+          ];
+        } else {
+          where.name = { $regex: search, $options: "i" };
+        }
       }
       if (status) {
         where.status = status;

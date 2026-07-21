@@ -560,6 +560,24 @@ export class MobileChatController {
         throw new BadRequestError("You are not a participant in this conversation");
       }
 
+      // Check if conversation is pending and receiver is accepting
+      if (conversation.status === "PENDING" && status === "USEFUL") {
+        const otherId = conversation.participants.find(p => !p.equals(userId));
+        if (otherId) {
+          const pendingConnection = await this.connectionRepo.findOne({
+            where: {
+              $or: [
+                { senderId: userId, receiverId: otherId, status: ConnectionStatus.PENDING },
+                { senderId: otherId, receiverId: userId, status: ConnectionStatus.PENDING }
+              ]
+            } as any
+          });
+          if (pendingConnection) {
+            throw new BadRequestError("Request is pending. Please wait.");
+          }
+        }
+      }
+
       conversation.status = status as any;
       if (status === "REPORTED") {
         conversation.reportedBy = userId;
