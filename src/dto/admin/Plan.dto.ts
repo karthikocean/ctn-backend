@@ -91,6 +91,10 @@ export class CreatePlanDto {
   @ValidateNested()
   @Type(() => BenefitConfigDto)
     benefits!: BenefitConfigDto;
+
+  @IsNumber()
+  @IsOptional()
+    sort?: number = 0;
 }
 
 export class UpdatePlanDto {
@@ -137,4 +141,8 @@ export class UpdatePlanDto {
   @ValidateNested()
   @Type(() => BenefitConfigDto)
     benefits?: BenefitConfigDto;
+
+  @IsNumber()
+  @IsOptional()
+    sort?: number;
 }

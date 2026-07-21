@@ -114,7 +114,9 @@ export class MobileChatController {
       const userId = new ObjectId(req.user.userId);
 
       const whereClause: any = {
-        participants: { $all: [userId] }
+        participants: { $all: [userId] },
+        deletedBy: { $nin: [new ObjectId(req.user.userId)] }
+
       };
 
       if (search && search.trim()) {
@@ -302,7 +304,7 @@ export class MobileChatController {
       if (!conversation) throw new NotFoundError("Conversation not found");
 
       await this.messageRepo.updateMany(
-        { conversationId: new ObjectId(id), senderId: { $ne: userId }, isRead: false } as any,
+        { conversationId: new ObjectId(id), senderId: { $ne: userId }, isRead: { $ne: true } } as any,
         { $set: { isRead: true } } as any
       );
 
@@ -370,7 +372,10 @@ export class MobileChatController {
     try {
       if (!ObjectId.isValid(conversationId)) throw new BadRequestError("Invalid Conversation ID");
 
-      const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(conversationId) });
+      const conversation = await this.conversationRepo.findOneBy({
+        _id: new ObjectId(conversationId),
+        deletedBy: { $nin: [new ObjectId(req.user.userId)] }
+      });
       if (!conversation) throw new NotFoundError("Conversation not found");
 
       const otherParticipantId = conversation.participants.find(p => !p.equals(new ObjectId(req.user.userId)));
@@ -406,12 +411,20 @@ export class MobileChatController {
 
       // ✅ Auto-mark unread messages (sent by the other user) as read when the user fetches messages
       const userId = new ObjectId(req.user.userId);
-      const hasUnread = messages.some(m => !m.isRead && !m.senderId.equals(userId));
+      const hasUnread = messages.some(m => !m.isRead && m.senderId.toString() !== userId.toString());
       if (hasUnread) {
         await this.messageRepo.updateMany(
-          { conversationId: new ObjectId(conversationId), senderId: { $ne: userId }, isRead: false } as any,
+          { conversationId: new ObjectId(conversationId), senderId: { $ne: userId }, isRead: { $ne: true } } as any,
           { $set: { isRead: true } } as any
         );
+
+        // Mutate in-memory messages so they are returned as read in this response
+        messages.forEach(m => {
+          if (!m.isRead && m.senderId.toString() !== userId.toString()) {
+            m.isRead = true;
+          }
+        });
+
         // Reset unread count for this user in the conversation
         const unreadCounts = conversation.unreadCounts || {};
         unreadCounts[userId.toString()] = 0;
@@ -549,7 +562,6 @@ export class MobileChatController {
     try {
       const userId = new ObjectId(req.user.userId);
       const { status, reason } = body;
-
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid Conversation ID");
 
       const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(id) });
@@ -561,20 +573,16 @@ export class MobileChatController {
       }
 
       // Check if conversation is pending and receiver is accepting
-      if (conversation.status === "PENDING" && status === "USEFUL") {
-        const otherId = conversation.participants.find(p => !p.equals(userId));
-        if (otherId) {
-          const pendingConnection = await this.connectionRepo.findOne({
-            where: {
-              $or: [
-                { senderId: userId, receiverId: otherId, status: ConnectionStatus.PENDING },
-                { senderId: otherId, receiverId: userId, status: ConnectionStatus.PENDING }
-              ]
-            } as any
-          });
-          if (pendingConnection) {
-            throw new BadRequestError("Request is pending. Please wait.");
-          }
+      if (status !== "ACCEPTED" && status !== "DELETED") {
+        if (
+          conversation.status === "PENDING" &&
+          conversation?.lastMessageSenderId &&
+          !conversation.lastMessageSenderId.equals(userId)
+        ) {
+          throw new BadRequestError("Please accept the request");
+        }
+        if (conversation.status === "PENDING") {
+          throw new BadRequestError("Request is pending. Please wait.");
         }
       }
 
@@ -583,7 +591,10 @@ export class MobileChatController {
         conversation.reportedBy = userId;
         conversation.reportReason = reason;
       }
+      if (status === "DELETED") {
+        conversation.deletedBy = userId;
 
+      }
       await this.conversationRepo.save(conversation);
 
       // Notify the other participant
@@ -681,6 +692,7 @@ export class MobileChatController {
       newMessage.type = MessageType.POST_RESPONSE;
       newMessage.postId = new ObjectId(postId);
       newMessage.isDeleted = false;
+      newMessage.isRead = false;
       // Check if receiver is in the chat room
       const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
       if (isReceiverActive) {
@@ -851,7 +863,7 @@ export class MobileChatController {
       newMessage.content = message || "Hi, I'm interested in your product.";
       newMessage.type = MessageType.PRODUCT_RESPONSE;
       (newMessage as any).productId = new ObjectId(productId);
-
+      newMessage.isRead = false;
       // Check if receiver is in the chat room
       const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
       if (isReceiverActive) {
@@ -1030,6 +1042,7 @@ export class MobileChatController {
       newMessage.senderId = senderId;
       newMessage.content = content;
       newMessage.type = type;
+      newMessage.isRead = false;
 
       // Check if receiver is in the chat room
       const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
@@ -1397,6 +1410,7 @@ export class MobileChatController {
       newMessage.content = content;
       newMessage.type = MessageType.TEXT;
       newMessage.isDeleted = false;
+      newMessage.isRead = false;
 
       // Check if receiver is in the chat room
       const isReceiverActive = isUserInConversation(recId.toString(), conversation._id.toString());

@@ -72,7 +72,7 @@ export class MobilePlanController {
         where,
         skip: page * limit,
         take: limit,
-        order: { createdAt: "DESC" }
+        order: { sort: "ASC" }
       });
 
       let hasUsedTrial = false;

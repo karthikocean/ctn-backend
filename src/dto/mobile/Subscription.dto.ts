@@ -48,6 +48,15 @@ import { IsString, IsNotEmpty } from "class-validator";
  *           type: string
  *           example: "abcdef123456..."
  *           description: The HMAC-SHA256 signature returned by Razorpay for signature verification
+ *     CancelRazorpayPaymentDto:
+ *       type: object
+ *       required:
+ *         - razorpayOrderId
+ *       properties:
+ *         razorpayOrderId:
+ *           type: string
+ *           example: "order_A1B2C3D4"
+ *           description: The Razorpay order ID to cancel
  */
 
 export class StartTrialDto {
@@ -86,4 +95,10 @@ export class VerifyRazorpayPaymentDto {
   @IsString()
   @IsNotEmpty({ message: "Razorpay Signature is required" })
     razorpaySignature!: string;
+}
+
+export class CancelRazorpayPaymentDto {
+  @IsString()
+  @IsNotEmpty({ message: "Razorpay Order ID is required" })
+    razorpayOrderId!: string;
 }

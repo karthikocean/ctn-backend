@@ -49,6 +49,9 @@ export class Conversation {
   @Column({ default: {} })
     unreadCounts!: any; // Map of userId string to unread count
 
+  @Column({ nullable: true })
+    deletedBy?: ObjectId;
+
   @CreateDateColumn()
     createdAt!: Date;
 

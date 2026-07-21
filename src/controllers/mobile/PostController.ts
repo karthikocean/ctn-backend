@@ -492,7 +492,8 @@ export class MobilePostController {
       const where: any = {
         type: PostType.REQUIREMENT,
         isDeleted: false,
-        status: { $ne: "reported" }
+        status: { $ne: "reported" },
+        memberId: { $ne: new ObjectId(userId) }
       };
 
       const visibilityOrArray: any[] = [
@@ -1511,7 +1512,7 @@ export class MobilePostController {
         newMessage.content = "Shared a post";
         newMessage.type = MessageType.POST_SHARE;
         newMessage.postId = post._id;
-
+        newMessage.isRead = false;
         // Check if receiver is in the chat room
         const isReceiverActive = isUserInConversation(otherId.toString(), targetConversation._id.toString());
         if (isReceiverActive) {
