@@ -76,9 +76,9 @@ export class MobileSuggestionController {
 
       const suggestion = new Suggestion();
       suggestion.memberId = memberId;
-      suggestion.title = body.title.trim();
-      suggestion.description = body.description.trim();
-      suggestion.image = body.image;
+      suggestion.title = body?.title?.trim();
+      suggestion.description = body?.description?.trim();
+      suggestion.image = body?.image;
       suggestion.status = SuggestionStatus.PENDING;
       suggestion.isDeleted = false;
 

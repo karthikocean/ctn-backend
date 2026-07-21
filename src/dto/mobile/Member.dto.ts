@@ -223,8 +223,10 @@ export class CreateMemberDto {
 
   @IsString()
   @IsOptional()
-    instagramFacebook?: string;
-
+    instagram?: string;
+  @IsString()
+  @IsOptional()
+    faceBook?: string;
   @IsString()
   @IsOptional()
     youtubeLink?: string;
@@ -337,7 +339,11 @@ export class UpdateProfileDto {
 
   @IsString()
   @IsOptional()
-    instagramFacebook?: string;
+    instagram?: string;
+
+  @IsString()
+  @IsOptional()
+    faceBook?: string;
 
   @IsString()
   @IsOptional()

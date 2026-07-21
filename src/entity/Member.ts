@@ -159,7 +159,10 @@ export class Member {
     linkedinProfile?: string;
 
   @Column({ nullable: true })
-    instagramFacebook?: string;
+    instagram?: string;
+
+  @Column({ nullable: true })
+    faceBook?: string;
 
   @Column({ nullable: true })
     youtubeLink?: string;

@@ -70,6 +70,9 @@ export class Plan {
   @Column("json")
     benefits!: PlanBenefitConfig;
 
+  @Column({ type: "number", default: 0 })
+    sort!: number;
+
   @Column({ default: false })
     isDeleted!: boolean;
 

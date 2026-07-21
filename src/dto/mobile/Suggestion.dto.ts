@@ -2,8 +2,8 @@ import { IsString, IsNotEmpty, IsOptional, MaxLength, MinLength } from "class-va
 
 export class CreateSuggestionDto {
   @IsString()
-  @IsOptional({ message: "Title is required" })
-  @MinLength(3, { message: "Title must be at least 3 characters" })
+  // @IsNotEmpty({ message: "Title is required" })
+  // @MinLength(1, { message: "Title must be at least 1 characters" })
   @MaxLength(150, { message: "Title cannot exceed 150 characters" })
     title!: string;
 
@@ -21,7 +21,7 @@ export class CreateSuggestionDto {
 export class UpdateSuggestionDto {
   @IsOptional()
   @IsString()
-  @MinLength(3, { message: "Title must be at least 3 characters" })
+  // @MinLength(3, { message: "Title must be at least 3 characters" })
   @MaxLength(150, { message: "Title cannot exceed 150 characters" })
     title?: string;
 

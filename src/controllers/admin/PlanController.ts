@@ -98,7 +98,7 @@ export class AdminPlanController {
         where,
         skip: page * limit,
         take: limit,
-        order: { createdAt: "DESC" }
+        order: { sort: "ASC", createdAt: "DESC" }
       });
 
       const plansWithCount = await Promise.all(

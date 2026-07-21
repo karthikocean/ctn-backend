@@ -8,7 +8,8 @@ import {
   UseBefore,
   HttpCode,
   QueryParam,
-  BadRequestError
+  BadRequestError,
+  NotFoundError
 } from "routing-controllers";
 import { StatusCodes } from "http-status-codes";
 import { AppDataSource } from "../../data-source";
@@ -21,7 +22,7 @@ import { SubscriptionFeatureUsage } from "../../entity/SubscriptionFeatureUsage"
 import { SubscriptionService } from "../../services/subscription.service";
 import { RazorpayUpgradeService, RazorpayVerificationService } from "../../services/razorpay.service";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
-import { StartTrialDto, UpgradeSubscriptionDto, BuySubscriptionDto, DowngradeSubscriptionDto, VerifyRazorpayPaymentDto } from "../../dto/mobile/Subscription.dto";
+import { StartTrialDto, UpgradeSubscriptionDto, BuySubscriptionDto, DowngradeSubscriptionDto, VerifyRazorpayPaymentDto, CancelRazorpayPaymentDto } from "../../dto/mobile/Subscription.dto";
 import handleErrorResponse from "../../utils/commonFunction";
 import pagination from "../../utils/pagination";
 import { ObjectId } from "mongodb";
@@ -519,6 +520,48 @@ export class MobileSubscriptionController {
         razorpaySignature
       );
       return res.status(StatusCodes.OK).json(result);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/subscription/cancel-payment:
+   *   post:
+   *     summary: Cancel a pending Razorpay payment transaction (Mobile)
+   *     tags: [Mobile Subscription]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/CancelRazorpayPaymentDto'
+   *     responses:
+   *       200:
+   *         description: Payment transaction cancelled successfully
+   */
+  @Post("/cancel-payment")
+  async cancelPayment(@Body() body: CancelRazorpayPaymentDto, @Res() res: any) {
+    try {
+      const { razorpayOrderId } = body;
+      const payment = await this.paymentRepo.findOneBy({ transactionId: razorpayOrderId });
+      if (!payment) {
+        throw new NotFoundError("Payment transaction not found");
+      }
+
+      if (payment.status === "COMPLETED") {
+        throw new BadRequestError("Cannot cancel an already completed payment transaction");
+      }
+
+      payment.status = "FAILED";
+      payment.remarks = "Payment cancelled by user";
+      await this.paymentRepo.save(payment);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Payment transaction cancelled successfully"
+      });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

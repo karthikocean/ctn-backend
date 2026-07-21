@@ -408,7 +408,7 @@ export class MobileMilestoneController {
       message.content = content;
       message.type = MessageType.MILESTONE_REPLY;
       message.milestoneId = milestoneId;
-
+      message.isRead = false;
       // Check if receiver is in the chat room
       const isReceiverActive = isUserInConversation(ownerId.toString(), conversation._id.toString());
       if (isReceiverActive) {

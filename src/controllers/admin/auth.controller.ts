@@ -269,7 +269,7 @@ export class AuthController {
 
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
       const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+      expiresAt.setMinutes(expiresAt.getMinutes() + 2);
 
       const verificationRepo = AppDataSource.getMongoRepository(Verification);
       let verification = await verificationRepo.findOne({
@@ -343,7 +343,7 @@ export class AuthController {
         });
 
         const expiresAt = new Date();
-        expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+        expiresAt.setMinutes(expiresAt.getMinutes() + 2);
 
         if (!verification) {
           verification = verificationRepo.create({
@@ -424,9 +424,9 @@ export class AuthController {
         throw new BadRequestError("Please verify your phone number first");
       }
 
-      const fifteenMinutesAgo = new Date();
-      fifteenMinutesAgo.setMinutes(fifteenMinutesAgo.getMinutes() - 15);
-      if (verification.createdAt < fifteenMinutesAgo) {
+      const twoMinutesAgo = new Date();
+      twoMinutesAgo.setMinutes(twoMinutesAgo.getMinutes() - 2);
+      if (verification.createdAt < twoMinutesAgo) {
         throw new BadRequestError("Verification expired. Please request a new OTP.");
       }
 
