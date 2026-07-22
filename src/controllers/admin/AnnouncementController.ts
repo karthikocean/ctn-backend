@@ -23,6 +23,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { CreateAnnouncementDto, UpdateAnnouncementDto } from "../../dto/admin/Announcement.dto";
 import { Member } from "../../entity/Member";
 import { AnnouncementBooking } from "../../entity/AnnouncementBooking";
+import { notifyAnnouncementAudience } from "../../services/pushnotification.service";
 import { StallBooking } from "../../entity/StallBooking";
 import { notifyAllActiveMembers } from "../../services/pushnotification.service";
 import { NotificationModule } from "../../entity/PushNotifications";
@@ -92,6 +93,17 @@ export class AdminAnnouncementController {
       const announcement = new Announcement();
       Object.assign(announcement, data);
 
+      if (data.regionId && ObjectId.isValid(data.regionId)) {
+        announcement.regionId = new ObjectId(data.regionId);
+      } else {
+        announcement.regionId = undefined;
+      }
+
+      if (data.scheduleDate) announcement.scheduleDate = new Date(data.scheduleDate);
+      if (data.fromDate) announcement.fromDate = new Date(data.fromDate);
+      if (data.toDate) announcement.toDate = new Date(data.toDate);
+      if (data.date) announcement.date = new Date(data.date);
+
       if (announcement.stallConfig && Array.isArray(announcement.stallConfig.stalls)) {
         announcement.stallConfig.stalls = announcement.stallConfig.stalls.map((s: any) => {
           let stallId: ObjectId;
@@ -115,13 +127,13 @@ export class AdminAnnouncementController {
       announcement.updatedBy = new ObjectId(req.user.userId);
       const saved = await this.announcementRepo.save(announcement);
       if (saved && data.status === AnnouncementStatus.PUBLISHED) {
-        await notifyAllActiveMembers({
-          subject: "New Event Created! 🗓️",
-          content: `Check out the new event: ${announcement.title}`,
-          moduleName: NotificationModule.EVENT,
-          moduleId: saved._id.toString(),
+        notifyAnnouncementAudience({
+          announcementId: saved._id.toString(),
+          title: saved.title || "New Announcement",
+          content: saved.content || "",
+          regionId: saved.regionId ? saved.regionId.toString() : undefined,
           senderId: req.user.userId
-        });
+        }).catch(err => console.error("Error notifying announcement audience on create:", err));
       }
 
       return res.status(StatusCodes.CREATED).json({
@@ -220,7 +232,19 @@ export class AdminAnnouncementController {
 
       if (!announcement) throw new NotFoundError("Announcement not found");
 
+      const previousStatus = announcement.status;
       Object.assign(announcement, data);
+      
+      if (data.regionId && ObjectId.isValid(data.regionId)) {
+        announcement.regionId = new ObjectId(data.regionId);
+      } else if (data.regionId === null || data.regionId === "") {
+        announcement.regionId = undefined;
+      }
+
+      if (data.scheduleDate) announcement.scheduleDate = new Date(data.scheduleDate);
+      if (data.fromDate) announcement.fromDate = new Date(data.fromDate);
+      if (data.toDate) announcement.toDate = new Date(data.toDate);
+      if (data.date) announcement.date = new Date(data.date);
 
       if (announcement.stallConfig && Array.isArray(announcement.stallConfig.stalls)) {
         announcement.stallConfig.stalls = announcement.stallConfig.stalls.map((s: any) => {
@@ -239,6 +263,16 @@ export class AdminAnnouncementController {
       }
       announcement.updatedBy = new ObjectId(req.user.userId);
       const saved = await this.announcementRepo.save(announcement);
+
+      if (saved && saved.status === AnnouncementStatus.PUBLISHED && previousStatus !== AnnouncementStatus.PUBLISHED) {
+        notifyAnnouncementAudience({
+          announcementId: saved._id.toString(),
+          title: saved.title || "New Announcement",
+          content: saved.content || "",
+          regionId: saved.regionId ? saved.regionId.toString() : undefined,
+          senderId: req.user.userId
+        }).catch(err => console.error("Error notifying announcement audience on update:", err));
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,

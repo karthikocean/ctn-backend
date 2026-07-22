@@ -60,7 +60,19 @@ export class Announcement {
     date?: Date;
 
   @Column({ nullable: true })
+    fromDate?: Date;
+
+  @Column({ nullable: true })
+    toDate?: Date;
+
+  @Column({ nullable: true })
     time?: string;
+
+  @Column({ nullable: true })
+    fromTime?: string;
+
+  @Column({ nullable: true })
+    toTime?: string;
 
   @Column({ nullable: true })
     location?: string;
@@ -80,6 +92,9 @@ export class Announcement {
   // ✅ Embedded stall configuration (only relevant when isOfflineStallExist = true)
   @Column({ nullable: true })
     stallConfig?: StallConfig;
+
+  @Column({ nullable: true })
+    regionId?: ObjectId;
 
   @Column({ default: false })
     isDeleted!: boolean;

@@ -38,6 +38,7 @@ import { SubscriptionService } from "../../services/subscription.service";
 import { PointHistory } from "../../entity/PointHistory";
 import { PostReport } from "../../entity/PostReport";
 import { Conversation } from "../../entity/Conversation";
+import { ReportedHistory } from "../../entity/ReportedHistory";
 
 @JsonController("/members")
 export class MobileMemberController {
@@ -1639,7 +1640,13 @@ export class MobileMemberController {
         { $match: { reportedMemberId: { $exists: true, $ne: null } } }
       ]).toArray();
 
-      // --- 3. Merge, deduplicate keeping both types, sort by createdAt desc ---
+      // --- 3. Profile reports: reported_history where reporterUserId = me ---
+      const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+      const historyReportAgg = await reportedHistoryRepo.find({
+        where: { reporterUserId: myId } as any
+      });
+
+      // --- 4. Merge, deduplicate keeping all types, sort by createdAt desc ---
       const allEntries: { reportedMemberId: ObjectId; type: string; reason?: string; createdAt: Date }[] = [
         ...postReportAgg.map(r => ({
           reportedMemberId: r.reportedMemberId,
@@ -1650,6 +1657,12 @@ export class MobileMemberController {
         ...chatReportAgg.map(r => ({
           reportedMemberId: r.reportedMemberId,
           type: "CHAT_REPORT",
+          reason: r.reason,
+          createdAt: r.createdAt
+        })),
+        ...historyReportAgg.map(r => ({
+          reportedMemberId: r.targetUserId,
+          type: "MEMBER_REPORT",
           reason: r.reason,
           createdAt: r.createdAt
         }))
@@ -1806,6 +1819,80 @@ export class MobileMemberController {
           },
           productsServices: member.productsServices || []
         }
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/members/{id}/report:
+   *   post:
+   *     summary: Report a member profile
+   *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               reason:
+   *                 type: string
+   *               comments:
+   *                 type: string
+   */
+  @Post("/:id/report")
+  @UseBefore(MobileAuthMiddleware)
+  async reportMember(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { reason?: string; comments?: string },
+    @Res() res: any
+  ) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid member ID");
+      const reporterUserId = new ObjectId(req.user.userId);
+      const targetUserId = new ObjectId(id);
+
+      if (reporterUserId.equals(targetUserId)) {
+        throw new BadRequestError("You cannot report your own profile");
+      }
+
+      const member = await this.memberRepo.findOne({
+        where: { _id: targetUserId, isDeleted: false }
+      });
+      if (!member) throw new NotFoundError("Member not found");
+
+      const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+      const existing = await reportedHistoryRepo.findOne({
+        where: { reporterUserId, targetUserId } as any
+      });
+
+      if (existing) {
+        throw new BadRequestError("You have already reported this member");
+      }
+
+      const report = new ReportedHistory();
+      report.reporterUserId = reporterUserId;
+      report.targetUserId = targetUserId;
+      report.moduleName = "MEMBER";
+      report.reason = body.reason || body.comments || "Reported User Profile";
+
+      await reportedHistoryRepo.save(report);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Member reported successfully"
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
