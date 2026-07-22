@@ -29,7 +29,7 @@ export async function seedModules() {
     { name: "Training Categories", parentSlug: "trainings" },
 
     { name: "Points" },
-    { name: "Awards" },
+    // { name: "Awards" },
     { name: "Members" },
 
     { name: "Activities" },
@@ -41,6 +41,8 @@ export async function seedModules() {
     { name: "Connections" },
     { name: "Contributions" },
     { name: "Reports" },
+    { name: "Subscription Renewal Report", parentSlug: "reports" },
+    { name: "Free Subscription Ending Report", parentSlug: "reports" },
     { name: "Franchise Commission Report", parentSlug: "reports" },
     { name: "Report History", parentSlug: "reports" },
     { name: "Plans" },

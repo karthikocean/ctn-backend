@@ -212,6 +212,17 @@ export const initSocket = (server: HttpServer) => {
     // ✅ Join user to a private room based on their userId
     socket.join(userId);
 
+    // If socket is an Admin (non-member), auto-join the admin_room
+    if (!socket.data.isMember) {
+      socket.join("admin_room");
+      console.log(`👑 Admin socket ${socket.id} (user: ${userId}) joined 'admin_room'`);
+    }
+
+    socket.on("join_admin_room", () => {
+      socket.join("admin_room");
+      console.log(`👑 Socket ${socket.id} (user: ${userId}) explicitly joined 'admin_room'`);
+    });
+
     socket.on("join_conversation", (conversationId: string) => {
       console.log(`👤 User ${userId} joined conversation: ${conversationId}`);
 

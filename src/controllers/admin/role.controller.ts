@@ -250,7 +250,7 @@ export class RoleController {
       if (!role) throw new NotFoundError("Role not found");
 
       if (roleData.name) role.name = roleData.name;
-      if (roleData.code) role.code = roleData.code;
+      // if (roleData.code) role.code = roleData.code;
       if (roleData.description) role.description = roleData.description;
       if (roleData.isActive !== undefined) role.isActive = roleData.isActive;
 
