@@ -147,7 +147,7 @@ export class MobileSpotlightController {
       }
 
       const pointService = new PointService();
-      const config = await pointService.getPointConfig("Spotlight", PointConfigType.CREATION);
+      const config = await pointService.getPointConfig("Spotlight", PointConfigType.SPENT);
       const pointsToDeduct = config ? config.points : 0;
 
       let member = null;
