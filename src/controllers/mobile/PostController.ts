@@ -344,9 +344,9 @@ export class MobilePostController {
       // // Include own posts in the feed
       // followingIds.push(new ObjectId(userId));
 
-      const reportedUserIds = await this.getReportedMemberIdsForUser(userId);
-      const reportedSet = new Set(reportedUserIds.map(id => id.toString()));
-      const filteredFollowingIds = followingIds.filter(id => !reportedSet.has(id.toString()));
+      const { reportedPostIds, reportedMemberIds } = await this.getReportedDataForUser(userId);
+      const reportedMemberSet = new Set(reportedMemberIds.map(id => id.toString()));
+      const filteredFollowingIds = followingIds.filter(id => !reportedMemberSet.has(id.toString()));
 
       // 2. Fetch posts from these members
       const where: any = {
@@ -354,6 +354,10 @@ export class MobilePostController {
         isDeleted: false,
         status: { $ne: "reported" }
       };
+
+      if (reportedPostIds.length > 0) {
+        where._id = { $nin: reportedPostIds };
+      }
 
       if (type) where.type = type;
 
@@ -690,13 +694,17 @@ export class MobilePostController {
 
     try {
       const allowedTypes = [PostType.PROMOTION];
-      const reportedUserIds = await this.getReportedMemberIdsForUser(userId);
-      const excludedMemberIds = [new ObjectId(userId), ...reportedUserIds];
+      const { reportedPostIds, reportedMemberIds } = await this.getReportedDataForUser(userId);
+      const excludedMemberIds = [new ObjectId(userId), ...reportedMemberIds];
       const where: any = {
         isDeleted: false,
         status: { $ne: "reported" },
         memberId: { $nin: excludedMemberIds }
       };
+
+      if (reportedPostIds.length > 0) {
+        where._id = { $nin: reportedPostIds };
+      }
 
       if (type) {
         if (!allowedTypes.includes(type)) {
@@ -913,10 +921,14 @@ export class MobilePostController {
 
       this.applyCategoryVisibilityFilter(where, currentMember);
 
-      const reportedUserIds = await this.getReportedMemberIdsForUser(userId);
-      if (reportedUserIds.length > 0) {
-        const ninCondition = { memberId: { $nin: reportedUserIds } };
-        where.$and = [...(where.$and || []), ninCondition];
+      const { reportedPostIds, reportedMemberIds } = await this.getReportedDataForUser(userId);
+      if (reportedPostIds.length > 0) {
+        const ninPostCondition = { _id: { $nin: reportedPostIds } };
+        where.$and = [...(where.$and || []), ninPostCondition];
+      }
+      if (reportedMemberIds.length > 0) {
+        const ninMemberCondition = { memberId: { $nin: reportedMemberIds } };
+        where.$and = [...(where.$and || []), ninMemberCondition];
       }
 
       const [posts, total] = await this.postRepo.findAndCount({
@@ -1159,18 +1171,30 @@ export class MobilePostController {
       }
       this.applyCategoryVisibilityFilter(where, currentMember);
 
-      const reportedUserIds = await this.getReportedMemberIdsForUser(userId);
-      if (reportedUserIds.length > 0) {
-        const ninCondition = { memberId: { $nin: reportedUserIds } };
+      const { reportedPostIds, reportedMemberIds } = await this.getReportedDataForUser(userId);
+      if (reportedPostIds.length > 0) {
+        const ninPostCondition = { _id: { $nin: reportedPostIds } };
         if (where.$and) {
-          where.$and.push(ninCondition);
+          where.$and.push(ninPostCondition);
         } else if (where.$or) {
-          where.$and = [{ $or: where.$or }, ninCondition];
+          where.$and = [{ $or: where.$or }, ninPostCondition];
+          delete where.$or;
+        } else {
+          where._id = { $nin: reportedPostIds };
+        }
+      }
+
+      if (reportedMemberIds.length > 0) {
+        const ninMemberCondition = { memberId: { $nin: reportedMemberIds } };
+        if (where.$and) {
+          where.$and.push(ninMemberCondition);
+        } else if (where.$or) {
+          where.$and = [{ $or: where.$or }, ninMemberCondition];
           delete where.$or;
         } else {
           where.memberId = where.memberId
-            ? { ...where.memberId, $nin: reportedUserIds }
-            : { $nin: reportedUserIds };
+            ? { ...where.memberId, $nin: reportedMemberIds }
+            : { $nin: reportedMemberIds };
         }
       }
 
@@ -1729,9 +1753,12 @@ export class MobilePostController {
         ? await this.postRepo.find({ where: { _id: { $in: postIds }, isDeleted: false } as any })
         : [];
 
-      const reportedUserIds = await this.getReportedMemberIdsForUser(req.user.userId);
-      const reportedSet = new Set(reportedUserIds.map(id => id.toString()));
-      const posts = rawPosts.filter(p => !reportedSet.has(p.memberId?.toString()));
+      const { reportedPostIds, reportedMemberIds } = await this.getReportedDataForUser(req.user.userId);
+      const reportedPostSet = new Set(reportedPostIds.map((id: ObjectId) => id.toString()));
+      const reportedMemberSet = new Set(reportedMemberIds.map((id: ObjectId) => id.toString()));
+      const posts = rawPosts.filter(
+        p => !reportedPostSet.has(p._id?.toString()) && !reportedMemberSet.has(p.memberId?.toString())
+      );
 
       // Populate Member Info for the posts
       const memberIds = [...new Set(posts.map(p => p.memberId))];
@@ -1862,21 +1889,31 @@ export class MobilePostController {
   }
 
   /**
-   * Helper method to get ObjectIds of members reported by the current user (via profile/chat report).
+   * Helper method to get ObjectIds of posts and members reported by the current user.
    */
-  private async getReportedMemberIdsForUser(userId: string): Promise<ObjectId[]> {
+  private async getReportedDataForUser(userId: string): Promise<{
+    reportedPostIds: ObjectId[];
+    reportedMemberIds: ObjectId[];
+  }> {
     try {
       const userObjectId = new ObjectId(userId);
+      const postReportRepo = AppDataSource.getMongoRepository(PostReport);
       const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
       const conversationRepo = AppDataSource.getMongoRepository(Conversation);
 
-      // 1. User profile reports from ReportedHistory
+      // 1. Specific posts reported by this user
+      const postReports = await postReportRepo.find({
+        where: { reporterId: userObjectId } as any
+      });
+      const reportedPostIds = postReports.map(r => r.postId);
+
+      // 2. User profile reports from ReportedHistory
       const historyReports = await reportedHistoryRepo.find({
         where: { reporterUserId: userObjectId } as any
       });
       const historyUserIds = historyReports.map(r => r.targetUserId.toString());
 
-      // 2. Chat user reports from Conversation
+      // 3. Chat user reports from Conversation
       const chatReports = await conversationRepo.find({
         where: { reportedBy: userObjectId, status: "REPORTED" } as any
       });
@@ -1884,11 +1921,13 @@ export class MobilePostController {
         c.participants.filter(p => !p.equals(userObjectId)).map(p => p.toString())
       );
 
-      const uniqueIds = [...new Set([...historyUserIds, ...chatUserIds])];
-      return uniqueIds.map(id => new ObjectId(id));
+      const uniqueMemberIds = [...new Set([...historyUserIds, ...chatUserIds])];
+      const reportedMemberIds = uniqueMemberIds.map(id => new ObjectId(id));
+
+      return { reportedPostIds, reportedMemberIds };
     } catch (error) {
-      console.error("[getReportedMemberIdsForUser] Error:", error);
-      return [];
+      console.error("[getReportedDataForUser] Error:", error);
+      return { reportedPostIds: [], reportedMemberIds: [] };
     }
   }
 }

@@ -205,6 +205,19 @@ export class SubscriptionService {
     const plan = await this.getMemberPlan(memberOid);
     const normalized = this.normalizeModuleName(moduleName);
 
+    // Feature permission checks based on plan.features config
+    if (normalized === "event" && plan.features && plan.features.eventVisitor === false) {
+      throw new BadRequestError("Event Visitor permission is not enabled in your active plan.");
+    }
+
+    if ((normalized === "offline stall" || normalized === "offlinestall") && plan.features && plan.features.eventStall === false) {
+      throw new BadRequestError("Event Stall permission is not enabled in your active plan.");
+    }
+
+    if (normalized === "spotlight" && plan.features && plan.features.spotlights === false) {
+      throw new BadRequestError("Spotlights permission is not enabled in your active plan.");
+    }
+
     const planModule = plan.modules?.find(
       (m) => this.normalizeModuleName(m.moduleName) === normalized
     );

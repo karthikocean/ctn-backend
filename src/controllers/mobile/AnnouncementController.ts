@@ -356,9 +356,6 @@ export class MobileAnnouncementController {
         throw new BadRequestError("This stall has already been booked by another member");
       }
 
-      // Validate Offline Stall capacity under the plan
-      await validateModuleUsage(memberOid, "Offline Stall");
-
       // Check if user is already registered for the event announcement
       const eventBookingRepo = AppDataSource.getMongoRepository(AnnouncementBooking);
       const userEventBooking = await eventBookingRepo.findOne({
@@ -374,8 +371,6 @@ export class MobileAnnouncementController {
 
       if (!userEventBooking) {
         needToBookEvent = true;
-        // Validate Event Booking capacity under the plan
-        await validateModuleUsage(memberOid, "Event");
         eventPointsCost = announcement.points || 0;
 
         // Check registration limit for the event
@@ -403,6 +398,12 @@ export class MobileAnnouncementController {
         } else {
           throw new BadRequestError(`Insufficient points. You have ${balance} points, but this stall requires ${stall.points} points.`);
         }
+      }
+
+      // Validate Offline Stall capacity under the plan
+      await validateModuleUsage(memberOid, "Offline Stall");
+      if (needToBookEvent) {
+        await validateModuleUsage(memberOid, "Event");
       }
 
       // 1. Book the event announcement if not already booked
@@ -520,9 +521,6 @@ export class MobileAnnouncementController {
         throw new BadRequestError("You have already booked this event");
       }
 
-      // Validate Event Booking capacity under the plan
-      await validateModuleUsage(memberOid, "Event");
-
       // Check registration limits
       if (announcement.membersLimit > 0) {
         const bookedCount = await eventBookingRepo.count({
@@ -546,6 +544,9 @@ export class MobileAnnouncementController {
           throw new BadRequestError(`Insufficient points. You have ${balance} points, but booking this event requires ${cost} points.`);
         }
       }
+
+      // Validate Event Booking capacity under the plan
+      await validateModuleUsage(memberOid, "Event");
 
       // Save Booking
       const booking = eventBookingRepo.create({
