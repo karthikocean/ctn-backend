@@ -24,6 +24,7 @@ import { Conversation } from "../../entity/Conversation";
 import { Message, MessageType } from "../../entity/Message";
 import { SavedPost } from "../../entity/SavedPost";
 import { PostReport } from "../../entity/PostReport";
+import { ReportedHistory } from "../../entity/ReportedHistory";
 import { CreatePostDto, UpdatePostDto } from "../../dto/mobile/Post.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -343,9 +344,13 @@ export class MobilePostController {
       // // Include own posts in the feed
       // followingIds.push(new ObjectId(userId));
 
+      const reportedUserIds = await this.getReportedMemberIdsForUser(userId);
+      const reportedSet = new Set(reportedUserIds.map(id => id.toString()));
+      const filteredFollowingIds = followingIds.filter(id => !reportedSet.has(id.toString()));
+
       // 2. Fetch posts from these members
       const where: any = {
-        memberId: { $in: followingIds },
+        memberId: { $in: filteredFollowingIds },
         isDeleted: false,
         status: { $ne: "reported" }
       };
@@ -685,10 +690,12 @@ export class MobilePostController {
 
     try {
       const allowedTypes = [PostType.PROMOTION];
+      const reportedUserIds = await this.getReportedMemberIdsForUser(userId);
+      const excludedMemberIds = [new ObjectId(userId), ...reportedUserIds];
       const where: any = {
         isDeleted: false,
         status: { $ne: "reported" },
-        memberId: { $ne: new ObjectId(userId) }
+        memberId: { $nin: excludedMemberIds }
       };
 
       if (type) {
@@ -905,6 +912,12 @@ export class MobilePostController {
       }
 
       this.applyCategoryVisibilityFilter(where, currentMember);
+
+      const reportedUserIds = await this.getReportedMemberIdsForUser(userId);
+      if (reportedUserIds.length > 0) {
+        const ninCondition = { memberId: { $nin: reportedUserIds } };
+        where.$and = [...(where.$and || []), ninCondition];
+      }
 
       const [posts, total] = await this.postRepo.findAndCount({
         where,
@@ -1145,6 +1158,21 @@ export class MobilePostController {
         throw new BadRequestError("Member not found");
       }
       this.applyCategoryVisibilityFilter(where, currentMember);
+
+      const reportedUserIds = await this.getReportedMemberIdsForUser(userId);
+      if (reportedUserIds.length > 0) {
+        const ninCondition = { memberId: { $nin: reportedUserIds } };
+        if (where.$and) {
+          where.$and.push(ninCondition);
+        } else if (where.$or) {
+          where.$and = [{ $or: where.$or }, ninCondition];
+          delete where.$or;
+        } else {
+          where.memberId = where.memberId
+            ? { ...where.memberId, $nin: reportedUserIds }
+            : { $nin: reportedUserIds };
+        }
+      }
 
       const [posts, total] = await this.postRepo.findAndCount({
         where,
@@ -1697,9 +1725,13 @@ export class MobilePostController {
       });
 
       const postIds = savedEntries.map(s => s.postId);
-      const posts = postIds.length > 0
+      const rawPosts = postIds.length > 0
         ? await this.postRepo.find({ where: { _id: { $in: postIds }, isDeleted: false } as any })
         : [];
+
+      const reportedUserIds = await this.getReportedMemberIdsForUser(req.user.userId);
+      const reportedSet = new Set(reportedUserIds.map(id => id.toString()));
+      const posts = rawPosts.filter(p => !reportedSet.has(p.memberId?.toString()));
 
       // Populate Member Info for the posts
       const memberIds = [...new Set(posts.map(p => p.memberId))];
@@ -1714,11 +1746,19 @@ export class MobilePostController {
         businessName: m.businessName
       }]));
 
-      const data = posts.map(p => ({
-        ...p,
-        member: memberMap.get(p.memberId.toString()) || null,
-        isSaved: true
-      }));
+      const postMap = new Map(posts.map(p => [p._id.toString(), p]));
+
+      const data = savedEntries
+        .map(s => {
+          const p = postMap.get(s.postId.toString());
+          if (!p) return null;
+          return {
+            ...p,
+            member: memberMap.get(p.memberId.toString()) || null,
+            isSaved: true
+          };
+        })
+        .filter(p => p !== null) as any[];
 
       return pagination(total, data, limit, page, res);
     } catch (error: any) {
@@ -1812,13 +1852,43 @@ export class MobilePostController {
         console.log(`[PostReport] Post ${postId} reached ${reportCount} reports. Status updated to 'reported'.`);
       }
 
-      return res.status(StatusCodes.CREATED).json({
-        success: true,
+      return res.status(StatusCodes.OK).json({
         message: "Post reported successfully",
         data: savedReport
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * Helper method to get ObjectIds of members reported by the current user (via profile/chat report).
+   */
+  private async getReportedMemberIdsForUser(userId: string): Promise<ObjectId[]> {
+    try {
+      const userObjectId = new ObjectId(userId);
+      const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+      const conversationRepo = AppDataSource.getMongoRepository(Conversation);
+
+      // 1. User profile reports from ReportedHistory
+      const historyReports = await reportedHistoryRepo.find({
+        where: { reporterUserId: userObjectId } as any
+      });
+      const historyUserIds = historyReports.map(r => r.targetUserId.toString());
+
+      // 2. Chat user reports from Conversation
+      const chatReports = await conversationRepo.find({
+        where: { reportedBy: userObjectId, status: "REPORTED" } as any
+      });
+      const chatUserIds = chatReports.flatMap(c =>
+        c.participants.filter(p => !p.equals(userObjectId)).map(p => p.toString())
+      );
+
+      const uniqueIds = [...new Set([...historyUserIds, ...chatUserIds])];
+      return uniqueIds.map(id => new ObjectId(id));
+    } catch (error) {
+      console.error("[getReportedMemberIdsForUser] Error:", error);
+      return [];
     }
   }
 }

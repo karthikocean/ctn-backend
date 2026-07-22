@@ -41,6 +41,21 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const httpServer = createServer(app);
 
+// Request Logger: Logs incoming API requests and endpoints in the terminal
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const start = Date.now();
+  const { method, originalUrl } = req;
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    const statusCode = res.statusCode;
+    const icon = statusCode >= 400 ? "❌" : "🌐";
+    console.log(`${icon} [API] ${method} ${originalUrl} -> ${statusCode} (${duration}ms)`);
+  });
+
+  next();
+});
+
 // Gate: return 503 while startup is in progress
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (!isReady && req.path !== "/api/health" && req.path !== "/") {

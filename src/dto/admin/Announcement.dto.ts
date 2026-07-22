@@ -72,9 +72,25 @@ export class CreateAnnouncementDto {
   @IsOptional()
     date?: Date;
 
+  @Type(() => Date)
+  @IsOptional()
+    fromDate?: Date;
+
+  @Type(() => Date)
+  @IsOptional()
+    toDate?: Date;
+
   @IsString()
   @IsOptional()
     time?: string;
+
+  @IsString()
+  @IsOptional()
+    fromTime?: string;
+
+  @IsString()
+  @IsOptional()
+    toTime?: string;
 
   @IsString()
   @IsOptional()
@@ -97,6 +113,10 @@ export class CreateAnnouncementDto {
   @IsBoolean()
   @IsOptional()
     isOfflineStallExist?: boolean = false;
+
+  @IsString()
+  @IsOptional()
+    regionId?: string;
 
   // ✅ Stall configuration — provided when isOfflineStallExist = true
   @IsOptional()
@@ -134,9 +154,25 @@ export class UpdateAnnouncementDto {
   @IsOptional()
     date?: Date;
 
+  @Type(() => Date)
+  @IsOptional()
+    fromDate?: Date;
+
+  @Type(() => Date)
+  @IsOptional()
+    toDate?: Date;
+
   @IsString()
   @IsOptional()
     time?: string;
+
+  @IsString()
+  @IsOptional()
+    fromTime?: string;
+
+  @IsString()
+  @IsOptional()
+    toTime?: string;
 
   @IsString()
   @IsOptional()
@@ -165,4 +201,8 @@ export class UpdateAnnouncementDto {
   @ValidateNested()
   @Type(() => StallConfigDto)
     stallConfig?: StallConfigDto;
+
+  @IsString()
+  @IsOptional()
+    regionId?: string;
 }

@@ -81,6 +81,25 @@ export class MobileAnnouncementController {
             status: AnnouncementStatus.SCHEDULED,
             scheduleDate: { $lte: now }
           }
+        ],
+        $and: [
+          {
+            $or: [
+              { toDate: { $gte: now } },
+              {
+                $and: [
+                  { toDate: { $exists: false } },
+                  { date: { $gte: now } }
+                ]
+              },
+              {
+                $and: [
+                  { toDate: { $exists: false } },
+                  { date: { $exists: false } }
+                ]
+              }
+            ]
+          }
         ]
       };
 

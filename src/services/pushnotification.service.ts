@@ -121,7 +121,7 @@ export async function insertPushNotification(
       );
 
       // Emit live unread count to receiver via socket
-      emitUnreadCount(receiverId).catch(() => {});
+      emitUnreadCount(receiverId).catch(() => { });
 
       return true;
     }
@@ -173,7 +173,7 @@ export async function notifyAllActiveMembers(dto: {
 
       // Emit live unread count to each receiver via socket
       activeMembers.forEach(member => {
-        emitUnreadCount(member._id.toString()).catch(() => {});
+        emitUnreadCount(member._id.toString()).catch(() => { });
       });
     }
 
@@ -331,7 +331,7 @@ export async function notifyPostAudience(dto: {
 
       // Emit live unread count to each receiver via socket
       targetMembers.forEach(member => {
-        emitUnreadCount(member._id.toString()).catch(() => {});
+        emitUnreadCount(member._id.toString()).catch(() => { });
       });
     }
 
@@ -354,5 +354,84 @@ export async function notifyPostAudience(dto: {
     }
   } catch (error) {
     console.error("[notifyPostAudience] Failed:", error);
+  }
+}
+
+/**
+ * Sends push notifications for published announcements.
+ * - If regionId is provided -> notifies active members in that region (matching member.businessRegion)
+ * - If no regionId -> notifies ALL active members
+ */
+export async function notifyAnnouncementAudience(dto: {
+  announcementId: string;
+  title: string;
+  content: string;
+  regionId?: string;
+  senderId?: string;
+}) {
+  try {
+    const memberRepo = AppDataSource.getMongoRepository(Member);
+    const notificationRepo = AppDataSource.getMongoRepository(PushNotification);
+
+    const whereCondition: any = {
+      status: MemberStatus.ACTIVE,
+      isDeleted: false
+    };
+
+    if (dto.regionId && ObjectId.isValid(dto.regionId)) {
+      const regId = new ObjectId(dto.regionId);
+      whereCondition.$or = [
+        { businessRegion: regId },
+        { businessRegion: dto.regionId }
+      ];
+    }
+
+    const activeMembers = await memberRepo.find({
+      where: whereCondition
+    });
+
+    if (!activeMembers || activeMembers.length === 0) {
+      console.log("[notifyAnnouncementAudience] No matching active members found.");
+      return;
+    }
+
+    const notifications = activeMembers.map(member => ({
+      sub: dto.title || "New Announcement",
+      msg: dto.content || "",
+      moduleName: NotificationModule.EVENT,
+      moduleId: new ObjectId(dto.announcementId),
+      receiverId: member._id,
+      senderId: dto.senderId && ObjectId.isValid(dto.senderId) ? new ObjectId(dto.senderId) : undefined,
+      isRead: false,
+      isDeleted: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }));
+
+    await notificationRepo.insertMany(notifications);
+
+    // Emit live unread count via socket
+    activeMembers.forEach(member => {
+      emitUnreadCount(member._id.toString()).catch(() => { });
+    });
+
+    // Send FCM push notifications to members with token
+    const membersWithToken = activeMembers.filter(m => m.fcmToken);
+    const batchSize = 100;
+    for (let i = 0; i < membersWithToken.length; i += batchSize) {
+      const batch = membersWithToken.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(member =>
+          sendPushNotification(member.fcmToken!, dto.title || "New Announcement", {
+            content: dto.content,
+            moduleName: NotificationModule.EVENT,
+            moduleId: dto.announcementId
+          }).catch(err => console.error("[notifyAnnouncementAudience] FCM error:", err))
+        )
+      );
+    }
+    console.log(`✅ [notifyAnnouncementAudience] Notified ${activeMembers.length} members for announcement ${dto.announcementId}`);
+  } catch (error) {
+    console.error("Failed to notify announcement audience:", error);
   }
 }

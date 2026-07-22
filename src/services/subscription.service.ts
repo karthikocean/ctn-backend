@@ -384,32 +384,40 @@ export class SubscriptionService {
    * Retrieves the start/end date range bounds matching the limit's frequency
    */
   getDateRangeByFrequency(frequency: string, frequencyValue: number): { startDate: Date; endDate: Date } {
-    const endDate = new Date();
-    const startDate = new Date();
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000; // 5 hours 30 minutes in milliseconds
+    const now = new Date();
+
+    // Shift current time to IST calendar time
+    const istEndDate = new Date(now.getTime() + IST_OFFSET);
+    const istStartDate = new Date(now.getTime() + IST_OFFSET);
 
     switch (frequency.toLowerCase()) {
     case "daily":
-      startDate.setDate(endDate.getDate() - frequencyValue + 1);
-      startDate.setHours(0, 0, 0, 0);
+      istStartDate.setUTCDate(istEndDate.getUTCDate() - frequencyValue + 1);
+      istStartDate.setUTCHours(0, 0, 0, 0);
       break;
     case "weekly":
-      const day = endDate.getDay();
-      startDate.setDate(endDate.getDate() - day - (7 * (frequencyValue - 1)));
-      startDate.setHours(0, 0, 0, 0);
+      const day = istEndDate.getUTCDay();
+      istStartDate.setUTCDate(istEndDate.getUTCDate() - day - (7 * (frequencyValue - 1)));
+      istStartDate.setUTCHours(0, 0, 0, 0);
       break;
     case "monthly":
-      startDate.setMonth(endDate.getMonth() - frequencyValue + 1);
-      startDate.setDate(1);
-      startDate.setHours(0, 0, 0, 0);
+      istStartDate.setUTCMonth(istEndDate.getUTCMonth() - frequencyValue + 1);
+      istStartDate.setUTCDate(1);
+      istStartDate.setUTCHours(0, 0, 0, 0);
       break;
     case "yearly":
-      startDate.setFullYear(endDate.getFullYear() - frequencyValue + 1);
-      startDate.setMonth(0, 1);
-      startDate.setHours(0, 0, 0, 0);
+      istStartDate.setUTCFullYear(istEndDate.getUTCFullYear() - frequencyValue + 1);
+      istStartDate.setUTCMonth(0, 1);
+      istStartDate.setUTCHours(0, 0, 0, 0);
       break;
     default:
       throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
     }
+
+    // Shift back to get correct UTC dates
+    const startDate = new Date(istStartDate.getTime() - IST_OFFSET);
+    const endDate = now;
 
     return { startDate, endDate };
   }

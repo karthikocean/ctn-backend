@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { AppDataSource } from "../data-source";
 import { Announcement, AnnouncementStatus } from "../entity/Announcement";
+import { notifyAnnouncementAudience } from "./pushnotification.service";
 
 export class AnnouncementCronService {
   private static announcementRepo = AppDataSource.getMongoRepository(Announcement);
@@ -11,20 +12,18 @@ export class AnnouncementCronService {
   static init() {
     console.log("⏰ Initializing Announcement Cron Jobs...");
 
-    // ✅ Announcement Activation Cron - Runs every day at 12:01 AM
-    cron.schedule("1 0 * * *", async () => {
+    // ✅ Announcement Activation Cron - Runs every minute
+    cron.schedule("* * * * *", async () => {
       try {
-        console.log("🕒 Running Announcement Activation Cron...");
         await this.activateScheduledAnnouncements();
       } catch (error: any) {
         console.error("❌ Announcement Activation Cron Failed:", error.message);
       }
     });
 
-    // ✅ Announcement Deactivation Cron - Runs every day at 12:01 AM
-    cron.schedule("1 0 * * *", async () => {
+    // ✅ Announcement Deactivation Cron - Runs every minute
+    cron.schedule("* * * * *", async () => {
       try {
-        console.log("🕒 Running Announcement Deactivation Cron...");
         await this.deactivateExpiredAnnouncements();
       } catch (error: any) {
         console.error("❌ Announcement Deactivation Cron Failed:", error.message);
@@ -39,32 +38,59 @@ export class AnnouncementCronService {
   static async activateScheduledAnnouncements() {
     const now = new Date();
 
-    const result = await this.announcementRepo.updateMany(
-      {
+    const scheduledItems = await this.announcementRepo.find({
+      where: {
         scheduleDate: { $lte: now },
         status: AnnouncementStatus.SCHEDULED,
         isDeleted: false
-      },
-      { $set: { status: AnnouncementStatus.PUBLISHED } }
-    );
+      } as any
+    });
 
-    if (result.modifiedCount > 0) {
-      console.log(`✅ Announcement Activation: ${result.modifiedCount} announcements set to published.`);
+    if (scheduledItems.length > 0) {
+      const result = await this.announcementRepo.updateMany(
+        {
+          scheduleDate: { $lte: now },
+          status: AnnouncementStatus.SCHEDULED,
+          isDeleted: false
+        },
+        { $set: { status: AnnouncementStatus.PUBLISHED } }
+      );
+
+      if (result.modifiedCount > 0) {
+        console.log(`✅ Announcement Activation: ${result.modifiedCount} announcements set to published.`);
+
+        for (const item of scheduledItems) {
+          notifyAnnouncementAudience({
+            announcementId: item._id.toString(),
+            title: item.title,
+            content: item.content,
+            regionId: item.regionId ? item.regionId.toString() : undefined,
+            senderId: item.createdBy ? item.createdBy.toString() : undefined
+          }).catch(err => console.error("Error notifying scheduled announcement:", err));
+        }
+      }
     }
   }
 
   /**
    * Deactivates announcements that are published or scheduled but whose event date has passed.
    * Changes status to INACTIVE.
-   * Uses the `date` field (event/stall date) to determine expiry.
+   * Uses `toDate` or `date` to determine expiry against the current timestamp.
    */
   static async deactivateExpiredAnnouncements() {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    const now = new Date();
 
     const result = await this.announcementRepo.updateMany(
       {
-        date: { $lt: todayStart },
+        $or: [
+          { toDate: { $lt: now } },
+          {
+            $and: [
+              { toDate: { $exists: false } },
+              { date: { $lt: now } }
+            ]
+          }
+        ],
         status: { $in: [AnnouncementStatus.PUBLISHED, AnnouncementStatus.SCHEDULED] },
         isDeleted: false
       },

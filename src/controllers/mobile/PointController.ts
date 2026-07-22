@@ -45,9 +45,11 @@ export class MobilePointController {
       const activeBalance = member.points || 0;
 
       // 1. Calculate points earned this month
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      startOfMonth.setHours(0, 0, 0, 0);
+      const IST_OFFSET = 5.5 * 60 * 60 * 1000; // UTC+05:30
+      const istStartOfMonth = new Date(new Date().getTime() + IST_OFFSET);
+      istStartOfMonth.setUTCDate(1);
+      istStartOfMonth.setUTCHours(0, 0, 0, 0);
+      const startOfMonth = new Date(istStartOfMonth.getTime() - IST_OFFSET);
 
       const historyThisMonth = await this.historyRepo.find({
         where: {
@@ -59,10 +61,10 @@ export class MobilePointController {
       const earnedThisMonth = historyThisMonth.reduce((sum, h) => sum + (h.points || 0), 0);
 
       // Get local date string YYYY-MM-DD
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, "0");
-      const day = String(now.getDate()).padStart(2, "0");
+      const now = new Date(new Date().getTime() + IST_OFFSET);
+      const year = now.getUTCFullYear();
+      const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(now.getUTCDate()).padStart(2, "0");
       const dateStr = `${year}-${month}-${day}`;
 
       const todayScoreHistory = await this.dailyScoreHistoryRepo.find({
@@ -174,17 +176,18 @@ export class MobilePointController {
         dateStrings = allMonthDates.slice(page * limit, (page + 1) * limit);
       } else {
         // Default past days starting from today (up to 1 year back)
-        const today = new Date();
+        const IST_OFFSET = 5.5 * 60 * 60 * 1000; // UTC+05:30
+        const today = new Date(new Date().getTime() + IST_OFFSET);
         total = 365;
 
         const offsetStart = page * limit;
         for (let i = 0; i < limit; i++) {
-          const targetDate = new Date();
-          targetDate.setDate(today.getDate() - (offsetStart + i));
+          const targetDate = new Date(today.getTime());
+          targetDate.setUTCDate(today.getUTCDate() - (offsetStart + i));
 
-          const yr = targetDate.getFullYear();
-          const mn = String(targetDate.getMonth() + 1).padStart(2, "0");
-          const dy = String(targetDate.getDate()).padStart(2, "0");
+          const yr = targetDate.getUTCFullYear();
+          const mn = String(targetDate.getUTCMonth() + 1).padStart(2, "0");
+          const dy = String(targetDate.getUTCDate()).padStart(2, "0");
           dateStrings.push(`${yr}-${mn}-${dy}`);
         }
       }
@@ -341,7 +344,7 @@ export class MobilePointController {
         skip: page * limit,
         take: limit
       });
-      return pagination(total, history, page, limit, res);
+      return pagination(total, history, limit, page, res);
 
     } catch (error: any) {
       return handleErrorResponse(error, res);
