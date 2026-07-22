@@ -22,6 +22,8 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { UseBefore } from "routing-controllers";
 import { sendForgotPinSMS } from "../../utils/sms";
+import { Role } from "../../entity/Role.Permission";
+import { Franchise, FranchiseStatus } from "../../entity/Franchise";
 
 @JsonController("/auth")
 export class AuthController {
@@ -60,7 +62,25 @@ export class AuthController {
       if (!user) {
         throw new UnauthorizedError("User Account not found!!");
       }
+      const roleRepo = await AppDataSource.getMongoRepository(Role);
+      const role = await roleRepo.findOne({ where: { _id: user.roleId } });
+      if (!role) {
+        throw new UnauthorizedError("Role not found");
+      }
+      if (role.code === "FRANCHISE_OWNER") {
+        const franchiseOwnerRepo = AppDataSource.getMongoRepository(Franchise);
+        const franchiseOwner = await franchiseOwnerRepo.findOne({ where: { userId: { $in: [user.id] } } });
+        if (!franchiseOwner) {
+          throw new UnauthorizedError("Franchise Owner not found");
+        }
+        if (franchiseOwner.status === FranchiseStatus.INACTIVE) {
+          throw new UnauthorizedError("Franchise Owner is inactive. Please contact admin.");
+        }
+        if (franchiseOwner.isDeleted) {
+          throw new UnauthorizedError("Franchise Owner is deleted. Please contact admin.");
+        }
 
+      }
       const isMatch = await bcrypt.compare(pin, user.pin);
       if (!isMatch) {
         throw new UnauthorizedError("User Pin is incorrect!!");

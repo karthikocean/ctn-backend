@@ -20,6 +20,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { pagination } from "../../utils";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
+import { notifyAdminOnSuggestion } from "../../services/pushnotification.service";
 
 /**
  * @swagger
@@ -83,6 +84,14 @@ export class MobileSuggestionController {
       suggestion.isDeleted = false;
 
       const saved = await this.suggestionRepo.save(suggestion);
+
+      // Send Push Notification DB record and emit live socket notification to admin
+      notifyAdminOnSuggestion({
+        suggestionId: saved._id,
+        title: saved.title,
+        description: saved.description,
+        memberId: saved.memberId
+      }).catch(err => console.error("[createSuggestion] notifyAdminOnSuggestion error:", err));
 
       return res.status(StatusCodes.CREATED).json({
         success: true,

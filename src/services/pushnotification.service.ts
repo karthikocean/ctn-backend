@@ -9,7 +9,8 @@ import { InsertPushNotificationDto } from "../dto/mobile/InsertPushNotification.
 import { Member, MemberStatus } from "../entity/Member";
 import { Connection, ConnectionStatus } from "../entity/Connection";
 import { PostModel, PostType, RequirementVisibility } from "../entity/Post";
-import { emitUnreadCount } from "../utils/socket";
+import { AdminUser } from "../entity/AdminUser";
+import { emitUnreadCount, getIO } from "../utils/socket";
 
 const FCM_ENDPOINT = "https://fcm.googleapis.com/v1/projects/tn-business-forum/messages:send";
 const serviceAccountPath = path.join(__dirname, "../views", "google-firebase.json");
@@ -433,5 +434,70 @@ export async function notifyAnnouncementAudience(dto: {
     console.log(`✅ [notifyAnnouncementAudience] Notified ${activeMembers.length} members for announcement ${dto.announcementId}`);
   } catch (error) {
     console.error("Failed to notify announcement audience:", error);
+  }
+}
+
+/**
+ * Sends push notification & socket notification to all active admins when a new suggestion is created.
+ */
+export async function notifyAdminOnSuggestion(dto: {
+  suggestionId: string | ObjectId;
+  title: string;
+  description: string;
+  memberId: string | ObjectId;
+}) {
+  try {
+    const adminRepo = AppDataSource.getMongoRepository(AdminUser);
+    const notificationRepo = AppDataSource.getMongoRepository(PushNotification);
+
+    const activeAdmins = await adminRepo.find({
+      where: { isActive: true, isDeleted: false } as any
+    });
+
+    const memberOid = new ObjectId(dto.memberId);
+    const suggestionOid = new ObjectId(dto.suggestionId);
+
+    if (activeAdmins.length > 0) {
+      const notifications = activeAdmins.map(admin => ({
+        sub: `New Suggestion: ${dto.title}`,
+        msg: dto.description || "",
+        moduleName: NotificationModule.SUGGESTION,
+        moduleId: suggestionOid,
+        receiverId: admin.id,
+        senderId: memberOid,
+        isRead: false,
+        isDeleted: false,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }));
+
+      await notificationRepo.insertMany(notifications);
+    }
+
+    // Live Socket Notification to admin room & admin sockets
+    try {
+      const io = getIO();
+      const payload = {
+        suggestionId: dto.suggestionId.toString(),
+        title: dto.title,
+        description: dto.description,
+        memberId: dto.memberId.toString(),
+        createdAt: new Date()
+      };
+
+      io.to("admin_room").emit("new_suggestion", payload);
+      activeAdmins.forEach(admin => {
+        if (admin.id) {
+          const adminIdStr = admin.id.toString();
+          io.to(adminIdStr).emit("new_suggestion", payload);
+          emitUnreadCount(adminIdStr).catch(() => {});
+        }
+      });
+      console.log(`✅ [notifyAdminOnSuggestion] Push notification & socket event sent for suggestion ${dto.suggestionId}`);
+    } catch (socketErr) {
+      console.error("[notifyAdminOnSuggestion] Socket emission error:", socketErr);
+    }
+  } catch (error) {
+    console.error("Failed to notify admin on suggestion:", error);
   }
 }

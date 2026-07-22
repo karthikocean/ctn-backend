@@ -2,44 +2,101 @@ import { Response, NextFunction } from "express";
 import { AppDataSource } from "../data-source";
 import { Franchise } from "../entity/Franchise";
 import { BusinessRegion } from "../entity/BusinessRegion";
+import { Member } from "../entity/Member";
 import { ObjectId } from "mongodb";
 
 export const franchiseFilter = async (req: any, res: Response, next: NextFunction): Promise<void> => {
   try {
-    if (req.user?.role?.code?.toUpperCase() === "FRANCHISE_OWNER") {
-      const franchiseRepo = AppDataSource.getMongoRepository(Franchise);
-      const franchise = await franchiseRepo.findOne({
+    const userRoleCode = req.user?.role?.code?.toUpperCase() || "";
+    const userRoleName = req.user?.role?.name?.toUpperCase() || "";
+    const isFranchiseRole = userRoleCode.includes("FRANCHISE") || userRoleName.includes("FRANCHISE");
+
+    const userIdStr = req.user?.userId || req.user?.id || req.user?._id;
+    const userIdObj = userIdStr && ObjectId.isValid(userIdStr) ? new ObjectId(userIdStr) : null;
+
+    const franchiseRepo = AppDataSource.getMongoRepository(Franchise);
+    
+    // Find franchise linked to this user's ID or memberId
+    let franchise: Franchise | null = null;
+
+    if (userIdObj) {
+      franchise = await franchiseRepo.findOne({
         where: {
-          userId: { $in: [new ObjectId(req.user.userId)] },
+          $or: [
+            { userId: { $in: [userIdObj] } },
+            { userId: { $in: [userIdStr] } }
+          ],
           isDeleted: false
-        }
+        } as any
+      });
+    }
+
+    if (!franchise && req.user?.memberId && ObjectId.isValid(req.user.memberId)) {
+      const memberIdObj = new ObjectId(req.user.memberId);
+      franchise = await franchiseRepo.findOne({
+        where: {
+          $or: [
+            { userId: { $in: [memberIdObj] } },
+            { userId: { $in: [req.user.memberId] } }
+          ],
+          isDeleted: false
+        } as any
+      });
+    }
+
+    if (franchise && franchise.businessRegionId) {
+      const businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
+      const region = await businessRegionRepo.findOne({
+        where: {
+          $or: [
+            { _id: new ObjectId(franchise.businessRegionId) },
+            { "areas._id": new ObjectId(franchise.businessRegionId) }
+          ],
+          isDeleted: false
+        } as any
       });
 
-      if (franchise && franchise.businessRegionId) {
-        const businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
-        const region = await businessRegionRepo.findOne({
-          where: {
-            $or: [
-              { _id: franchise.businessRegionId },
-              { "areas._id": franchise.businessRegionId }
-            ],
-            isDeleted: false
-          } as any
-        });
+      const areaIds: ObjectId[] = [];
 
-        req.isFranchise = true;
-        req.franchise = franchise;
-        req.franchiseAreaIds = region ? [new ObjectId(franchise.businessRegionId)] : [];
+      if (region) {
+        if (region._id) areaIds.push(region._id);
+        if (region.areas && Array.isArray(region.areas)) {
+          region.areas.forEach((area: any) => {
+            if (area._id) areaIds.push(new ObjectId(area._id));
+          });
+        }
       } else {
-        req.isFranchise = true;
-        req.franchise = null;
-        req.franchiseAreaIds = [];
+        areaIds.push(new ObjectId(franchise.businessRegionId));
       }
+
+      // Fetch matching member IDs in these assigned areas
+      const memberRepo = AppDataSource.getMongoRepository(Member);
+      const members = await memberRepo.find({
+        where: {
+          businessRegion: { $in: areaIds },
+          isDeleted: false
+        } as any,
+        select: ["_id"]
+      });
+
+      const memberIds = members.map(m => m._id);
+
+      req.isFranchise = true;
+      req.franchise = franchise;
+      req.franchiseAreaIds = areaIds;
+      req.franchiseMemberIds = memberIds;
+    } else if (isFranchiseRole) {
+      req.isFranchise = true;
+      req.franchise = null;
+      req.franchiseAreaIds = [];
+      req.franchiseMemberIds = [];
     } else {
       req.isFranchise = false;
       req.franchise = null;
       req.franchiseAreaIds = [];
+      req.franchiseMemberIds = [];
     }
+
     next();
   } catch (error) {
     next(error);
