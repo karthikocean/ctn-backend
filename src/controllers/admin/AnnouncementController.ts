@@ -25,8 +25,6 @@ import { Member } from "../../entity/Member";
 import { AnnouncementBooking } from "../../entity/AnnouncementBooking";
 import { notifyAnnouncementAudience } from "../../services/pushnotification.service";
 import { StallBooking } from "../../entity/StallBooking";
-import { notifyAllActiveMembers } from "../../services/pushnotification.service";
-import { NotificationModule } from "../../entity/PushNotifications";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 
 @JsonController("/announcements")
@@ -234,7 +232,7 @@ export class AdminAnnouncementController {
 
       const previousStatus = announcement.status;
       Object.assign(announcement, data);
-      
+
       if (data.regionId && ObjectId.isValid(data.regionId)) {
         announcement.regionId = new ObjectId(data.regionId);
       } else if (data.regionId === null || data.regionId === "") {

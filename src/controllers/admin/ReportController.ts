@@ -133,7 +133,7 @@ export class AdminReportController {
         const plan = m.planId ? planMap.get(m.planId.toString()) : null;
         const regionName = m.businessRegion ? regionMap.get(m.businessRegion.toString()) || "N/A" : "N/A";
         const expiryDate = m.subscriptionEndDate ? new Date(m.subscriptionEndDate) : null;
-        
+
         let daysRemaining = 0;
         let subStatus = "ACTIVE";
 
@@ -320,7 +320,7 @@ export class AdminReportController {
         const plan = m.planId ? planMap.get(m.planId.toString()) : null;
         const regionName = m.businessRegion ? regionMap.get(m.businessRegion.toString()) || "N/A" : "N/A";
         const expiryDate = m.subscriptionEndDate ? new Date(m.subscriptionEndDate) : null;
-        
+
         let daysRemaining = 0;
         let subStatus = "ACTIVE_TRIAL";
 

@@ -301,6 +301,10 @@ export class AdminModuleController {
         throw new NotFoundError("Module not found");
       }
 
+      if (module.slugName === "modules" || module.name.toLowerCase() === "modules") {
+        throw new BadRequestError("Core 'modules' module cannot be deleted");
+      }
+
       module.isDelete = 1;
       await this.moduleRepo.save(module);
 

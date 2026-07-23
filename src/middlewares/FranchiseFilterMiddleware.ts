@@ -15,7 +15,7 @@ export const franchiseFilter = async (req: any, res: Response, next: NextFunctio
     const userIdObj = userIdStr && ObjectId.isValid(userIdStr) ? new ObjectId(userIdStr) : null;
 
     const franchiseRepo = AppDataSource.getMongoRepository(Franchise);
-    
+
     // Find franchise linked to this user's ID or memberId
     let franchise: Franchise | null = null;
 

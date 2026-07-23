@@ -29,6 +29,8 @@ export async function seedModules() {
     { name: "Training Categories", parentSlug: "trainings" },
 
     { name: "Points" },
+    { name: "Points Management", parentSlug: "points" },
+    { name: "Allocate Points", parentSlug: "points" },
     // { name: "Awards" },
     { name: "Members" },
 

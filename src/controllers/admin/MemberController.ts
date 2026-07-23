@@ -102,6 +102,7 @@ export class AdminMemberController {
     @QueryParam("city") city: string,
     @QueryParam("category") category: string,
     @QueryParam("status") status: string,
+    @QueryParam("regionId") regionId: string,
     @Res() res: any
   ) {
     page = Number(page) || 0;
@@ -109,7 +110,29 @@ export class AdminMemberController {
 
     try {
       const where: any = { isDeleted: false };
-      if (req.isFranchise) {
+      if (regionId && ObjectId.isValid(regionId)) {
+        const businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
+        const region = await businessRegionRepo.findOne({
+          where: { _id: new ObjectId(regionId), isDeleted: false }
+        });
+        if (region) {
+          const areaIds: ObjectId[] = [region._id];
+          if (region.areas && Array.isArray(region.areas)) {
+            region.areas.forEach((area: any) => {
+              if (area._id) areaIds.push(new ObjectId(area._id));
+            });
+          }
+          if (req.isFranchise) {
+            const franchiseAreaIdStrings = new Set(req.franchiseAreaIds.map((id: any) => id.toString()));
+            const intersectedAreaIds = areaIds.filter(id => franchiseAreaIdStrings.has(id.toString()));
+            where.businessRegion = { $in: intersectedAreaIds };
+          } else {
+            where.businessRegion = { $in: areaIds };
+          }
+        } else {
+          where.businessRegion = new ObjectId(regionId);
+        }
+      } else if (req.isFranchise) {
         if (req.franchiseAreaIds && req.franchiseAreaIds.length > 0) {
           where.businessRegion = { $in: req.franchiseAreaIds };
         } else {
