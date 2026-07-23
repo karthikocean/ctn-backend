@@ -347,6 +347,11 @@ export class BusinessRegionController {
         throw new BadRequestError("Region with this country, state and city already exists");
       }
 
+      if (data.status) {
+        const city = await cityRepo.findOne({ where: { _id: new ObjectId(region.city) } })
+        if (!city) throw new BadRequestError("City is not active");
+        await cityRepo.update(city._id, { status: "inactive" })
+      }
       if (data.country) region.country = data.country.trim();
       region.state = stateId;
       region.city = cityId;
