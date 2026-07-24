@@ -110,7 +110,7 @@ export class AdminCommonController {
       let businessRegion = null;
       if (stateDoc) {
         const cityDoc = await cityRepo.findOne({
-          where: { name: { $regex: new RegExp(`^${city}$`, "i") }, stateId: stateDoc._id, isDeleted: false, status: 'active' }
+          where: { name: { $regex: new RegExp(`^${city}$`, "i") }, stateId: stateDoc._id, isDeleted: false, status: "active" }
         });
         if (cityDoc) {
           businessRegion = await businessRegionRepository.findOne({

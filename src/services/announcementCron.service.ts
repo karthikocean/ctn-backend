@@ -65,6 +65,7 @@ export class AnnouncementCronService {
             title: item.title,
             content: item.content,
             regionId: item.regionId ? item.regionId.toString() : undefined,
+            regionIds: item.regionIds ? item.regionIds.map((id: any) => id.toString()) : undefined,
             senderId: item.createdBy ? item.createdBy.toString() : undefined
           }).catch(err => console.error("Error notifying scheduled announcement:", err));
         }
@@ -94,7 +95,7 @@ export class AnnouncementCronService {
         status: { $in: [AnnouncementStatus.PUBLISHED, AnnouncementStatus.SCHEDULED] },
         isDeleted: false
       },
-      { $set: { status: AnnouncementStatus.INACTIVE } }
+      { $set: { status: AnnouncementStatus.EXPIRED } }
     );
 
     if (result.modifiedCount > 0) {

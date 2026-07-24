@@ -92,6 +92,7 @@ export class ReferralCategoryController {
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
     @QueryParam("search") search: string,
+    @QueryParam("status") status: string,
     @Res() res: any
   ) {
     page = Number(page) || 0;
@@ -106,6 +107,10 @@ export class ReferralCategoryController {
 
       if (search) {
         where.name = { $regex: search, $options: "i" };
+      }
+
+      if (status) {
+        where.status = status;
       }
 
       const [categories, total] = await this.categoryRepo.findAndCount({

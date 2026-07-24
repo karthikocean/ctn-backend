@@ -91,53 +91,23 @@ export class AuthController {
         throw new UnauthorizedError("Account is inactive. Please contact admin.");
       }
 
-      // Check if token already exists in user_tokens collection
-      const tokenRepo = AppDataSource.getMongoRepository(UserToken);
-      const existingToken = await tokenRepo.findOne({
-        where: { userId: user.id }
-      });
-
-      let finalToken: string;
-
-      if (existingToken) {
-        try {
-          // Verify if existing token is valid
-          jwt.verify(existingToken.token, process.env.JWT_SECRET as string);
-          finalToken = existingToken.token;
-        } catch {
-          // Token expired or invalid, generate new one
-          finalToken = jwt.sign(
-            {
-              id: user.id.toString(),
-              roleId: user.roleId.toString()
-            },
-            process.env.JWT_SECRET as string,
-            {
-              expiresIn: (process.env.JWT_EXPIRES_IN || "1d") as any
-            }
-          );
-
-          existingToken.token = finalToken;
-          await tokenRepo.save(existingToken);
+      // Generate new token and save to DB (allows multi-device login sessions for admin users)
+      const finalToken = jwt.sign(
+        {
+          id: user.id.toString(),
+          roleId: user.roleId.toString()
+        },
+        process.env.JWT_SECRET as string,
+        {
+          expiresIn: (process.env.JWT_EXPIRES_IN || "1d") as any
         }
-      } else {
-        // Generate new token if not exists
-        finalToken = jwt.sign(
-          {
-            id: user.id.toString(),
-            roleId: user.roleId.toString()
-          },
-          process.env.JWT_SECRET as string,
-          {
-            expiresIn: (process.env.JWT_EXPIRES_IN || "1d") as any
-          }
-        );
+      );
 
-        const userToken = new UserToken();
-        userToken.userId = user.id;
-        userToken.token = finalToken;
-        await tokenRepo.save(userToken);
-      }
+      const tokenRepo = AppDataSource.getMongoRepository(UserToken);
+      const userToken = new UserToken();
+      userToken.userId = user.id;
+      userToken.token = finalToken;
+      await tokenRepo.save(userToken);
 
       // Update last login info
       user.lastLoginAt = new Date();

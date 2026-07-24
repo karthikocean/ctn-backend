@@ -358,7 +358,7 @@ export class CommonController {
     try {
       const cityRepository = AppDataSource.getMongoRepository(City);
 
-      const where: any = { isDeleted: false, status: 'active' };
+      const where: any = { isDeleted: false, status: "active" };
 
       // Filter by stateIds
       if (stateIds) {

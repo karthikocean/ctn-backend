@@ -91,10 +91,21 @@ export class AdminAnnouncementController {
       const announcement = new Announcement();
       Object.assign(announcement, data);
 
-      if (data.regionId && ObjectId.isValid(data.regionId)) {
-        announcement.regionId = new ObjectId(data.regionId);
+      if (data.regionIds && Array.isArray(data.regionIds)) {
+        announcement.regionIds = data.regionIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+        if (announcement.regionIds.length > 0) {
+          announcement.regionId = announcement.regionIds[0];
+        } else {
+          announcement.regionId = undefined;
+        }
       } else {
-        announcement.regionId = undefined;
+        announcement.regionIds = [];
+        if (data.regionId && ObjectId.isValid(data.regionId)) {
+          announcement.regionId = new ObjectId(data.regionId);
+          announcement.regionIds = [announcement.regionId];
+        } else {
+          announcement.regionId = undefined;
+        }
       }
 
       if (data.scheduleDate) announcement.scheduleDate = new Date(data.scheduleDate);
@@ -130,6 +141,7 @@ export class AdminAnnouncementController {
           title: saved.title || "New Announcement",
           content: saved.content || "",
           regionId: saved.regionId ? saved.regionId.toString() : undefined,
+          regionIds: saved.regionIds ? saved.regionIds.map(id => id.toString()) : undefined,
           senderId: req.user.userId
         }).catch(err => console.error("Error notifying announcement audience on create:", err));
       }
@@ -233,10 +245,24 @@ export class AdminAnnouncementController {
       const previousStatus = announcement.status;
       Object.assign(announcement, data);
 
-      if (data.regionId && ObjectId.isValid(data.regionId)) {
-        announcement.regionId = new ObjectId(data.regionId);
-      } else if (data.regionId === null || data.regionId === "") {
+      if (data.regionIds && Array.isArray(data.regionIds)) {
+        announcement.regionIds = data.regionIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+        if (announcement.regionIds.length > 0) {
+          announcement.regionId = announcement.regionIds[0];
+        } else {
+          announcement.regionId = undefined;
+        }
+      } else if (data.regionIds === null) {
+        announcement.regionIds = [];
         announcement.regionId = undefined;
+      } else {
+        if (data.regionId && ObjectId.isValid(data.regionId)) {
+          announcement.regionId = new ObjectId(data.regionId);
+          announcement.regionIds = [announcement.regionId];
+        } else if (data.regionId === null || data.regionId === "") {
+          announcement.regionId = undefined;
+          announcement.regionIds = [];
+        }
       }
 
       if (data.scheduleDate) announcement.scheduleDate = new Date(data.scheduleDate);
@@ -268,6 +294,7 @@ export class AdminAnnouncementController {
           title: saved.title || "New Announcement",
           content: saved.content || "",
           regionId: saved.regionId ? saved.regionId.toString() : undefined,
+          regionIds: saved.regionIds ? saved.regionIds.map(id => id.toString()) : undefined,
           senderId: req.user.userId
         }).catch(err => console.error("Error notifying announcement audience on update:", err));
       }
