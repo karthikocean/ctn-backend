@@ -5,7 +5,8 @@ export enum AnnouncementStatus {
   DRAFT = "draft",
   PUBLISHED = "published",
   SCHEDULED = "scheduled",
-  INACTIVE = "inactive"
+  INACTIVE = "inactive",
+  EXPIRED = "expired"
 }
 
 export enum AnnouncementType {
@@ -95,6 +96,9 @@ export class Announcement {
 
   @Column({ nullable: true })
     regionId?: ObjectId;
+
+  @Column({ nullable: true })
+    regionIds?: ObjectId[];
 
   @Column({ default: false })
     isDeleted!: boolean;

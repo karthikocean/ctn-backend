@@ -11,6 +11,8 @@ import { Member } from "../../entity/Member";
 import { BusinessRegion, Area } from "../../entity/BusinessRegion";
 import { State } from "../../entity/State";
 import { City } from "../../entity/City";
+import { Category } from "../../entity/Category";
+import { Plan } from "../../entity/Plan";
 import { StatusCodes } from "http-status-codes";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
@@ -120,6 +122,24 @@ export class PointHistoryController {
         regionMap.set(`${stateName}|${cityName}`, r.areas || []);
       }
 
+      const categoryRepo = AppDataSource.getMongoRepository(Category);
+      const categoriesList = await categoryRepo.find({
+        where: { isDeleted: false }
+      });
+      const categoryMap = new Map<string, string>();
+      categoriesList.forEach((c) => {
+        categoryMap.set(c._id.toString(), c.name);
+      });
+
+      const planRepo = AppDataSource.getMongoRepository(Plan);
+      const plansList = await planRepo.find({
+        where: { status: "active" }
+      });
+      const planMap = new Map<string, string>();
+      plansList.forEach((p) => {
+        planMap.set(p._id.toString(), p.title);
+      });
+
       const data = histories.map((h) => {
         const mId = h.memberId?.toString();
         const member = memberMap.get(mId);
@@ -131,6 +151,15 @@ export class PointHistoryController {
             regionName = matchedArea.name;
           }
         }
+
+        const categoryName = (member && member.businessCategory)
+          ? categoryMap.get(member.businessCategory.toString()) || "-"
+          : "-";
+
+        const planTitle = (member && member.planId)
+          ? planMap.get(member.planId.toString()) || member.membershipType || "Basic"
+          : (member ? member.membershipType || "Basic" : "Basic");
+
         return {
           id: h._id.toString(),
           memberId: mId,
@@ -141,7 +170,12 @@ export class PointHistoryController {
           category: h.moduleName,
           reason: h.actionType,
           type: h.type || (h.points >= 0 ? "earned" : "spent"),
-          date: h.createdAt ? new Date(h.createdAt).toISOString().split("T")[0] : "-"
+          date: h.createdAt ? new Date(h.createdAt).toISOString().split("T")[0] : "-",
+          memberCategory: categoryName,
+          dateOfJoin: (member && member.createdAt) ? new Date(member.createdAt).toISOString().split("T")[0] : "-",
+          subscriptionType: planTitle,
+          mobileNumber: member ? member.mobileNumber : "-",
+          profilePhoto: member ? member.profilePhoto : undefined
         };
       });
 

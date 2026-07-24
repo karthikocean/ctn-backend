@@ -1,6 +1,7 @@
 import {
   JsonController,
   Get,
+  Param,
   QueryParam,
   Res,
   Req,
@@ -307,6 +308,118 @@ export class AdminContributionController {
       }));
 
       return pagination(totalCount, finalData, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/contributions/{id}:
+   *   get:
+   *     summary: Get a single contribution detail (Admin)
+   *     tags: [Admin Contribution]
+   */
+  @Get("/:id")
+  async getContributionDetail(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Res() res: any
+  ) {
+    try {
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).json({ success: false, message: "Invalid ID" });
+      }
+
+      const objId = new ObjectId(id);
+      let contribution: any = null;
+      let type: string = "";
+
+      // 1. Try ThankYouSlip
+      const tySlip = await this.tySlipRepo.findOneBy({ _id: objId });
+      if (tySlip) {
+        contribution = tySlip;
+        type = "thank_you_slip";
+      } else {
+        // 2. Try Referral
+        const referral = await this.referralRepo.findOneBy({ _id: objId });
+        if (referral) {
+          contribution = referral;
+          type = "referral";
+        } else {
+          // 3. Try OneToOne
+          const oto = await this.oneToOneRepo.findOneBy({ _id: objId });
+          if (oto) {
+            contribution = oto;
+            type = "one_to_one";
+          }
+        }
+      }
+
+      if (!contribution) {
+        return res.status(404).json({ success: false, message: "Contribution not found" });
+      }
+
+      // Check franchise access control
+      if (req.isFranchise) {
+        const franchiseMemberIdStrings = new Set((req.franchiseMemberIds || []).map((mid: any) => mid.toString()));
+        const isSenderFranchiseMember = contribution.senderId && franchiseMemberIdStrings.has(contribution.senderId.toString());
+        const isReceiverFranchiseMember = contribution.receiverId && franchiseMemberIdStrings.has(contribution.receiverId.toString());
+
+        if (!isSenderFranchiseMember && !isReceiverFranchiseMember) {
+          return res.status(403).json({ success: false, message: "Access denied" });
+        }
+      }
+
+      // Populate member profiles
+      const memberMap = new Map<string, any>();
+      const senderId = contribution.senderId;
+      const receiverId = contribution.receiverId;
+      if (senderId || receiverId) {
+        const objectIds = [senderId, receiverId].filter(id => id && ObjectId.isValid(id)).map(id => new ObjectId(id));
+        const members = await this.memberRepo.find({
+          where: { _id: { $in: objectIds } } as any
+        });
+        members.forEach(m => {
+          memberMap.set(m._id.toString(), {
+            _id: m._id,
+            fullName: m.fullName,
+            profilePhoto: m.profilePhoto,
+            businessName: m.businessName,
+            email: m.email,
+            mobileNumber: m.mobileNumber
+          });
+        });
+      }
+
+      const populated = {
+        id: contribution._id.toString(),
+        type,
+        sender: senderId ? memberMap.get(senderId.toString()) || null : null,
+        receiver: receiverId ? memberMap.get(receiverId.toString()) || null : null,
+        description: type === "one_to_one"
+          ? "One to One Completed"
+          : type === "thank_you_slip"
+            ? `Business of ₹${contribution.amount?.toLocaleString() || 0} done`
+            : `Referral for ${contribution.referralName}`,
+        amount: contribution.amount,
+        businessDetails: contribution.businessDetails,
+        referralDetails: type === "referral" ? {
+          referralName: contribution.referralName,
+          referralMobile: contribution.referralMobile,
+          referralEmail: contribution.referralEmail,
+          location: contribution.location,
+          comments: contribution.comments
+        } : undefined,
+        media: contribution.media,
+        date: contribution.createdAt,
+        status: type === "referral" ? (contribution.status?.toLowerCase() || "pending") : "completed"
+      };
+
+      return res.status(200).json({
+        success: true,
+        data: populated
+      });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

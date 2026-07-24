@@ -66,7 +66,8 @@ export class MobileAnnouncementController {
     @QueryParam("limit") limit: number,
     @QueryParam("search") search: string,
     @QueryParam("type") type: AnnouncementType,
-    @Res() res: any
+    @Res() res: any,
+    @Req() req: any
   ) {
     page = Number(page) || 0;
     limit = Number(limit) || 10;
@@ -102,6 +103,34 @@ export class MobileAnnouncementController {
           }
         ]
       };
+
+      const memberRepo = AppDataSource.getMongoRepository(Member);
+      const member = await memberRepo.findOneBy({ _id: new ObjectId(req.user.userId) });
+      const memberRegionId = member?.businessRegion;
+
+      const regionConditions: any[] = [
+        {
+          $and: [
+            { regionId: { $exists: false } },
+            { regionIds: { $exists: false } }
+          ]
+        },
+        {
+          $and: [
+            { regionId: null },
+            { regionIds: null }
+          ]
+        }
+      ];
+
+      if (memberRegionId) {
+        regionConditions.push(
+          { regionId: new ObjectId(memberRegionId) },
+          { regionIds: new ObjectId(memberRegionId) }
+        );
+      }
+
+      where.$and.push({ $or: regionConditions });
 
       if (search) {
         where.title = { $regex: search, $options: "i" };

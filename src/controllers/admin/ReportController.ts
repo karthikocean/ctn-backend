@@ -10,6 +10,7 @@ import { AppDataSource } from "../../data-source";
 import { Member } from "../../entity/Member";
 import { Plan } from "../../entity/Plan";
 import { BusinessRegion } from "../../entity/BusinessRegion";
+import { MemberSubscription } from "../../entity/MemberSubscription";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import handleErrorResponse from "../../utils/commonFunction";
@@ -23,6 +24,7 @@ export class AdminReportController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private planRepo = AppDataSource.getMongoRepository(Plan);
   private regionRepo = AppDataSource.getMongoRepository(BusinessRegion);
+  private subRepo = AppDataSource.getMongoRepository(MemberSubscription);
 
   /**
    * Helper to build a map of area ID / region ID -> region/area name
@@ -76,38 +78,79 @@ export class AdminReportController {
       const page = Math.max(0, Number(pageParam) || 0);
       const limit = Math.min(500, Number(limitParam) || 10);
 
-      // 1. Find all paid/premium plans
+      // 1. Get all plans for fallback naming details
       const allPlans = await this.planRepo.find({ where: { isDeleted: false } as any });
-      const paidPlanIds = allPlans
-        .filter(p => p.amount > 0 || (p.trialDays === 0 && (p as any).billingType !== "basic"))
-        .map(p => p._id.toString());
-      const paidPlanOids = paidPlanIds.map(id => new ObjectId(id));
       const planMap = new Map(allPlans.map(p => [p._id.toString(), p]));
 
       // 2. Fetch regions map matching both area._id and region._id
       const regionMap = await this.buildRegionMap();
 
-      // 3. Build Member filter query
+      // 3. Query premium member subscriptions from member_subscriptions
+      const premiumSubs = await this.subRepo.find({
+        where: {
+          status: { $in: ["ACTIVE", "Active"] } as any,
+          isTrial: { $ne: true } as any,
+          isDeleted: false
+        }
+      });
+
+      // Keep only the latest subscription per member (by endDate)
+      const subMap = new Map<string, MemberSubscription>();
+      premiumSubs.forEach(sub => {
+        const mId = sub.memberId.toString();
+        const existing = subMap.get(mId);
+        if (!existing || new Date(sub.endDate) > new Date(existing.endDate)) {
+          subMap.set(mId, sub);
+        }
+      });
+
+      const latestPremiumSubs = Array.from(subMap.values());
+      let filteredSubs = latestPremiumSubs;
+      if (planId && ObjectId.isValid(planId)) {
+        const planOidStr = planId.toString();
+        filteredSubs = filteredSubs.filter(s => s.planId?.toString() === planOidStr);
+      }
+      const filteredMemberIds = filteredSubs.map(s => s.memberId);
+
+      // 4. Build Member query filter
       const matchFilter: any = {
-        isDeleted: false,
-        planId: { $in: paidPlanOids } as any
+        isDeleted: false
       };
 
-      // Franchise member scope filter if applicable
-      if (req.isFranchise) {
-        if (req.franchiseAreaIds && Array.isArray(req.franchiseAreaIds) && req.franchiseAreaIds.length > 0) {
-          matchFilter.businessRegion = { $in: req.franchiseAreaIds };
-        } else if (req.franchiseMemberIds && Array.isArray(req.franchiseMemberIds)) {
-          matchFilter._id = { $in: req.franchiseMemberIds };
-        }
+      let finalMemberIds = filteredMemberIds;
+      if (req.isFranchise && req.franchiseMemberIds && Array.isArray(req.franchiseMemberIds)) {
+        const franchiseIdStrs = new Set(req.franchiseMemberIds.map((id: any) => id.toString()));
+        finalMemberIds = finalMemberIds.filter(id => franchiseIdStrs.has(id.toString()));
+      }
+
+      if (finalMemberIds.length === 0) {
+        return res.status(StatusCodes.OK).json({
+          success: true,
+          data: {
+            total: 0,
+            page,
+            limit,
+            totalPages: 0,
+            summary: {
+              total: 0,
+              dueSoon: 0,
+              expired: 0,
+              active: 0
+            },
+            list: []
+          }
+        });
+      }
+
+      const finalMemberOids = finalMemberIds.map(id => new ObjectId(id.toString()));
+      matchFilter._id = { $in: finalMemberOids } as any;
+
+      if (req.isFranchise && req.franchiseAreaIds && Array.isArray(req.franchiseAreaIds) && req.franchiseAreaIds.length > 0) {
+        matchFilter.businessRegion = { $in: req.franchiseAreaIds };
       }
 
       if (regionId && ObjectId.isValid(regionId)) {
         matchFilter.businessRegion = new ObjectId(regionId);
-      }
-
-      if (planId && ObjectId.isValid(planId)) {
-        matchFilter.planId = new ObjectId(planId);
       }
 
       if (search && search.trim()) {
@@ -122,18 +165,23 @@ export class AdminReportController {
 
       // Fetch matching members
       const allMatchingMembers = await this.memberRepo.find({
-        where: matchFilter,
-        order: { subscriptionEndDate: "ASC" }
+        where: matchFilter
       });
+
+      const subInfoMap = new Map<string, MemberSubscription>(
+        filteredSubs.map(s => [s.memberId.toString(), s])
+      );
 
       const now = new Date();
 
       // Transform & calculate status and days remaining
       const transformed = allMatchingMembers.map(m => {
-        const plan = m.planId ? planMap.get(m.planId.toString()) : null;
+        const sub = subInfoMap.get(m._id.toString());
+        if (!sub) return null;
+        const plan = sub.planId ? planMap.get(sub.planId.toString()) : null;
         const regionName = m.businessRegion ? regionMap.get(m.businessRegion.toString()) || "N/A" : "N/A";
-        const expiryDate = m.subscriptionEndDate ? new Date(m.subscriptionEndDate) : null;
-        
+        const expiryDate = sub.endDate ? new Date(sub.endDate) : null;
+
         let daysRemaining = 0;
         let subStatus = "ACTIVE";
 
@@ -159,15 +207,22 @@ export class AdminReportController {
           businessName: m.businessName || "N/A",
           regionId: m.businessRegion,
           regionName,
-          planId: m.planId,
+          planId: sub.planId,
           planName: plan?.title || "Premium Plan",
           billingCycle: plan?.billingCycle || "yearly",
           amount: plan?.amount || 0,
-          startDate: m.subscriptionStartDate || null,
-          endDate: m.subscriptionEndDate || null,
+          startDate: sub.startDate || null,
+          endDate: sub.endDate || null,
           daysRemaining,
           status: subStatus
         };
+      }).filter(Boolean) as any[];
+
+      // Sort by renewal date ascending
+      transformed.sort((a, b) => {
+        const dateA = a.endDate ? new Date(a.endDate).getTime() : 0;
+        const dateB = b.endDate ? new Date(b.endDate).getTime() : 0;
+        return dateA - dateB;
       });
 
       // Filter by status if requested
@@ -259,68 +314,108 @@ export class AdminReportController {
       const page = Math.max(0, Number(pageParam) || 0);
       const limit = Math.min(500, Number(limitParam) || 10);
 
-      // 1. Find all free / trial plans
+      // 1. Find all plans for fallback naming details
       const allPlans = await this.planRepo.find({ where: { isDeleted: false } as any });
-      const freePlanIds = allPlans
-        .filter(p => p.amount === 0 || (p as any).billingType === "free" || p.trialDays > 0)
-        .map(p => p._id.toString());
-      const freePlanOids = freePlanIds.map(id => new ObjectId(id));
       const planMap = new Map(allPlans.map(p => [p._id.toString(), p]));
 
       // 2. Fetch regions map matching both area._id and region._id
       const regionMap = await this.buildRegionMap();
 
-      // 3. Build Member filter query
+      // 3. Query trial subscriptions from member_subscriptions
+      const freeSubs = await this.subRepo.find({
+        where: {
+          isTrial: true,
+          isDeleted: false,
+          status: "ACTIVE"
+        }
+      });
+
+      // Keep only the latest subscription per member (by endDate)
+      const subMap = new Map<string, MemberSubscription>();
+      freeSubs.forEach(sub => {
+        const mId = sub.memberId.toString();
+        const existing = subMap.get(mId);
+        if (!existing || new Date(sub.endDate) > new Date(existing.endDate)) {
+          subMap.set(mId, sub);
+        }
+      });
+
+      const latestFreeSubs = Array.from(subMap.values());
+      let filteredSubs = latestFreeSubs;
+      if (planId && ObjectId.isValid(planId)) {
+        const planOidStr = planId.toString();
+        filteredSubs = filteredSubs.filter(s => s.planId?.toString() === planOidStr);
+      }
+      const filteredMemberIds = filteredSubs.map(s => s.memberId);
+
+      // 4. Build Member filter query
       const matchFilter: any = {
-        isDeleted: false,
-        $or: [
-          { planId: { $in: freePlanOids } },
-          { hasUsedTrial: true }
-        ]
+        isDeleted: false
       };
 
-      if (req.isFranchise) {
-        if (req.franchiseAreaIds && Array.isArray(req.franchiseAreaIds) && req.franchiseAreaIds.length > 0) {
-          matchFilter.businessRegion = { $in: req.franchiseAreaIds };
-        } else if (req.franchiseMemberIds && Array.isArray(req.franchiseMemberIds)) {
-          matchFilter._id = { $in: req.franchiseMemberIds };
-        }
+      let finalMemberIds = filteredMemberIds;
+      if (req.isFranchise && req.franchiseMemberIds && Array.isArray(req.franchiseMemberIds)) {
+        const franchiseIdStrs = new Set(req.franchiseMemberIds.map((id: any) => id.toString()));
+        finalMemberIds = finalMemberIds.filter(id => franchiseIdStrs.has(id.toString()));
+      }
+
+      if (finalMemberIds.length === 0) {
+        return res.status(StatusCodes.OK).json({
+          success: true,
+          data: {
+            total: 0,
+            page,
+            limit,
+            totalPages: 0,
+            summary: {
+              total: 0,
+              endingSoon: 0,
+              expired: 0,
+              activeTrial: 0
+            },
+            list: []
+          }
+        });
+      }
+
+      const finalMemberOids = finalMemberIds.map(id => new ObjectId(id.toString()));
+      matchFilter._id = { $in: finalMemberOids } as any;
+
+      if (req.isFranchise && req.franchiseAreaIds && Array.isArray(req.franchiseAreaIds) && req.franchiseAreaIds.length > 0) {
+        matchFilter.businessRegion = { $in: req.franchiseAreaIds };
       }
 
       if (regionId && ObjectId.isValid(regionId)) {
         matchFilter.businessRegion = new ObjectId(regionId);
       }
 
-      if (planId && ObjectId.isValid(planId)) {
-        matchFilter.planId = new ObjectId(planId);
-      }
-
       if (search && search.trim()) {
         const regex = { $regex: search.trim(), $options: "i" };
-        matchFilter.$and = [
-          {
-            $or: [
-              { fullName: regex },
-              { mobileNumber: regex },
-              { email: regex },
-              { businessName: regex }
-            ]
-          }
+        matchFilter.$or = [
+          { fullName: regex },
+          { mobileNumber: regex },
+          { email: regex },
+          { businessName: regex }
         ];
       }
 
       const allMatchingMembers = await this.memberRepo.find({
-        where: matchFilter,
-        order: { subscriptionEndDate: "ASC" }
+        where: matchFilter
       });
+
+      const subInfoMap = new Map<string, MemberSubscription>(
+        filteredSubs.map(s => [s.memberId.toString(), s])
+      );
 
       const now = new Date();
 
       const transformed = allMatchingMembers.map(m => {
-        const plan = m.planId ? planMap.get(m.planId.toString()) : null;
+        const sub = subInfoMap.get(m._id.toString());
+        if (!sub) return null;
+        const plan = sub.planId ? planMap.get(sub.planId.toString()) : null;
         const regionName = m.businessRegion ? regionMap.get(m.businessRegion.toString()) || "N/A" : "N/A";
-        const expiryDate = m.subscriptionEndDate ? new Date(m.subscriptionEndDate) : null;
-        
+        const expiryDate = sub.endDate ? new Date(sub.endDate) : null;
+
         let daysRemaining = 0;
         let subStatus = "ACTIVE_TRIAL";
 
@@ -346,14 +441,21 @@ export class AdminReportController {
           businessName: m.businessName || "N/A",
           regionId: m.businessRegion,
           regionName,
-          planId: m.planId,
+          planId: sub.planId,
           planName: plan?.title || "Free Trial",
           trialDays: plan?.trialDays || 30,
-          startDate: m.subscriptionStartDate || null,
-          endDate: m.subscriptionEndDate || null,
+          startDate: sub.startDate || null,
+          endDate: sub.endDate || null,
           daysRemaining,
           status: subStatus
         };
+      }).filter(Boolean) as any[];
+
+      // Sort by expiry date ascending
+      transformed.sort((a, b) => {
+        const dateA = a.endDate ? new Date(a.endDate).getTime() : 0;
+        const dateB = b.endDate ? new Date(b.endDate).getTime() : 0;
+        return dateA - dateB;
       });
 
       let filtered = transformed;

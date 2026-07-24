@@ -368,6 +368,7 @@ export async function notifyAnnouncementAudience(dto: {
   title: string;
   content: string;
   regionId?: string;
+  regionIds?: string[];
   senderId?: string;
 }) {
   try {
@@ -379,7 +380,15 @@ export async function notifyAnnouncementAudience(dto: {
       isDeleted: false
     };
 
-    if (dto.regionId && ObjectId.isValid(dto.regionId)) {
+    if (dto.regionIds && dto.regionIds.length > 0) {
+      const regObjectIds = dto.regionIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+      const rawStringIds = dto.regionIds.filter(id => typeof id === "string");
+      whereCondition.$or = [
+        { businessRegion: { $in: regObjectIds } },
+        { businessRegion: { $in: dto.regionIds } },
+        { businessRegion: { $in: rawStringIds } }
+      ];
+    } else if (dto.regionId && ObjectId.isValid(dto.regionId)) {
       const regId = new ObjectId(dto.regionId);
       whereCondition.$or = [
         { businessRegion: regId },
@@ -390,7 +399,7 @@ export async function notifyAnnouncementAudience(dto: {
     const activeMembers = await memberRepo.find({
       where: whereCondition
     });
-
+    console.log(activeMembers.length, "activeMembers");
     if (!activeMembers || activeMembers.length === 0) {
       console.log("[notifyAnnouncementAudience] No matching active members found.");
       return;
@@ -490,7 +499,7 @@ export async function notifyAdminOnSuggestion(dto: {
         if (admin.id) {
           const adminIdStr = admin.id.toString();
           io.to(adminIdStr).emit("new_suggestion", payload);
-          emitUnreadCount(adminIdStr).catch(() => {});
+          emitUnreadCount(adminIdStr).catch(() => { });
         }
       });
       console.log(`✅ [notifyAdminOnSuggestion] Push notification & socket event sent for suggestion ${dto.suggestionId}`);

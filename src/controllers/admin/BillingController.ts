@@ -191,7 +191,7 @@ export class AdminBillingController {
       const members = memberIds.length > 0
         ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
         : [];
-      const memberMap = new Map(members.map(m => [m._id.toString(), { _id: m._id, fullName: m.fullName, email: m.email }]));
+      const memberMap = new Map(members.map(m => [m._id.toString(), { _id: m._id, fullName: m.fullName, email: m.email, profilePhoto: m.profilePhoto }]));
 
       const planIds = payments.map(p => p.planId).filter((id): id is ObjectId => !!id);
       const plans = planIds.length > 0
@@ -245,7 +245,7 @@ export class AdminBillingController {
       const data = {
         ...payment,
         paymentType: payment.paymentMethod || "", // for backward compatibility
-        member: member ? { _id: member._id, fullName: member.fullName, email: member.email } : null,
+        member: member ? { _id: member._id, fullName: member.fullName, email: member.email, profilePhoto: member.profilePhoto } : null,
         plan: plan ? { _id: plan._id, title: plan.title, amount: plan.amount } : null
       };
 

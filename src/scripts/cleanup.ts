@@ -10,7 +10,7 @@ const PROTECTED_COLLECTIONS: string[] = [
   "permissions",
   "modules",
   "plans",
-  "admins",
+  "adminusers", // Protect the collection for AdminUser entity
   "countries",
   "states",
   "cities",

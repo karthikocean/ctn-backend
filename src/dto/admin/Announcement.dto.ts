@@ -118,6 +118,10 @@ export class CreateAnnouncementDto {
   @IsOptional()
     regionId?: string;
 
+  @IsArray()
+  @IsOptional()
+    regionIds?: string[];
+
   // ✅ Stall configuration — provided when isOfflineStallExist = true
   @IsOptional()
   @ValidateNested()
@@ -205,4 +209,8 @@ export class UpdateAnnouncementDto {
   @IsString()
   @IsOptional()
     regionId?: string;
+
+  @IsArray()
+  @IsOptional()
+    regionIds?: string[];
 }

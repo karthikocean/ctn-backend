@@ -732,7 +732,12 @@ export class FranchiseController {
 
       const franchise = await this.franchiseRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!franchise) throw new NotFoundError("Franchise not found");
-
+      if (data.status === "inactive") {
+        const memberCount = await this.memberRepo.countBy({ businessRegion: new ObjectId(franchise.businessRegionId), isDeleted: false });
+        if (memberCount > 0) {
+          throw new BadRequestError("Franchise cannot be deactivated as it has active members");
+        }
+      }
       if (data.name) {
         const trimmedName = data.name.trim();
         // Check duplicate name excluding current

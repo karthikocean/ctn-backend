@@ -16,6 +16,7 @@ import {
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Category, CategoryType, CategoryStatus } from "../../entity/Category";
+import { Member } from "../../entity/Member";
 import { CreateCategoryDto, UpdateCategoryDto } from "../../dto/admin/Category.dto";
 import * as XLSX from "xlsx";
 import { ObjectId } from "mongodb";
@@ -485,6 +486,34 @@ export class CategoryController {
         });
       }
 
+      if (data.status === CategoryStatus.INACTIVE && category.status !== CategoryStatus.INACTIVE) {
+        const memberRepo = AppDataSource.getMongoRepository(Member);
+        const mappedMember = await memberRepo.findOne({
+          where: {
+            $or: [
+              { businessCategory: category._id },
+              { subCategory: category._id }
+            ],
+            isDeleted: false
+          }
+        });
+        if (mappedMember) {
+          throw new BadRequestError("Category cannot be deactivated as it is mapped to active members");
+        }
+
+        if (category.type === CategoryType.MAIN) {
+          const subCategoryExists = await this.categoryRepo.findOne({
+            where: {
+              parentCategory: category._id,
+              isDeleted: false
+            }
+          });
+          if (subCategoryExists) {
+            throw new BadRequestError("Category cannot be deactivated as it has associated subcategories");
+          }
+        }
+      }
+
       if (data.name) category.name = data.name;
       if (data.status) category.status = data.status;
       if (data.parentCategory) category.parentCategory = new ObjectId(data.parentCategory);
@@ -530,7 +559,33 @@ export class CategoryController {
         });
       }
 
-      await this.categoryRepo.findOneAndDelete(new ObjectId(id));
+      const memberRepo = AppDataSource.getMongoRepository(Member);
+      const mappedMember = await memberRepo.findOne({
+        where: {
+          $or: [
+            { businessCategory: category._id },
+            { subCategory: category._id }
+          ],
+          isDeleted: false
+        }
+      });
+      if (mappedMember) {
+        throw new BadRequestError("Category cannot be deleted as it is mapped to active members");
+      }
+
+      if (category.type === CategoryType.MAIN) {
+        const subCategoryExists = await this.categoryRepo.findOne({
+          where: {
+            parentCategory: category._id,
+            isDeleted: false
+          }
+        });
+        if (subCategoryExists) {
+          throw new BadRequestError("Category cannot be deleted as it has associated subcategories");
+        }
+      }
+
+      await this.categoryRepo.update(new ObjectId(id), { isDeleted: true });
 
       return res.status(StatusCodes.OK).json({ message: "Category deleted successfully" });
     } catch (error: any) {

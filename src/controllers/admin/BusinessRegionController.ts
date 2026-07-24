@@ -285,6 +285,14 @@ export class BusinessRegionController {
       const region = await this.regionRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!region) throw new NotFoundError("Business region not found");
 
+      if (data.status === "inactive" && region.areas && region.areas.length > 0) {
+        const regionIds = region.areas.map((r: any) => new ObjectId(r._id));
+        const memberCount = await this.memberRepo.countBy({ businessRegion: { $in: regionIds }, isDeleted: false });
+        if (memberCount > 0) {
+          throw new BadRequestError("Business region cannot be deactivated as it has active members");
+        }
+      }
+
       const stateRepo = AppDataSource.getMongoRepository(State);
       const cityRepo = AppDataSource.getMongoRepository(City);
 
@@ -347,6 +355,11 @@ export class BusinessRegionController {
         throw new BadRequestError("Region with this country, state and city already exists");
       }
 
+      if (data.status) {
+        const city = await cityRepo.findOne({ where: { _id: new ObjectId(region.city) } });
+        if (!city) throw new BadRequestError("City is not active");
+        await cityRepo.update(city._id, { status: data.status });
+      }
       if (data.country) region.country = data.country.trim();
       region.state = stateId;
       region.city = cityId;
@@ -394,6 +407,13 @@ export class BusinessRegionController {
       const region = await this.regionRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!region) throw new NotFoundError("Business region not found");
 
+      if (region.areas && region.areas.length > 0) {
+        const regionIds = region.areas.map((r: any) => new ObjectId(r._id));
+        const memberCount = await this.memberRepo.countBy({ businessRegion: { $in: regionIds }, isDeleted: false });
+        if (memberCount > 0) {
+          throw new BadRequestError("Business region cannot be deleted as it has active members");
+        }
+      }
       region.isDeleted = true;
       await this.regionRepo.save(region);
 

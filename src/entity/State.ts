@@ -21,6 +21,9 @@ export class State {
   @Column({ default: false })
     isDeleted!: boolean;
 
+  @Column({ default: "active" })
+    status?: string;
+
   @CreateDateColumn()
     createdAt!: Date;
 
