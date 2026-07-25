@@ -585,7 +585,7 @@ export class CategoryController {
         }
       }
 
-      await this.categoryRepo.update(new ObjectId(id), { isDeleted: true });
+      await this.categoryRepo.delete(new ObjectId(id));
 
       return res.status(StatusCodes.OK).json({ message: "Category deleted successfully" });
     } catch (error: any) {

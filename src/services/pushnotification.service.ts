@@ -49,13 +49,39 @@ export async function sendPushNotification(token: string, title: string, input: 
     const message = {
       message: {
         token,
+
         notification: {
           title,
           body: input.content ?? "",
         },
+
         data: {
-          moduleName: input.moduleName ?? "",
-          moduleId: input.moduleId ?? ""
+          moduleName: String(input.moduleName ?? ""),
+          moduleId: String(input.moduleId ?? ""),
+        },
+
+        android: {
+          priority: "HIGH",
+          notification: {
+            sound: "default",
+          },
+        },
+
+        apns: {
+          headers: {
+            "apns-priority": "10",
+          },
+          payload: {
+            aps: {
+              alert: {
+                title,
+                body: input.content ?? "",
+              },
+              sound: "default",
+              badge: 1,
+              "content-available": 1,
+            },
+          },
         },
       },
     };
