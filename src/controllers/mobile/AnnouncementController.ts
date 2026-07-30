@@ -87,6 +87,8 @@ export class MobileAnnouncementController {
           {
             $or: [
               { toDate: { $gte: now } },
+              { toDate: null },
+              { toDate: { $exists: false } },
               {
                 $and: [
                   { toDate: { $exists: false } },
@@ -109,25 +111,23 @@ export class MobileAnnouncementController {
       const memberRegionId = member?.businessRegion;
 
       const regionConditions: any[] = [
-        {
-          $and: [
-            { regionId: { $exists: false } },
-            { regionIds: { $exists: false } }
-          ]
-        },
-        {
-          $and: [
-            { regionId: null },
-            { regionIds: null }
-          ]
-        }
+        { regionId: { $exists: false } },
+        { regionId: null },
+        { regionIds: { $exists: false } },
+        { regionIds: null },
+        { regionIds: [] },
+        { regionIds: { $size: 0 } }
       ];
 
       if (memberRegionId) {
-        regionConditions.push(
-          { regionId: new ObjectId(memberRegionId) },
-          { regionIds: new ObjectId(memberRegionId) }
-        );
+        const memberRegionStr = memberRegionId.toString();
+        regionConditions.push({ regionId: memberRegionStr });
+        regionConditions.push({ regionIds: memberRegionStr });
+        if (ObjectId.isValid(memberRegionStr)) {
+          const memberRegionOid = new ObjectId(memberRegionStr);
+          regionConditions.push({ regionId: memberRegionOid });
+          regionConditions.push({ regionIds: memberRegionOid });
+        }
       }
 
       where.$and.push({ $or: regionConditions });
