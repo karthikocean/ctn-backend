@@ -289,6 +289,7 @@ export class FranchiseController {
     @Req() req: any,
     @QueryParam("month") month: string,
     @QueryParam("search") search: string,
+    @QueryParam("status") statusParam: string,
     @QueryParam("page") page: any,
     @QueryParam("limit") limit: any,
     @Res() res: any
@@ -332,12 +333,16 @@ export class FranchiseController {
         ];
       }
 
-      const [franchises, total] = await this.franchiseRepo.findAndCount({
-        where,
-        skip: page * limit,
-        take: limit,
-        order: { createdAt: "DESC" }
-      });
+      const isStatusFiltered = !!statusParam && statusParam !== "ALL";
+
+      const [franchises, total] = isStatusFiltered
+        ? [await this.franchiseRepo.find({ where, order: { createdAt: "DESC" } }), 0]
+        : await this.franchiseRepo.findAndCount({
+            where,
+            skip: page * limit,
+            take: limit,
+            order: { createdAt: "DESC" }
+          });
 
       const regionIds = franchises
         .map(f => f.businessRegionId)
@@ -425,6 +430,14 @@ export class FranchiseController {
           historyId
         };
       });
+
+      if (isStatusFiltered) {
+        const filteredData = reportData.filter(
+          item => item.status.toLowerCase() === statusParam.toLowerCase()
+        );
+        const paginatedData = filteredData.slice(page * limit, (page + 1) * limit);
+        return pagination(filteredData.length, paginatedData, limit, page, res);
+      }
 
       return pagination(total, reportData, limit, page, res);
     } catch (error: any) {

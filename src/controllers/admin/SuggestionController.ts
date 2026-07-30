@@ -116,7 +116,7 @@ export class AdminSuggestionController {
                 fullName: "$member.fullName",
                 mobileNumber: "$member.mobileNumber",
                 email: "$member.email",
-                profile: "$member.profile"
+                profile: "$member.profilePhoto"
               }
             }
           }
