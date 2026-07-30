@@ -39,41 +39,61 @@ export class VerificationController {
         throw new BadRequestError("At least phone or email must be provided");
       }
 
-      if (isRegister) {
-        if (phone) {
-          const member = await this.memberRepo.findOne({
-            where: { mobileNumber: phone, isDeleted: false }
-          });
+      // Validate member
+      const validateMember = async (
+        field: "mobileNumber" | "email",
+        value: string,
+        label: string
+      ) => {
+        const member = await this.memberRepo.findOne({
+          where: {
+            [field]: value,
+            isDeleted: false,
+          },
+        });
+
+        if (isRegister) {
           if (!member) {
-            throw new BadRequestError("Member not found with this phone number");
+            throw new BadRequestError(`Member not found with this ${label}`);
           }
+
           if (member.status !== MemberStatus.ACTIVE) {
             throw new BadRequestError("Member account is not active");
           }
-        }
-
-        if (email) {
-          const member = await this.memberRepo.findOne({
-            where: { email: email, isDeleted: false }
-          });
-          if (!member) {
-            throw new BadRequestError("Member not found with this email address");
-          }
-          if (member.status !== MemberStatus.ACTIVE) {
-            throw new BadRequestError("Member account is not active");
+        } else {
+          if (member) {
+            throw new BadRequestError(
+              `Member already exists with this ${label}`
+            );
           }
         }
+      };
 
-      }
-      const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+      // Validate phone & email in parallel
+      await Promise.all([
+        phone
+          ? validateMember("mobileNumber", phone, "phone number")
+          : Promise.resolve(),
+        email
+          ? validateMember("email", email, "email address")
+          : Promise.resolve(),
+      ]);
 
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
       const messages: string[] = [];
 
-      if (phone) {
+      const sendOtp = async (
+        identifier: string,
+        type: "phone" | "email"
+      ) => {
         const otp = Math.floor(1000 + Math.random() * 9000).toString();
+
         let verification = await this.verificationRepo.findOne({
-          where: { identifier: phone, type: "phone", isVerified: false }
+          where: {
+            identifier,
+            type,
+            isVerified: false,
+          },
         });
 
         if (verification) {
@@ -81,52 +101,39 @@ export class VerificationController {
           verification.expiresAt = expiresAt;
         } else {
           verification = this.verificationRepo.create({
-            identifier: phone,
-            type: "phone",
+            identifier,
+            type,
             otp,
             expiresAt,
-            isVerified: false
+            isVerified: false,
           });
         }
 
         await this.verificationRepo.save(verification);
-        await sendOTPSMS(phone, otp);
-        messages.push("phone");
-      }
 
-      if (email) {
-        const otp = Math.floor(1000 + Math.random() * 9000).toString();
-        let verification = await this.verificationRepo.findOne({
-          where: { identifier: email, type: "email", isVerified: false }
-        });
-
-        if (verification) {
-          verification.otp = otp;
-          verification.expiresAt = expiresAt;
+        if (type === "phone") {
+          await sendOTPSMS(identifier, otp);
         } else {
-          verification = this.verificationRepo.create({
-            identifier: email,
-            type: "email",
-            otp,
-            expiresAt,
-            isVerified: false
-          });
+          await MailService.sendVerificationOTP(identifier, otp);
         }
 
-        await this.verificationRepo.save(verification);
-        await MailService.sendVerificationOTP(email, otp);
-        messages.push("email");
-      }
+        messages.push(type);
+      };
+
+      // Send OTPs in parallel
+      await Promise.all([
+        phone ? sendOtp(phone, "phone") : Promise.resolve(),
+        email ? sendOtp(email, "email") : Promise.resolve(),
+      ]);
 
       return res.status(StatusCodes.OK).json({
         success: true,
-        message: `Verification code sent to ${messages.join(" and ")}`
+        message: `Verification code sent to ${messages.join(" and ")}`,
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
   }
-
   /**
    * @swagger
    * /mobile-api/verification/verify-otp:
