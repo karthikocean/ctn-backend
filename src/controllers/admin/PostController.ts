@@ -65,6 +65,8 @@ export class PostController {
     @QueryParam("type") type: PostType,
     @QueryParam("search") search: string,
     @QueryParam("status") status: string,
+    @QueryParam("fromDate") fromDate: string,
+    @QueryParam("toDate") toDate: string,
     @Res() res: any
   ) {
     page = Number(page) || 0;
@@ -72,6 +74,20 @@ export class PostController {
 
     try {
       const where: any = { isDeleted: false, status: { $ne: "reported" } };
+
+      if (fromDate || toDate) {
+        where.createdAt = {};
+        if (fromDate) {
+          const start = new Date(fromDate);
+          start.setHours(0, 0, 0, 0);
+          where.createdAt.$gte = start;
+        }
+        if (toDate) {
+          const end = new Date(toDate);
+          end.setHours(23, 59, 59, 999);
+          where.createdAt.$lte = end;
+        }
+      }
 
       if (req.isFranchise) {
         const franchiseMembers = await this.memberRepo.find({
@@ -175,6 +191,8 @@ export class PostController {
     @QueryParam("limit") limit: number,
     @QueryParam("type") type: PostType,
     @QueryParam("search") search: string,
+    @QueryParam("fromDate") fromDate: string,
+    @QueryParam("toDate") toDate: string,
     @Res() res: any
   ) {
     page = Number(page) || 0;
@@ -182,6 +200,20 @@ export class PostController {
 
     try {
       const where: any = { isDeleted: false, status: "reported" };
+
+      if (fromDate || toDate) {
+        where.createdAt = {};
+        if (fromDate) {
+          const start = new Date(fromDate);
+          start.setHours(0, 0, 0, 0);
+          where.createdAt.$gte = start;
+        }
+        if (toDate) {
+          const end = new Date(toDate);
+          end.setHours(23, 59, 59, 999);
+          where.createdAt.$lte = end;
+        }
+      }
 
       if (req.isFranchise) {
         const franchiseMembers = await this.memberRepo.find({
