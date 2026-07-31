@@ -146,17 +146,13 @@ export class MobileMilestoneController {
     try {
       const userId = req.user.userId;
 
-      // 1. Find who I am following
-      const followings = await this.connectionRepo.find({
-        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
-      });
+      // 1. Find mutual friends
+      const mutualIds = await this.getMutualFriendIds(new ObjectId(userId));
 
-      const followingIds = followings.map(f => new ObjectId(f.receiverId));
-
-      // 2. Find active milestones from these members
-      const milestones = await this.milestoneRepo.find({
+      // 2. Find active milestones from these mutual friends
+      const milestones = mutualIds.length > 0 ? await this.milestoneRepo.find({
         where: {
-          memberId: { $in: followingIds },
+          memberId: { $in: mutualIds },
           isDeleted: false,
           // isActive: true,
           expiresAt: { $gt: new Date() }
@@ -164,7 +160,7 @@ export class MobileMilestoneController {
         order: {
           createdAt: "DESC"
         }
-      });
+      }) : [];
       // 3. Group by memberId
       const grouped = new Map<string, Milestone[]>();
       milestones.forEach(m => {
@@ -324,12 +320,24 @@ export class MobileMilestoneController {
    *           type: string
    */
   @Get("/member/:memberId")
-  async getByMember(@Param("memberId") memberId: string, @Res() res: any) {
+  async getByMember(@Req() req: any, @Param("memberId") memberId: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(memberId)) throw new BadRequestError("Invalid Member ID");
+      const userId = req.user.userId;
+      const targetMemberId = new ObjectId(memberId);
+
+      if (userId !== memberId) {
+        const isMutual = await this.isMutualFriend(new ObjectId(userId), targetMemberId);
+        if (!isMutual) {
+          return res.status(StatusCodes.OK).json({
+            success: true,
+            data: []
+          });
+        }
+      }
 
       const milestones = await this.milestoneRepo.find({
-        where: { memberId: new ObjectId(memberId), isDeleted: false },
+        where: { memberId: targetMemberId, isDeleted: false },
         order: { createdAt: "DESC" }
       });
 
@@ -383,6 +391,11 @@ export class MobileMilestoneController {
       const ownerId = milestone.memberId;
       if (ownerId.equals(userId)) {
         throw new BadRequestError("You cannot reply to your own milestone");
+      }
+
+      const isMutual = await this.isMutualFriend(userId, ownerId);
+      if (!isMutual) {
+        throw new BadRequestError("Milestones are visible only to mutual friends");
       }
 
       // 1. Find or Create Conversation
@@ -521,6 +534,13 @@ export class MobileMilestoneController {
       const milestone = await this.milestoneRepo.findOneBy({ _id: milestoneId });
       if (!milestone) throw new NotFoundError("Milestone not found");
 
+      if (!milestone.memberId.equals(userId)) {
+        const isMutual = await this.isMutualFriend(userId, milestone.memberId);
+        if (!isMutual) {
+          throw new BadRequestError("Milestones are visible only to mutual friends");
+        }
+      }
+
       // Record the view if not already viewed by this user
       const existingView = await this.milestoneViewRepo.findOneBy({ milestoneId, viewerId: userId });
       if (!existingView) {
@@ -568,6 +588,13 @@ export class MobileMilestoneController {
 
       const milestone = await this.milestoneRepo.findOneBy({ _id: milestoneId });
       if (!milestone) throw new NotFoundError("Milestone not found");
+
+      if (!milestone.memberId.equals(userId)) {
+        const isMutual = await this.isMutualFriend(userId, milestone.memberId);
+        if (!isMutual) {
+          throw new BadRequestError("Milestones are visible only to mutual friends");
+        }
+      }
 
       // Reaction should also count as a view if not already viewed
       let milestoneView = await this.milestoneViewRepo.findOneBy({ milestoneId, viewerId: userId });
@@ -627,10 +654,18 @@ export class MobileMilestoneController {
   async getViewers(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid Milestone ID");
+      const userId = new ObjectId(req.user.userId);
       const milestoneId = new ObjectId(id);
 
       const milestone = await this.milestoneRepo.findOneBy({ _id: milestoneId });
       if (!milestone) throw new NotFoundError("Milestone not found");
+
+      if (!milestone.memberId.equals(userId)) {
+        const isMutual = await this.isMutualFriend(userId, milestone.memberId);
+        if (!isMutual) {
+          throw new BadRequestError("Milestones are visible only to mutual friends");
+        }
+      }
 
       const views = await this.milestoneViewRepo.find({
         where: { milestoneId },
@@ -754,5 +789,38 @@ export class MobileMilestoneController {
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
+  }
+
+  private async getMutualFriendIds(userId: ObjectId): Promise<ObjectId[]> {
+    const [followings, followers] = await Promise.all([
+      this.connectionRepo.find({
+        where: { senderId: userId, status: ConnectionStatus.ACCEPTED }
+      }),
+      this.connectionRepo.find({
+        where: { receiverId: userId, status: ConnectionStatus.ACCEPTED }
+      })
+    ]);
+
+    const followingIds = new Set(followings.map(f => f.receiverId.toString()));
+    const followerIds = new Set(followers.map(f => f.senderId.toString()));
+
+    return [...followingIds]
+      .filter(id => followerIds.has(id))
+      .map(id => new ObjectId(id));
+  }
+
+  private async isMutualFriend(userId1: ObjectId, userId2: ObjectId): Promise<boolean> {
+    if (userId1.equals(userId2)) return true;
+
+    const [conn1, conn2] = await Promise.all([
+      this.connectionRepo.findOne({
+        where: { senderId: userId1, receiverId: userId2, status: ConnectionStatus.ACCEPTED }
+      }),
+      this.connectionRepo.findOne({
+        where: { senderId: userId2, receiverId: userId1, status: ConnectionStatus.ACCEPTED }
+      })
+    ]);
+
+    return !!(conn1 && conn2);
   }
 }

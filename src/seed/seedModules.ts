@@ -12,9 +12,10 @@ export async function seedModules() {
 
   const modules: ModuleSeed[] = [
     { name: "Dashboard" },
-    { name: "Admin Users" },
     { name: "Roles Permissions" },
+    { name: "Admin Users" },
     { name: "Business Regions" },
+    { name: "Franchises" },
 
     { name: "Categories" },
     { name: "Main Categories", parentSlug: "categories" },
@@ -31,10 +32,14 @@ export async function seedModules() {
     { name: "Points" },
     { name: "Points Management", parentSlug: "points" },
     { name: "Allocate Points", parentSlug: "points" },
-    // { name: "Awards" },
+
     { name: "Members" },
 
     { name: "Activities" },
+    { name: "Asks", parentSlug: "activities" },
+    { name: "Gives", parentSlug: "activities" },
+    { name: "Posts", parentSlug: "activities" },
+    { name: "Requirements", parentSlug: "activities" },
 
     { name: "Spotlight" },
     { name: "Spotlight Request", parentSlug: "spotlight" },
@@ -42,13 +47,14 @@ export async function seedModules() {
 
     { name: "Connections" },
     { name: "Contributions" },
+
     { name: "Reports" },
     { name: "Subscription Renewal Report", parentSlug: "reports" },
     { name: "Free Subscription Ending Report", parentSlug: "reports" },
     { name: "Franchise Commission Report", parentSlug: "reports" },
     { name: "Report History", parentSlug: "reports" },
+
     { name: "Plans" },
-    { name: "Franchises" },
     { name: "Referral" },
     { name: "Billings" },
     { name: "Coupons" },
@@ -79,7 +85,10 @@ export async function seedModules() {
       await moduleRepo.save(newModule);
       console.log(`✅ Seeded module: ${mod.name}`);
     } else {
-      console.log(`⏭️  Skipped (already exists): ${mod.name}`);
+      existing.sortOrder = sortOrder;
+      existing.parentSlug = mod.parentSlug ?? null;
+      await moduleRepo.save(existing);
+      console.log(`🔄 Updated module sortOrder: ${mod.name} -> ${sortOrder}`);
     }
 
     sortOrder++;

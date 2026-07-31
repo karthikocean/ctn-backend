@@ -289,9 +289,9 @@ export class BusinessRegionController {
       if (data.status === "inactive" && region.areas && region.areas.length > 0) {
         const regionIds = region.areas.map((r: any) => new ObjectId(r._id));
         const franchiseRepo = AppDataSource.getMongoRepository(Franchise);
-        console.log(regionIds, 'regionIds')
+        console.log(regionIds, "regionIds");
         const franchiseCount = await franchiseRepo.countBy({ businessRegionId: { $in: regionIds }, isDeleted: false });
-        console.log(franchiseCount, 'franchiseCount')
+        console.log(franchiseCount, "franchiseCount");
         if (franchiseCount > 0) {
           throw new BadRequestError("Business region cannot be deactivated as it has active franchises");
         }
