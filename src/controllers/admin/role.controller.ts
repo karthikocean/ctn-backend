@@ -115,7 +115,10 @@ export class RoleController {
   @UseBefore(AuthMiddleware)
   async getModules(@Res() res: any) {
     try {
-      const modules = await this.moduleRepo.find({ where: { isDelete: 0, isActive: 1 } });
+      const modules = await this.moduleRepo.find({
+        where: { isDelete: 0, isActive: 1 },
+        order: { sortOrder: "ASC" }
+      });
       return res.status(StatusCodes.OK).json({ success: true, data: modules });
     } catch (error) {
       return handleErrorResponse(error, res);

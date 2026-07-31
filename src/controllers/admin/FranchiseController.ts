@@ -338,11 +338,11 @@ export class FranchiseController {
       const [franchises, total] = isStatusFiltered
         ? [await this.franchiseRepo.find({ where, order: { createdAt: "DESC" } }), 0]
         : await this.franchiseRepo.findAndCount({
-            where,
-            skip: page * limit,
-            take: limit,
-            order: { createdAt: "DESC" }
-          });
+          where,
+          skip: page * limit,
+          take: limit,
+          order: { createdAt: "DESC" }
+        });
 
       const regionIds = franchises
         .map(f => f.businessRegionId)

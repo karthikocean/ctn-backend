@@ -136,7 +136,7 @@ export class AdminModuleController {
         where,
         skip: page * limit,
         take: limit,
-        order: { createdAt: "DESC" }
+        order: { sortOrder: "ASC", createdAt: "DESC" }
       });
 
       return pagination(total, modules, limit, page, res);

@@ -25,6 +25,7 @@ import { Referral } from "../../entity/Referral";
 import { ThankYouSlip } from "../../entity/ThankYouSlip";
 import { Milestone } from "../../entity/Milestone";
 import { OnlineStallProduct } from "../../entity/OnlineStallProduct";
+import { ReportedHistory } from "../../entity/ReportedHistory";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
@@ -573,7 +574,7 @@ export class MobileChatController {
       }
 
       // Check if conversation is pending and receiver is accepting
-      if (status !== "ACCEPTED" && status !== "DELETED") {
+      if (status !== "ACCEPTED" && status !== "DELETED" && status !== "REPORTED") {
         if (
           conversation.status === "PENDING" &&
           conversation?.lastMessageSenderId &&
@@ -590,6 +591,22 @@ export class MobileChatController {
       if (status === "REPORTED") {
         conversation.reportedBy = userId;
         conversation.reportReason = reason;
+
+        const otherId = conversation.participants.find(p => !p.equals(userId));
+        if (otherId) {
+          const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+          const existingReport = await reportedHistoryRepo.findOne({
+            where: { reporterUserId: userId, targetUserId: otherId } as any
+          });
+          if (!existingReport) {
+            const report = new ReportedHistory();
+            report.reporterUserId = userId;
+            report.targetUserId = otherId;
+            report.moduleName = "CONVERSATION";
+            report.reason = reason || "Reported User in Conversation";
+            await reportedHistoryRepo.save(report);
+          }
+        }
       }
       if (status === "DELETED") {
         conversation.deletedBy = userId;
