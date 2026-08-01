@@ -80,7 +80,7 @@ export const MODULE_USAGE_CONFIG: Record<string, ModuleUsageConfig> = {
     entity: PostModel,
     getFilter: (memberId: ObjectId) => ({
       memberId: memberId,
-      type: { $ne: PostType.ASK },
+      type: PostType.PROMOTION,
       isDeleted: false
     }),
     dateField: "createdAt"
@@ -390,6 +390,72 @@ export class SubscriptionService {
       limit: planModule.countLimit,
       remaining,
       frequency: planModule.frequency
+    };
+  }
+
+  /**
+   * Central API to fetch card usage counts & plan limits for the 5 post creation modules in member's plan:
+   * (Post, Ask, Give, Requirement, Milestones)
+   */
+  async getCardDailyCounts(memberId: string | ObjectId) {
+    const memberOid = new ObjectId(memberId);
+    let plan: Plan | null = null;
+    try {
+      plan = await this.getMemberPlan(memberOid);
+    } catch {
+      return {
+        planId: null,
+        planTitle: "No Active Plan",
+        modules: []
+      };
+    }
+
+    if (!plan || !plan.modules || !Array.isArray(plan.modules)) {
+      return {
+        planId: plan?._id ? plan._id.toString() : null,
+        planTitle: plan?.title || "No Plan",
+        modules: []
+      };
+    }
+
+    const allowedModules = new Set(["post", "ask", "give", "requirement", "milestone"]);
+
+    const targetModules = plan.modules.filter((m) =>
+      allowedModules.has(this.normalizeModuleName(m.moduleName))
+    );
+
+    const cards = await Promise.all(
+      targetModules.map(async (planModule) => {
+        const normalized = this.normalizeModuleName(planModule.moduleName);
+        const frequency = planModule.frequency || "daily";
+        const frequencyValue = planModule.frequencyValue || 1;
+        const countLimit = planModule.countLimit;
+
+        let usedCount = 0;
+        if (MODULE_USAGE_CONFIG[normalized]) {
+          const { startDate, endDate } = this.getDateRangeByFrequency(frequency, frequencyValue);
+          usedCount = await this.getCurrentUsageCount(memberOid, normalized, startDate, endDate);
+        }
+
+        const remainingCount = countLimit === -1 ? -1 : Math.max(0, countLimit - usedCount);
+        const canPost = countLimit === -1 || usedCount < countLimit;
+
+        return {
+          moduleName: planModule.moduleName,
+          countLimit,
+          usedCount,
+          remainingCount,
+          canPost,
+          frequency,
+          frequencyValue
+        };
+      })
+    );
+
+    return {
+      planId: plan._id ? plan._id.toString() : null,
+      planTitle: plan.title,
+      modules: cards
     };
   }
 
