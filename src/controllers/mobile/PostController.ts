@@ -33,6 +33,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { getIO, isUserInConversation } from "../../utils/socket";
 import { validateModuleUsage } from "../../services/moduleUsage.service";
+import { SubscriptionService } from "../../services/subscription.service";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
 import { DailyScoreService } from "../../services/dailyScore.service";
@@ -56,6 +57,7 @@ export class MobilePostController {
   private conversationRepo = AppDataSource.getMongoRepository(Conversation);
   private messageRepo = AppDataSource.getMongoRepository(Message);
   private savedPostRepo = AppDataSource.getMongoRepository(SavedPost);
+  private subscriptionService = new SubscriptionService();
 
   private getCategoryVisibilityFilter(currentMember: Member) {
     const memberCategory = currentMember.businessCategory ? new ObjectId(currentMember.businessCategory) : null;
@@ -111,6 +113,34 @@ export class MobilePostController {
       }
     }
   }
+
+  /**
+   * @swagger
+   * /mobile-api/posts/daily-counts:
+   *   get:
+   *     summary: Get daily creation counts and plan limits for post cards (Mobile)
+   *     tags: [Mobile Post]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Daily post card counts retrieved successfully
+   */
+  @Get("/daily-counts")
+  async getDailyCounts(@Req() req: any, @Res() res: any) {
+    try {
+      const userId = req.user.userId;
+      const data = await this.subscriptionService.getCardDailyCounts(userId);
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+
 
   /**
    * @swagger
