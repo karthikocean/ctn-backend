@@ -19,6 +19,7 @@ import { SpotlightRequest, SpotlightRequestStatus } from "../../entity/Spotlight
 import { SpotlightHistory, SpotlightHistoryAction } from "../../entity/SpotlightHistory";
 import { Member } from "../../entity/Member";
 import { Category } from "../../entity/Category";
+import { BusinessRegion } from "../../entity/BusinessRegion";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
@@ -35,6 +36,7 @@ export class MobileSpotlightController {
   private spotlightHistoryRepo = AppDataSource.getMongoRepository(SpotlightHistory);
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
+  private businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
   private configRepo = AppDataSource.getMongoRepository(PointConfig);
 
   /**
@@ -88,12 +90,22 @@ export class MobileSpotlightController {
         categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
       }
 
+      const regionMap = await this.buildRegionMap(members);
+
       const membersWithDetails = members.map(m => ({
         _id: m._id,
         fullName: m.fullName,
-        profilePhoto: m.profilePhoto,
-        businessName: m.businessName,
-        categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null
+        profilePhoto: m.profilePhoto ?? null,
+        profileBanner: m.profileBanner ?? null,
+        businessName: m.businessName ?? null,
+        categoryName: m.businessCategory
+          ? (categoryMap.get(m.businessCategory.toString()) ?? null)
+          : null,
+        regionName: m.businessRegion
+          ? (regionMap.get(m.businessRegion.toString()) ?? null)
+          : null,
+        city: m.city ?? null,
+        about: m.about ?? null
       }));
 
       return res.status(StatusCodes.OK).json({
@@ -401,6 +413,8 @@ export class MobileSpotlightController {
         categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
       }
 
+      const regionMap = await this.buildRegionMap(members);
+
       // Build flat member list with pagination
       const allMembers = members.map(m => ({
         _id: m._id,
@@ -410,7 +424,15 @@ export class MobileSpotlightController {
         businessName: m.businessName ?? null,
         categoryName: m.businessCategory
           ? (categoryMap.get(m.businessCategory.toString()) ?? null)
-          : null
+          : null,
+        regionname: m.businessRegion
+          ? (regionMap.get(m.businessRegion.toString()) ?? null)
+          : null,
+        regionName: m.businessRegion
+          ? (regionMap.get(m.businessRegion.toString()) ?? null)
+          : null,
+        city: m.city ?? null,
+        about: m.about ?? null
       }));
 
       const total = allMembers.length;
@@ -468,5 +490,42 @@ export class MobileSpotlightController {
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
+  }
+
+  private async buildRegionMap(members: Member[]): Promise<Map<string, string>> {
+    const regionIds = [
+      ...new Set(
+        members.map(m => m.businessRegion?.toString()).filter(Boolean)
+      )
+    ].map(id => new ObjectId(id!));
+
+    const regionMap = new Map<string, string>();
+    if (regionIds.length > 0) {
+      const regions = await this.businessRegionRepo.find({
+        where: {
+          $or: [
+            { _id: { $in: regionIds } },
+            { "areas._id": { $in: regionIds } }
+          ]
+        } as any
+      });
+
+      for (const r of regions) {
+        if (r.areas && Array.isArray(r.areas)) {
+          for (const area of r.areas) {
+            if (area._id) {
+              regionMap.set(area._id.toString(), area.name || "Region");
+            }
+          }
+        }
+        if (r._id) {
+          const rName = (r as any).name || (r as any).regionName || (r.areas && r.areas[0]?.name) || "Region";
+          if (!regionMap.has(r._id.toString())) {
+            regionMap.set(r._id.toString(), rName);
+          }
+        }
+      }
+    }
+    return regionMap;
   }
 }
