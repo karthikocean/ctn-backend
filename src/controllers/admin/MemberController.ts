@@ -20,6 +20,7 @@ import { Category } from "../../entity/Category";
 import { BusinessRegion, Area } from "../../entity/BusinessRegion";
 import { State } from "../../entity/State";
 import { City } from "../../entity/City";
+import { PostModel, PostType } from "../../entity/Post";
 import { CreateMemberDto } from "../../dto/mobile/Member.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -103,6 +104,7 @@ export class AdminMemberController {
     @QueryParam("category") category: string,
     @QueryParam("status") status: string,
     @QueryParam("regionId") regionId: string,
+    @QueryParam("activityFilter") activityFilter: string,
     @Res() res: any
   ) {
     page = Number(page) || 0;
@@ -110,6 +112,36 @@ export class AdminMemberController {
 
     try {
       const where: any = { isDeleted: false };
+
+      if (activityFilter) {
+        const now = new Date();
+        const startOfToday = new Date(now);
+        startOfToday.setHours(0, 0, 0, 0);
+        const endOfToday = new Date(now);
+        endOfToday.setHours(23, 59, 59, 999);
+
+        let targetType: PostType | null = null;
+        if (activityFilter === "notPosted") targetType = PostType.PROMOTION;
+        else if (activityFilter === "notAsked") targetType = PostType.ASK;
+        else if (activityFilter === "notGiven") targetType = PostType.GIVE;
+        else if (activityFilter === "notRequirements") targetType = PostType.REQUIREMENT;
+
+        if (targetType) {
+          const postRepo = AppDataSource.getMongoRepository(PostModel);
+          const postsToday = await postRepo.find({
+            where: {
+              type: targetType,
+              isDeleted: false,
+              createdAt: { $gte: startOfToday, $lte: endOfToday }
+            }
+          });
+          const memberIdsWithPosts = postsToday.map(p => p.memberId).filter(Boolean);
+          if (memberIdsWithPosts.length > 0) {
+            where._id = { $nin: memberIdsWithPosts };
+          }
+        }
+      }
+
       if (regionId && ObjectId.isValid(regionId)) {
         const businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
         const region = await businessRegionRepo.findOne({
