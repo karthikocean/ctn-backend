@@ -406,6 +406,7 @@ export class MobileSpotlightController {
         _id: m._id,
         fullName: m.fullName,
         profilePhoto: m.profilePhoto ?? null,
+        profileBanner: m.profileBanner ?? null,
         businessName: m.businessName ?? null,
         categoryName: m.businessCategory
           ? (categoryMap.get(m.businessCategory.toString()) ?? null)

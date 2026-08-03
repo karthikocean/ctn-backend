@@ -140,8 +140,6 @@ export class MobilePostController {
     }
   }
 
-
-
   /**
    * @swagger
    * /mobile-api/posts:
