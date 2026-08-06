@@ -78,6 +78,30 @@ export class MobileChatController {
 
     return false;
   }
+
+  private async getOrCreateConversation(senderId: ObjectId, receiverId: ObjectId): Promise<Conversation> {
+    let conversation = await this.conversationRepo.findOne({
+      where: {
+        participants: { $all: [senderId, receiverId] }
+      } as any,
+      order: { updatedAt: "DESC" }
+    });
+
+    if (!conversation) {
+      conversation = new Conversation();
+      conversation.participants = [senderId, receiverId];
+      conversation.status = "PENDING";
+      conversation.unreadCounts = {};
+      conversation = await this.conversationRepo.save(conversation);
+    } else {
+      if (conversation.deletedBy && conversation.deletedBy.equals(senderId)) {
+        delete conversation.deletedBy;
+        await this.conversationRepo.save(conversation);
+      }
+    }
+
+    return conversation;
+  }
   /**
    * @swagger
    * /mobile-api/chats/conversations:
@@ -96,6 +120,16 @@ export class MobileChatController {
    *           type: integer
    *         description: Items per page (default 20)
    *       - in: query
+   *         name: type
+   *         schema:
+   *           type: string
+   *         description: Filter conversations by type (ALL, REQUEST, PENDING, USEFUL, MAY_BE_LATER, REJECTED)
+   *       - in: query
+   *         name: status
+   *         schema:
+   *           type: string
+   *         description: Filter conversations by status
+   *       - in: query
    *         name: search
    *         schema:
    *           type: string
@@ -109,6 +143,8 @@ export class MobileChatController {
     @QueryParam("page") page: number = 0,
     @QueryParam("limit") limit: number = 20,
     @QueryParam("search") search: string,
+    @QueryParam("type") type: string,
+    @QueryParam("status") status: string,
     @Res() res: any
   ) {
     try {
@@ -117,8 +153,26 @@ export class MobileChatController {
       const whereClause: any = {
         participants: { $all: [userId] },
         deletedBy: { $nin: [new ObjectId(req.user.userId)] }
-
       };
+
+      const filterKey = (type || status || "").trim().toUpperCase();
+      if (filterKey && filterKey !== "ALL") {
+        if (filterKey === "REQUEST" || filterKey === "REQUESTS" || filterKey === "REQUESTED") {
+          whereClause.status = "PENDING";
+          whereClause.lastMessageSenderId = { $ne: userId };
+        } else if (filterKey === "PENDING") {
+          whereClause.status = "PENDING";
+          whereClause.lastMessageSenderId = userId;
+        } else if (filterKey === "USEFUL") {
+          whereClause.status = "USEFUL";
+        } else if (filterKey === "MAY_BE_LATER" || filterKey === "MAYBE_LATER" || filterKey === "MAY BE LATER") {
+          whereClause.status = { $in: ["MAY_BE_LATER", "MAYBE_LATER"] };
+        } else if (filterKey === "REJECTED") {
+          whereClause.status = "REJECTED";
+        } else if (filterKey === "ACCEPTED") {
+          whereClause.status = "ACCEPTED";
+        }
+      }
 
       if (search && search.trim()) {
         const queryRegex = { $regex: new RegExp(search.trim(), "i") };
@@ -179,12 +233,34 @@ export class MobileChatController {
         whereClause.$or = orClauses;
       }
 
-      const [conversations, total] = await this.conversationRepo.findAndCount({
+      const conversationsRaw = await this.conversationRepo.find({
         where: whereClause as any,
-        order: { createdAt: "DESC" },
-        take: limit,
-        skip: page * limit
+        order: { updatedAt: "DESC" }
       });
+
+      const groupedConversations = new Map<string, Conversation>();
+      for (const conv of conversationsRaw) {
+        const otherParticipantId = conv.participants.find(p => !p.equals(userId));
+        if (!otherParticipantId) continue;
+        const key = otherParticipantId.toString();
+
+        if (!groupedConversations.has(key)) {
+          groupedConversations.set(key, conv);
+        } else {
+          const existing = groupedConversations.get(key)!;
+          const existingTime = existing.lastMessageTime ? new Date(existing.lastMessageTime).getTime() : new Date(existing.updatedAt).getTime();
+          const currTime = conv.lastMessageTime ? new Date(conv.lastMessageTime).getTime() : new Date(conv.updatedAt).getTime();
+          if (currTime > existingTime) {
+            const unread = (existing.unreadCounts?.[userId.toString()] || 0) + (conv.unreadCounts?.[userId.toString()] || 0);
+            conv.unreadCounts = { ...(conv.unreadCounts || {}), [userId.toString()]: unread };
+            groupedConversations.set(key, conv);
+          }
+        }
+      }
+
+      const allUniqueConversations = Array.from(groupedConversations.values());
+      const total = allUniqueConversations.length;
+      const conversations = allUniqueConversations.slice(page * limit, (page + 1) * limit);
 
       const participantIds = conversations.map(conv =>
         conv.participants.find(p => !p.equals(userId))
@@ -410,7 +486,6 @@ export class MobileChatController {
         skip: page * limit
       });
 
-      // ✅ Auto-mark unread messages (sent by the other user) as read when the user fetches messages
       const userId = new ObjectId(req.user.userId);
       const hasUnread = messages.some(m => !m.isRead && m.senderId.toString() !== userId.toString());
       if (hasUnread) {
@@ -666,40 +741,28 @@ export class MobileChatController {
         throw new BadRequestError("You cannot send messages to this member.");
       }
 
-      let conversation = await this.conversationRepo.findOne({
+      let conversation = await this.getOrCreateConversation(senderId, receiverId);
+      conversation.postId = new ObjectId(postId);
+
+      // Check if sender already responded or shared this post in this conversation
+      const existingResponse = await this.messageRepo.findOne({
         where: {
-          participants: { $all: [senderId, receiverId] },
-          postId: new ObjectId(postId)
+          conversationId: conversation._id,
+          senderId: senderId,
+          postId: new ObjectId(postId),
+          type: { $in: [MessageType.POST_RESPONSE, MessageType.POST_SHARE] }
         } as any
       });
 
-      if (!conversation) {
-        conversation = new Conversation();
-        conversation.participants = [senderId, receiverId];
-        conversation.postId = new ObjectId(postId);
-        conversation.status = "PENDING";
-        conversation = await this.conversationRepo.save(conversation);
-      } else {
-        // Check if sender already responded or shared this post in this conversation
-        const existingResponse = await this.messageRepo.findOne({
-          where: {
+      if (existingResponse) {
+        return res.status(StatusCodes.OK).json({
+          success: true,
+          message: "You have already responded to this post",
+          data: {
             conversationId: conversation._id,
-            senderId: senderId,
-            postId: new ObjectId(postId),
-            type: { $in: [MessageType.POST_RESPONSE, MessageType.POST_SHARE] }
-          } as any
+            message: existingResponse
+          }
         });
-
-        if (existingResponse) {
-          return res.status(StatusCodes.OK).json({
-            success: true,
-            message: "You have already responded to this post",
-            data: {
-              conversationId: conversation._id,
-              message: existingResponse
-            }
-          });
-        }
       }
 
       const newMessage = new Message();
@@ -838,40 +901,28 @@ export class MobileChatController {
         throw new BadRequestError("You cannot send messages to this member.");
       }
 
-      let conversation = await this.conversationRepo.findOne({
+      let conversation = await this.getOrCreateConversation(senderId, receiverId);
+      (conversation as any).productId = new ObjectId(productId);
+
+      // Check if sender already responded to this product in this conversation
+      const existingResponse = await this.messageRepo.findOne({
         where: {
-          participants: { $all: [senderId, receiverId] },
+          conversationId: conversation._id,
+          senderId: senderId,
+          type: MessageType.PRODUCT_RESPONSE,
           productId: new ObjectId(productId)
         } as any
       });
 
-      if (!conversation) {
-        conversation = new Conversation();
-        conversation.participants = [senderId, receiverId];
-        (conversation as any).productId = new ObjectId(productId);
-        conversation.status = "PENDING";
-        conversation = await this.conversationRepo.save(conversation);
-      } else {
-        // Check if sender already responded to this product in this conversation
-        const existingResponse = await this.messageRepo.findOne({
-          where: {
+      if (existingResponse) {
+        return res.status(StatusCodes.OK).json({
+          success: true,
+          message: "You have already responded to this product",
+          data: {
             conversationId: conversation._id,
-            senderId: senderId,
-            type: MessageType.PRODUCT_RESPONSE,
-            productId: new ObjectId(productId)
-          } as any
+            message: existingResponse
+          }
         });
-
-        if (existingResponse) {
-          return res.status(StatusCodes.OK).json({
-            success: true,
-            message: "You have already responded to this product",
-            data: {
-              conversationId: conversation._id,
-              message: existingResponse
-            }
-          });
-        }
       }
 
       const newMessage = new Message();
@@ -1018,7 +1069,13 @@ export class MobileChatController {
       let pointsResult = { awarded: 0, balance: 0 };
       let { conversationId, content, type = MessageType.TEXT, replyToMessageId, media, businessActionId, actionData } = data;
 
-      if (!ObjectId.isValid(conversationId)) throw new BadRequestError("Invalid Conversation ID");
+      if (!conversationId && (data as any).receiverId && ObjectId.isValid((data as any).receiverId)) {
+        const recId = new ObjectId((data as any).receiverId);
+        const conv = await this.getOrCreateConversation(senderId, recId);
+        conversationId = conv._id.toString();
+      }
+
+      if (!conversationId || !ObjectId.isValid(conversationId)) throw new BadRequestError("Invalid Conversation ID");
 
       const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(conversationId) });
       if (!conversation) throw new NotFoundError("Conversation not found");
@@ -1402,22 +1459,7 @@ export class MobileChatController {
         throw new BadRequestError("You cannot send messages to this member.");
       }
 
-      // // Find or create direct conversation between sender and receiver (no post/product/milestone context)
-      // let conversation = await this.conversationRepo.findOne({
-      //   where: {
-      //     participants: { $all: [senderId, recId] },
-      //     postId: { $exists: false },
-      //     productId: { $exists: false },
-      //     milestoneId: { $exists: false }
-      //   } as any
-      // });
-
-      // if (!conversation) {
-      let conversation = new Conversation();
-      conversation.participants = [senderId, recId];
-      conversation.status = "ACCEPTED";
-      conversation = await this.conversationRepo.save(conversation);
-      // }
+      let conversation = await this.getOrCreateConversation(senderId, recId);
 
       const content = "Happy Birthday! 🎂🎉";
 

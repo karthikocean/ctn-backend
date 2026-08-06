@@ -588,12 +588,17 @@ export class MobilePostController {
 
       this.applyCategoryVisibilityFilter(where, currentMember);
       // console.log(JSON.stringify(where), 'where')
-      const [posts, total] = await this.postRepo.findAndCount({
-        where,
-        skip: page * limit,
-        take: limit,
-        order: { createdAt: "DESC" }
-      });
+      const allPosts = await this.postRepo.find({ where });
+      const total = allPosts.length;
+
+      // Random shuffle using Math.random() (Fisher-Yates shuffle algorithm)
+      const shuffledPosts = [...allPosts];
+      for (let i = shuffledPosts.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledPosts[i], shuffledPosts[j]] = [shuffledPosts[j], shuffledPosts[i]];
+      }
+
+      const posts = shuffledPosts.slice(page * limit, (page + 1) * limit);
 
       // 4. Populate Member Info
       const memberIds = [...new Set(posts.map(p => p.memberId))];
@@ -785,12 +790,17 @@ export class MobilePostController {
 
       this.applyCategoryVisibilityFilter(where, currentMember);
 
-      const [posts, total] = await this.postRepo.findAndCount({
-        where,
-        skip: page * limit,
-        take: limit,
-        order: { createdAt: "DESC" }
-      });
+      const allPosts = await this.postRepo.find({ where });
+      const total = allPosts.length;
+
+      // Random shuffle using Math.random() (Fisher-Yates shuffle algorithm)
+      const shuffledPosts = [...allPosts];
+      for (let i = shuffledPosts.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledPosts[i], shuffledPosts[j]] = [shuffledPosts[j], shuffledPosts[i]];
+      }
+
+      const posts = shuffledPosts.slice(page * limit, (page + 1) * limit);
 
       // Populate Member Info
       const memberIds = [...new Set(posts.map(p => p.memberId))];
@@ -959,12 +969,17 @@ export class MobilePostController {
         where.$and = [...(where.$and || []), ninMemberCondition];
       }
 
-      const [posts, total] = await this.postRepo.findAndCount({
-        where,
-        skip: page * limit,
-        take: limit,
-        order: { createdAt: "DESC" }
-      });
+      const allPosts = await this.postRepo.find({ where });
+      const total = allPosts.length;
+
+      // Random shuffle using Math.random() (Fisher-Yates shuffle algorithm)
+      const shuffledPosts = [...allPosts];
+      for (let i = shuffledPosts.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledPosts[i], shuffledPosts[j]] = [shuffledPosts[j], shuffledPosts[i]];
+      }
+
+      const posts = shuffledPosts.slice(page * limit, (page + 1) * limit);
 
       // 4. Populate Member Info
       const memberIds = [...new Set(posts.map(p => p.memberId))];
@@ -1226,12 +1241,17 @@ export class MobilePostController {
         }
       }
 
-      const [posts, total] = await this.postRepo.findAndCount({
-        where,
-        skip: page * limit,
-        take: limit,
-        order: { createdAt: "DESC" }
-      });
+      const allPosts = await this.postRepo.find({ where });
+      const total = allPosts.length;
+
+      // Random shuffle using Math.random() (Fisher-Yates shuffle algorithm)
+      const shuffledPosts = [...allPosts];
+      for (let i = shuffledPosts.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledPosts[i], shuffledPosts[j]] = [shuffledPosts[j], shuffledPosts[i]];
+      }
+
+      const posts = shuffledPosts.slice(page * limit, (page + 1) * limit);
 
       // Populate Member Info
       const memberIds = [...new Set(posts.map(p => p.memberId))];
@@ -1541,12 +1561,12 @@ export class MobilePostController {
       if (!post) throw new NotFoundError("Post not found");
 
       const recId = new ObjectId(receiverId);
-      // Find or Create conversation between userId and receiverId specific to this post
+      // Find or Create conversation between userId and receiverId
       let targetConversation = await this.conversationRepo.findOne({
         where: {
-          participants: { $all: [userId, recId] },
-          postId: post._id
-        } as any
+          participants: { $all: [userId, recId] }
+        } as any,
+        order: { updatedAt: "DESC" }
       });
 
       if (targetConversation) {
@@ -1569,11 +1589,18 @@ export class MobilePostController {
             existingShare
           });
         }
+
+        targetConversation.postId = post._id;
+        if (targetConversation.deletedBy && targetConversation.deletedBy.equals(userId)) {
+          delete targetConversation.deletedBy;
+          await this.conversationRepo.save(targetConversation);
+        }
       } else {
         targetConversation = new Conversation();
         targetConversation.participants = [userId, recId];
         targetConversation.postId = post._id;
         targetConversation.status = "PENDING";
+        targetConversation.unreadCounts = {};
         targetConversation = await this.conversationRepo.save(targetConversation);
       }
 
