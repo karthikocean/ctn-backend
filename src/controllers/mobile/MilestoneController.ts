@@ -401,9 +401,9 @@ export class MobileMilestoneController {
       // 1. Find or Create Conversation
       let conversation = await this.conversationRepo.findOne({
         where: {
-          participants: { $all: [userId, ownerId] },
-          milestoneId: milestoneId
-        } as any
+          participants: { $all: [userId, ownerId] }
+        } as any,
+        order: { updatedAt: "DESC" }
       });
 
       if (!conversation) {
@@ -411,7 +411,14 @@ export class MobileMilestoneController {
         conversation.participants = [userId, ownerId];
         conversation.milestoneId = milestoneId;
         conversation.status = "PENDING";
+        conversation.unreadCounts = {};
         conversation = await this.conversationRepo.save(conversation);
+      } else {
+        conversation.milestoneId = milestoneId;
+        if (conversation.deletedBy && conversation.deletedBy.equals(userId)) {
+          delete conversation.deletedBy;
+          await this.conversationRepo.save(conversation);
+        }
       }
 
       // 2. Create Message

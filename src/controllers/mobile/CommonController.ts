@@ -16,12 +16,19 @@ import { BusinessRegion } from "../../entity/BusinessRegion";
 import { Member, MemberStatus } from "../../entity/Member";
 import { State } from "../../entity/State";
 import { City } from "../../entity/City";
+import { OneToOne } from "../../entity/OneToOne";
+import { ThankYouSlip } from "../../entity/ThankYouSlip";
+import { Referral } from "../../entity/Referral";
 
 @JsonController("/common")
 export class CommonController {
   private categoryRepo = AppDataSource.getMongoRepository(Category);
   private marketplaceCategoryRepo = AppDataSource.getMongoRepository(MarketplaceCategory);
   private memberRepo = AppDataSource.getMongoRepository(Member);
+  private oneToOneRepo = AppDataSource.getMongoRepository(OneToOne);
+  private tySlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
+  private referralRepo = AppDataSource.getMongoRepository(Referral);
+  private businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
 
   /**
    * @swagger
@@ -77,7 +84,7 @@ export class CommonController {
         where.type = type;
       }
       if (parentId) {
-        where.parentCategory = new ObjectId(parentId);
+        where.parentCategory = { $in: parentId.split(",").map((e) => new ObjectId(e.trim())) };
       }
 
       const [categories, total] = await this.categoryRepo.findAndCount({
@@ -570,6 +577,89 @@ export class CommonController {
       });
 
       return pagination(total, categories, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/common/stats:
+   *   get:
+   *     summary: Get mobile app statistics (Active Members, Contributions, Total Regions)
+   *     tags: [Mobile Common]
+   *     responses:
+   *       200:
+   *         description: Platform statistics metrics
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 status:
+   *                   type: boolean
+   *                 success:
+   *                   type: boolean
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     activeMembers:
+   *                       type: integer
+   *                       example: 1250
+   *                     contributions:
+   *                       type: integer
+   *                       example: 320
+   *                     totalRegions:
+   *                       type: integer
+   *                       example: 890
+   *                     activeMembersFormatted:
+   *                       type: string
+   *                       example: "1,250+"
+   *                     contributionsFormatted:
+   *                       type: string
+   *                       example: "320+"
+   *                     totalRegionsFormatted:
+   *                       type: string
+   *                       example: "890+"
+   */
+  @Get("/stats")
+  @Get("/app-stats")
+  async getAppStats(@Res() res: any) {
+    try {
+      const [activeMembers, otoCount, tyCount, refCount, regions] = await Promise.all([
+        this.memberRepo.count({ status: MemberStatus.ACTIVE, isDeleted: false }),
+        this.oneToOneRepo.count({}),
+        this.tySlipRepo.count({}),
+        this.referralRepo.count({}),
+        this.businessRegionRepo.find({ where: { isDeleted: false, status: "active" as any } })
+      ]);
+
+      const contributions = otoCount + tyCount + refCount;
+
+      let totalRegions = 0;
+      for (const reg of regions) {
+        if (reg.areas && Array.isArray(reg.areas) && reg.areas.length > 0) {
+          totalRegions += reg.areas.length;
+        } else {
+          totalRegions += 1;
+        }
+      }
+
+      return res.status(200).json({
+        status: true,
+        success: true,
+        message: "App statistics retrieved successfully",
+        data: {
+          activeMembers,
+          contributions,
+          totalRegions,
+          activeMembersFormatted: `${activeMembers.toLocaleString()}+`,
+          contributionsFormatted: `${contributions.toLocaleString()}+`,
+          totalRegionsFormatted: `${totalRegions.toLocaleString()}+`
+        }
+      });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

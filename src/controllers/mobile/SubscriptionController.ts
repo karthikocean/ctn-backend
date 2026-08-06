@@ -476,14 +476,14 @@ export class MobileSubscriptionController {
       if (!member) {
         throw new BadRequestError("Member not found");
       }
-      await insertPushNotification({
-        token: member.fcmToken || "",
-        subject: "Plan Upgraded Successfully",
-        content: "Congratulations! Your subscription plan has been upgraded successfully.",
-        moduleName: NotificationModule.UPGRADE,
-        moduleId: planId.toString(),
-        receiverId: member._id.toString()
-      });
+      // await insertPushNotification({
+      //   token: member.fcmToken || "",
+      //   subject: "Plan Upgraded Successfully",
+      //   content: "Congratulations! Your subscription plan has been upgraded successfully.",
+      //   moduleName: NotificationModule.UPGRADE,
+      //   moduleId: planId.toString(),
+      //   receiverId: member._id.toString()
+      // });
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Razorpay payment transaction initiated.",

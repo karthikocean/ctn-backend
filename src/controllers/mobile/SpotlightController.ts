@@ -435,6 +435,12 @@ export class MobileSpotlightController {
         about: m.about ?? null
       }));
 
+      // Random shuffle using Math.random() (Fisher-Yates shuffle algorithm)
+      for (let i = allMembers.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allMembers[i], allMembers[j]] = [allMembers[j], allMembers[i]];
+      }
+
       const total = allMembers.length;
       const data = allMembers.slice(pageNum * limitNum, pageNum * limitNum + limitNum);
 

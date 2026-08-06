@@ -7,6 +7,8 @@ import { MemberSubscription } from "../entity/MemberSubscription";
 import { SubscriptionService } from "./subscription.service";
 import { BadRequestError, NotFoundError } from "routing-controllers";
 import crypto from "crypto";
+import { insertPushNotification } from "./pushnotification.service";
+import { NotificationModule } from "../entity/PushNotifications";
 
 const Razorpay = require("razorpay");
 
@@ -262,11 +264,17 @@ export class RazorpayUpgradeService {
 
     const newCycle = newPlan.billingCycle || "yearly";
     const newDaysInCycle = newCycle === "monthly" ? 30 : 365;
-    const newPerDayCost = newPlan.amount / newDaysInCycle;
+    const newPerDayCost = newPlan.amount > 0 ? (newPlan.amount / newDaysInCycle) : 0;
 
-    // Calculate new Standard/Basic plan duration based on per-day cost ratio
-    const newDurationDays = Math.max(0, Math.floor(remainingDays * (currentPerDayCost / newPerDayCost)));
-    const newEndDate = new Date(Date.now() + (newDurationDays * 1000 * 60 * 60 * 24));
+    // Calculate remaining unused balance from current plan and convert to days on new plan
+    const remainingValue = remainingDays * currentPerDayCost;
+    const newDurationDays = newPerDayCost > 0
+      ? Math.max(0, Math.floor(remainingValue / newPerDayCost))
+      : Math.max(0, Math.floor(remainingDays));
+
+    const newEndDateObj = new Date(Date.now() + (newDurationDays * 1000 * 60 * 60 * 24));
+    // Clean ISO date string without leading '+0' for 5-digit years
+    const formattedEndDate = newEndDateObj.toISOString().replace(/^\+0+/, "");
 
     return {
       currentPlan: {
@@ -281,7 +289,8 @@ export class RazorpayUpgradeService {
       },
       remainingDays: Math.ceil(remainingDays),
       newDurationDays,
-      newEndDate,
+      newEndDate: formattedEndDate,
+      newEndDateObj
     };
   }
 
@@ -307,7 +316,7 @@ export class RazorpayUpgradeService {
     newSub.type = plan?.type || "PREMIUM";
     newSub.status = "ACTIVE";
     newSub.startDate = new Date();
-    newSub.endDate = breakdown.newEndDate;
+    newSub.endDate = breakdown.newEndDateObj || new Date(breakdown.newEndDate);
     newSub.isTrial = false;
     newSub.isDeleted = false;
 
@@ -347,9 +356,15 @@ export class RazorpayUpgradeService {
 
 export class RazorpayVerificationService {
   private paymentRepo = AppDataSource.getMongoRepository(Payment);
+  private memberRepo = AppDataSource.getMongoRepository(Member);
   private subService = new SubscriptionService();
 
   async verifyUpgradePayment(razorpayOrderId: string, razorpayPaymentId: string, razorpaySignature: string) {
+    const razorpay = getRazorpayInstance();
+
+    const paymentDetails = await razorpay.payments.fetch(razorpayPaymentId);
+
+    console.log(paymentDetails);
     // 1. Signature validation using HMAC-SHA256
     const secret = process.env.RAZORPAY_KEY_SECRET || "";
     const generatedSignature = crypto
@@ -385,6 +400,18 @@ export class RazorpayVerificationService {
       payment.planId,
       payment._id
     );
+    const member = await this.memberRepo.findOneBy({ _id: new ObjectId(payment.memberId) });
+    if (!member) {
+      throw new BadRequestError("Member not found");
+    }
+    await insertPushNotification({
+      token: member.fcmToken || "",
+      subject: "Plan Upgraded Successfully",
+      content: "Congratulations! Your subscription plan has been upgraded successfully.",
+      moduleName: NotificationModule.UPGRADE,
+      moduleId: payment.planId.toString(),
+      receiverId: member._id.toString()
+    });
 
     return {
       success: true,

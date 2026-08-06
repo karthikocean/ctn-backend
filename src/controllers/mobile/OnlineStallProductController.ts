@@ -150,18 +150,53 @@ export class MobileOnlineStallProductController {
    * @swagger
    * /mobile-api/online-stall-products:
    *   get:
-   *     summary: Get all products for a specific event stall (Mobile)
+   *     summary: Get all online stall products (Mobile)
    *     tags: [Mobile Online Stall Product]
    *     security:
    *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 0
+   *         description: Page number (0-indexed)
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 10
+   *         description: Items per page
+   *       - in: query
+   *         name: categoryId
+   *         schema:
+   *           type: string
+   *         description: Filter products by marketplace category ID
+   *       - in: query
+   *         name: marketplaceCategoryId
+   *         schema:
+   *           type: string
+   *         description: Alias for categoryId
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *         description: Search products by name
    *     responses:
    *       200:
-   *         description: List of products
+   *         description: Paginated list of products
    */
   @Get("/")
-  async getByEvent(@Req() req: any, @Res() res: any) {
+  async getByEvent(
+    @Req() req: any,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @QueryParam("categoryId") categoryId: string,
+    @QueryParam("marketplaceCategoryId") marketplaceCategoryId: string,
+    @QueryParam("search") search: string,
+    @Res() res: any
+  ) {
     try {
-
       const loggedInUserId = req.user.userId;
       const loggedInMember = await this.memberRepo.findOneBy({
         _id: new ObjectId(loggedInUserId),
@@ -171,145 +206,158 @@ export class MobileOnlineStallProductController {
         throw new NotFoundError("Logged-in member not found");
       }
 
-      const products = await this.productRepo.find({
-        where: {
-          isDeleted: false
+      const pageNum = Number(page) || 0;
+      const limitNum = Number(limit) || 10;
+
+      const selectedCategory = categoryId || marketplaceCategoryId;
+
+      // 1. Initial product match criteria
+      const matchStage: any = {
+        isDeleted: false
+      };
+
+      if (selectedCategory && ObjectId.isValid(selectedCategory)) {
+        matchStage.marketplaceCategory = new ObjectId(selectedCategory);
+      }
+
+      if (search && search.trim()) {
+        matchStage.productName = { $regex: search.trim(), $options: "i" };
+      }
+
+      // 2. Member match criteria for location access rules
+      const memberMatchStage: any = {
+        "member.isDeleted": false
+      };
+
+      const loggedInRegion = loggedInMember.businessRegion;
+      if (loggedInRegion) {
+        const regOid = new ObjectId(loggedInRegion.toString());
+        memberMatchStage.$or = [
+          { location: { $ne: "region" } },
+          { "member.businessRegion": regOid },
+          { "member.businessRegion": regOid.toString() }
+        ];
+      } else {
+        memberMatchStage.location = { $ne: "region" };
+      }
+
+      // 3. Aggregate pipeline
+      const pipeline: any[] = [
+        { $match: matchStage },
+        {
+          $lookup: {
+            from: "members",
+            localField: "memberId",
+            foreignField: "_id",
+            as: "member"
+          }
         },
-        order: { createdAt: "DESC" }
-      });
-
-      if (!products || products.length === 0) {
-        return res.status(StatusCodes.OK).json({
-          success: true,
-          data: []
-        });
-      }
-
-      // Extract unique member IDs
-      const memberIds = Array.from(
-        new Set(products.map(p => p.memberId.toString()))
-      ).map(id => new ObjectId(id));
-
-      // Fetch member details
-      const members = await this.memberRepo.find({
-        where: {
-          _id: { $in: memberIds } as any,
-          isDeleted: false
-        }
-      });
-
-      // Extract unique business category IDs from members
-      const categoryIds = Array.from(
-        new Set(
-          members
-            .map(m => m.businessCategory?.toString())
-            .filter((id): id is string => !!id)
-        )
-      ).map(id => new ObjectId(id));
-
-      // Fetch category details
-      const categories = categoryIds.length > 0
-        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds }, isDeleted: false } as any })
-        : [];
-
-      // Create lookup maps
-      const memberMap = new Map(members.map(m => [m._id.toString(), m]));
-      const categoryMap = new Map(categories.map(c => [c._id.toString(), c]));
-
-      // Extract unique marketplace category IDs from products
-      const mCategoryIds = Array.from(
-        new Set(
-          products
-            .map(p => p.marketplaceCategory?.toString())
-            .filter((id): id is string => !!id)
-        )
-      ).map(id => new ObjectId(id));
-
-      const mCategories = mCategoryIds.length > 0
-        ? await AppDataSource.getMongoRepository(MarketplaceCategory).find({ where: { _id: { $in: mCategoryIds } } as any })
-        : [];
-      const mCategoryMap = new Map(mCategories.map(c => [c._id.toString(), { _id: c._id, name: c.name }]));
-
-      const now = new Date();
-      const loggedInRegion = loggedInMember.businessRegion?.toString();
-
-      // Filter products based on location rules
-      const filteredProducts = products.filter(product => {
-        const productOwner = memberMap.get(product.memberId.toString());
-        if (!productOwner) {
-          return false; // Skip products from deleted/non-existent members
-        }
-
-        // If location is "region", owner's region must match logged-in user's region
-        if (product.location === "region") {
-          const ownerRegion = productOwner.businessRegion?.toString();
-          return !!(ownerRegion && loggedInRegion && ownerRegion === loggedInRegion);
-        }
-
-        // If location is "Overall", list for everyone
-        return true;
-      });
-
-      // Group products by marketplaceCategory
-      const groupedProducts = new Map<string, any[]>();
-      for (const product of filteredProducts) {
-        const catIdStr = product.marketplaceCategory?.toString() || "uncategorized";
-        if (!groupedProducts.has(catIdStr)) {
-          groupedProducts.set(catIdStr, []);
-        }
-
-        let daysRemaining = 0;
-        if (product.endDate) {
-          const diffTime = new Date(product.endDate).getTime() - now.getTime();
-          daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-        }
-
-        const productOwner = memberMap.get(product.memberId.toString());
-        const ownerCategoryIdStr = productOwner?.businessCategory?.toString();
-        const ownerCategoryName = ownerCategoryIdStr ? categoryMap.get(ownerCategoryIdStr)?.name || "" : "";
-
-        const mappedProduct = {
-          ...product,
-          daysRemaining,
-          marketplaceCategory: product.marketplaceCategory ? mCategoryMap.get(product.marketplaceCategory.toString()) || null : null,
-          member: productOwner ? {
-            _id: productOwner._id,
-            fullName: productOwner.fullName,
-            profilePhoto: productOwner.profilePhoto,
-            businessCategory: ownerCategoryName
-          } : null,
-          // Flattened member details for backward compatibility
-          memberId: product.memberId,
-          memberName: productOwner?.fullName || "",
-          profile: productOwner?.profilePhoto || "",
-          category: ownerCategoryName
-        };
-
-        groupedProducts.get(catIdStr)!.push(mappedProduct);
-      }
-
-      const groupedData: any[] = [];
-      for (const [catIdStr, categoryProducts] of groupedProducts.entries()) {
-        let categoryName = "Uncategorized";
-        if (catIdStr !== "uncategorized") {
-          const cat = mCategoryMap.get(catIdStr);
-          if (cat) {
-            categoryName = cat.name;
+        {
+          $unwind: {
+            path: "$member",
+            preserveNullAndEmptyArrays: false
+          }
+        },
+        { $match: memberMatchStage },
+        {
+          $lookup: {
+            from: "marketplace_categories",
+            localField: "marketplaceCategory",
+            foreignField: "_id",
+            as: "marketplaceCategoryDoc"
+          }
+        },
+        {
+          $unwind: {
+            path: "$marketplaceCategoryDoc",
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        {
+          $lookup: {
+            from: "categories",
+            localField: "member.businessCategory",
+            foreignField: "_id",
+            as: "memberCategoryDoc"
+          }
+        },
+        {
+          $unwind: {
+            path: "$memberCategoryDoc",
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        { $sort: { createdAt: -1 } },
+        {
+          $facet: {
+            metadata: [{ $count: "total" }],
+            data: [
+              { $skip: pageNum * limitNum },
+              { $limit: limitNum },
+              {
+                $project: {
+                  _id: 1,
+                  productName: 1,
+                  description: 1,
+                  price: 1,
+                  images: 1,
+                  memberId: 1,
+                  isDeleted: 1,
+                  location: 1,
+                  endDate: 1,
+                  createdAt: 1,
+                  updatedAt: 1,
+                  daysRemaining: {
+                    $cond: {
+                      if: {
+                        $and: [
+                          { $ifNull: ["$endDate", false] },
+                          { $gt: ["$endDate", new Date()] }
+                        ]
+                      },
+                      then: {
+                        $ceil: {
+                          $divide: [
+                            { $subtract: ["$endDate", new Date()] },
+                            1000 * 60 * 60 * 24
+                          ]
+                        }
+                      },
+                      else: 0
+                    }
+                  },
+                  marketplaceCategory: {
+                    $cond: {
+                      if: "$marketplaceCategoryDoc",
+                      then: {
+                        _id: "$marketplaceCategoryDoc._id",
+                        name: "$marketplaceCategoryDoc.name"
+                      },
+                      else: null
+                    }
+                  },
+                  member: {
+                    _id: "$member._id",
+                    fullName: "$member.fullName",
+                    profilePhoto: "$member.profilePhoto",
+                    businessCategory: { $ifNull: ["$memberCategoryDoc.name", ""] }
+                  },
+                  memberName: "$member.fullName",
+                  profile: { $ifNull: ["$member.profilePhoto", ""] },
+                  category: { $ifNull: ["$memberCategoryDoc.name", ""] }
+                }
+              }
+            ]
           }
         }
+      ];
 
-        groupedData.push({
-          categoryId: catIdStr === "uncategorized" ? null : catIdStr,
-          categoryName: categoryName,
-          category: categoryName,
-          products: categoryProducts
-        });
-      }
+      const aggregateResult = await this.productRepo.aggregate(pipeline).toArray();
+      const result = aggregateResult[0] || {};
+      const total = result.metadata?.[0]?.total || 0;
+      const responseData = result.data || [];
 
-      return res.status(StatusCodes.OK).json({
-        success: true,
-        data: groupedData
-      });
+      return pagination(total, responseData, limitNum, pageNum, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
@@ -393,6 +441,114 @@ export class MobileOnlineStallProductController {
       });
 
       return pagination(total, responseData, limitNum, pageNum, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/online-stall-products/categories:
+   *   get:
+   *     summary: Get marketplace categories that have active products (Mobile)
+   *     tags: [Mobile Online Stall Product]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: List of categories with product counts
+   */
+  @Get("/categories")
+  async getCategoriesWithProducts(@Req() req: any, @Res() res: any) {
+    try {
+      const loggedInUserId = req.user.userId;
+      const loggedInMember = await this.memberRepo.findOneBy({
+        _id: new ObjectId(loggedInUserId),
+        isDeleted: false
+      });
+      if (!loggedInMember) {
+        throw new NotFoundError("Logged-in member not found");
+      }
+
+      const memberMatchStage: any = {
+        "member.isDeleted": false
+      };
+
+      const loggedInRegion = loggedInMember.businessRegion;
+      if (loggedInRegion) {
+        const regOid = new ObjectId(loggedInRegion.toString());
+        memberMatchStage.$or = [
+          { location: { $ne: "region" } },
+          { "member.businessRegion": regOid },
+          { "member.businessRegion": regOid.toString() }
+        ];
+      } else {
+        memberMatchStage.location = { $ne: "region" };
+      }
+
+      const pipeline: any[] = [
+        { $match: { isDeleted: false } },
+        {
+          $lookup: {
+            from: "members",
+            localField: "memberId",
+            foreignField: "_id",
+            as: "member"
+          }
+        },
+        {
+          $unwind: {
+            path: "$member",
+            preserveNullAndEmptyArrays: false
+          }
+        },
+        { $match: memberMatchStage },
+        {
+          $group: {
+            _id: "$marketplaceCategory",
+            productCount: { $sum: 1 }
+          }
+        },
+        {
+          $match: {
+            _id: { $ne: null }
+          }
+        },
+        {
+          $lookup: {
+            from: "marketplace_categories",
+            localField: "_id",
+            foreignField: "_id",
+            as: "categoryDoc"
+          }
+        },
+        {
+          $unwind: {
+            path: "$categoryDoc",
+            preserveNullAndEmptyArrays: false
+          }
+        },
+        {
+          $match: {
+            "categoryDoc.isDeleted": false
+          }
+        },
+        {
+          $project: {
+            _id: "$categoryDoc._id",
+            name: "$categoryDoc.name",
+            productCount: 1
+          }
+        },
+        { $sort: { name: 1 } }
+      ];
+
+      const categories = await this.productRepo.aggregate(pipeline).toArray();
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: categories
+      });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

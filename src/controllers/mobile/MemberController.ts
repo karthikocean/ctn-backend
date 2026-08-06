@@ -1195,7 +1195,7 @@ export class MobileMemberController {
         const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1, 0, 0, 0, 0);
         const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999);
 
-        // a) Top 10 Thank You Slips (given count > 10)
+        // a) Top 3 Thank You Slips
         const tySlipStats = await this.tySlipRepo.aggregate([
           {
             $match: {
@@ -1209,17 +1209,17 @@ export class MobileMemberController {
             }
           },
           {
-            $match: { count: { $gt: 10 } }
+            $match: { count: { $gt: 0 } }
           },
           {
             $sort: { count: -1 }
           },
           {
-            $limit: 10
+            $limit: 3
           }
         ]).toArray();
 
-        // b) Top 10 Referrals (given count > 10)
+        // b) Top 3 Referrals
         const referralStats = await this.referralRepo.aggregate([
           {
             $match: {
@@ -1233,17 +1233,17 @@ export class MobileMemberController {
             }
           },
           {
-            $match: { count: { $gt: 10 } }
+            $match: { count: { $gt: 0 } }
           },
           {
             $sort: { count: -1 }
           },
           {
-            $limit: 10
+            $limit: 3
           }
         ]).toArray();
 
-        // c) Top 10 Requirement Posts (posted count > 10)
+        // c) Top 3 Requirement Posts
         const postStats = await this.postRepo.aggregate([
           {
             $match: {
@@ -1259,17 +1259,17 @@ export class MobileMemberController {
             }
           },
           {
-            $match: { count: { $gt: 10 } }
+            $match: { count: { $gt: 0 } }
           },
           {
             $sort: { count: -1 }
           },
           {
-            $limit: 10
+            $limit: 3
           }
         ]).toArray();
 
-        // d) Top 10 One-to-Ones (participated count > 10)
+        // d) Top 3 One-to-Ones
         const oneToOneStats = await this.oneToOneRepo.aggregate([
           {
             $match: {
@@ -1291,17 +1291,17 @@ export class MobileMemberController {
             }
           },
           {
-            $match: { count: { $gt: 10 } }
+            $match: { count: { $gt: 0 } }
           },
           {
             $sort: { count: -1 }
           },
           {
-            $limit: 10
+            $limit: 3
           }
         ]).toArray();
 
-        // e) Top 10 Points (earned totalPoints > 10)
+        // e) Top 3 Points
         const pointStats = await this.historyRepo.aggregate([
           {
             $match: {
@@ -1316,13 +1316,13 @@ export class MobileMemberController {
             }
           },
           {
-            $match: { totalPoints: { $gt: 10 } }
+            $match: { totalPoints: { $gt: 0 } }
           },
           {
             $sort: { totalPoints: -1 }
           },
           {
-            $limit: 10
+            $limit: 3
           }
         ]).toArray();
 
@@ -1351,6 +1351,12 @@ export class MobileMemberController {
         ...topOneToOnes.map(item => ({ ...item, type: "ONE_TO_ONE" })),
         ...topPoints.map(item => ({ ...item, type: "POINTS" }))
       ];
+
+      // Random shuffle using Math.random() (Fisher-Yates shuffle algorithm)
+      for (let i = mergedList.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [mergedList[i], mergedList[j]] = [mergedList[j], mergedList[i]];
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,
