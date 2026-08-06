@@ -1126,10 +1126,10 @@ export class MobileChatController {
 
       // Handle Automatic Business Action Creation
       if ([MessageType.ONE_TO_ONE, MessageType.REFERRAL, MessageType.THANK_YOU_SLIP].includes(type)) {
-        let moduleName = "";
-        if (type === MessageType.ONE_TO_ONE) moduleName = "One to One";
-        else if (type === MessageType.REFERRAL) moduleName = "Referral";
-        else if (type === MessageType.THANK_YOU_SLIP) moduleName = "Thank you Slip";
+        let _moduleName = "";
+        if (type === MessageType.ONE_TO_ONE) _moduleName = "One to One";
+        else if (type === MessageType.REFERRAL) _moduleName = "Referral";
+        else if (type === MessageType.THANK_YOU_SLIP) _moduleName = "Thank you Slip";
 
         // await validateModuleUsage(senderId, moduleName);
         if (type === MessageType.ONE_TO_ONE) {
