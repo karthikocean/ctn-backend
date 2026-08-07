@@ -158,6 +158,19 @@ export class MobileSpotlightController {
         throw new BadRequestError("You already have a pending spotlight request");
       }
 
+      // Verify if member is already in an active or scheduled spotlight
+      const existingSpotlight = await this.spotlightRepo.findOne({
+        where: {
+          members: new ObjectId(memberId),
+          status: { $in: [SpotlightStatus.ACTIVE, SpotlightStatus.SCHEDULE] } as any,
+          isDeleted: false
+        }
+      });
+
+      if (existingSpotlight) {
+        throw new BadRequestError("You are already in the spotlight");
+      }
+
       const pointService = new PointService();
       const config = await pointService.getPointConfig("Spotlight", PointConfigType.SPENT);
       const pointsToDeduct = config ? config.points : 0;
@@ -173,23 +186,68 @@ export class MobileSpotlightController {
         }
       }
 
+      // Check count of auto-approved spotlight requests today (limit 50 per day for auto-approval)
+      const today = new Date();
+      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+      const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+
+      const approvedTodayCount = await this.spotlightRequestRepo.count({
+        where: {
+          status: SpotlightRequestStatus.APPROVED,
+          createdAt: { $gte: startOfDay, $lte: endOfDay } as any,
+          isDeleted: false
+        }
+      });
+
+      const isAutoApprove = approvedTodayCount < 50;
+
       const request = new SpotlightRequest();
       request.memberId = new ObjectId(memberId);
-      request.status = SpotlightRequestStatus.PENDING;
+      request.status = isAutoApprove ? SpotlightRequestStatus.APPROVED : SpotlightRequestStatus.PENDING;
+      if (isAutoApprove) {
+        request.assignedDate = new Date();
+      }
       request.isDeleted = false;
 
       const saved = await this.spotlightRequestRepo.save(request);
 
+      if (isAutoApprove) {
+        // Automatically push/create into spotlight creation
+        let spotlight = await this.spotlightRepo.findOne({
+          where: {
+            scheduleDate: { $gte: startOfDay, $lte: endOfDay } as any,
+            isDeleted: false
+          }
+        });
+
+        if (spotlight) {
+          const memberIdStr = memberId.toString();
+          if (!spotlight.members.some(m => m.toString() === memberIdStr)) {
+            spotlight.members.push(new ObjectId(memberId));
+            await this.spotlightRepo.save(spotlight);
+          }
+        } else {
+          spotlight = new Spotlight();
+          spotlight.members = [new ObjectId(memberId)];
+          spotlight.scheduleDate = new Date();
+          spotlight.status = SpotlightStatus.ACTIVE;
+          spotlight.isDeleted = false;
+          spotlight.createdBy = new ObjectId(memberId);
+          spotlight.updatedBy = new ObjectId(memberId);
+          await this.spotlightRepo.save(spotlight);
+        }
+      }
+
       try {
         const history = new SpotlightHistory();
         history.memberId = new ObjectId(memberId);
-        history.action = SpotlightHistoryAction.REQUEST_CREATED;
+        history.action = isAutoApprove ? SpotlightHistoryAction.REQUEST_APPROVED : SpotlightHistoryAction.REQUEST_CREATED;
         history.performedBy = new ObjectId(memberId);
         history.moduleId = saved._id;
-        history.msg = "Spotlight request submitted.";
+        history.msg = isAutoApprove ? "Spotlight request auto-approved." : "Spotlight request submitted.";
         await this.spotlightHistoryRepo.save(history);
       } catch (historyError) {
-        console.error("Failed to log spotlight request creation history:", historyError);
+        console.error("Failed to log spotlight request history:", historyError);
       }
 
       let remainingPoints = 0;
@@ -216,7 +274,9 @@ export class MobileSpotlightController {
 
       return res.status(StatusCodes.CREATED).json({
         success: true,
-        message: "Spotlight request submitted successfully",
+        message: isAutoApprove
+          ? "Your profile has been added to spotlight successfully"
+          : "Spotlight request submitted successfully",
         data: saved,
         remainingPoints,
         pointsSpent: pointsToDeduct

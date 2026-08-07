@@ -105,10 +105,24 @@ app.get("/", (_req: Request, res: Response) => {
   });
 });
 
+import { setupBullBoard } from "./admin/bullboard.config";
+import { registerGracefulShutdown } from "./utils/gracefulShutdown";
+
 // ─────────────────────────────────────────────────────────
 // 🚀 STEP 2: Bind to port IMMEDIATELY — accepts connections right away
 // ─────────────────────────────────────────────────────────
 initSocket(httpServer);
+
+try {
+  const bullBoardAdapter = setupBullBoard();
+  app.use("/admin/queues", bullBoardAdapter.getRouter());
+  console.log(`📊 Bull Board UI: http://localhost:${PORT}/admin/queues`);
+} catch (err: any) {
+  console.warn("⚠️ Bull Board initialization skipped:", err.message);
+}
+
+registerGracefulShutdown();
+
 const server = httpServer.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT} (starting up...)`);
   console.log(`📄 Swagger: http://localhost:${PORT}/api-docs`);

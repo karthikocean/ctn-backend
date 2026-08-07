@@ -11,7 +11,9 @@ export enum AnnouncementStatus {
 
 export enum AnnouncementType {
   EVENT = "Event",
-  ONLINE_STALL = "Online Stall"
+  ONLINE_STALL = "Online Stall",
+  OTHERS = "Others",
+  TRAINING = "Training"
 }
 
 export class StallItem {
@@ -99,6 +101,12 @@ export class Announcement {
 
   @Column({ nullable: true })
     regionIds?: ObjectId[];
+
+  @Column({ nullable: true })
+    link?: string;
+
+  @Column({ nullable: true })
+    trainingId?: ObjectId;
 
   @Column({ default: false })
     isDeleted!: boolean;

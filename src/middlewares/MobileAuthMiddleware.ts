@@ -137,7 +137,8 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
             userId: member._id.toString(),
             userType: "MEMBER"
           },
-          process.env.JWT_SECRET as string
+          process.env.JWT_SECRET as string,
+          { expiresIn: (process.env.JWT_EXPIRES_IN as any) || "30d" }
         );
 
         activeTokenRecord.token = newToken;
