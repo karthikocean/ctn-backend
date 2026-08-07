@@ -5,6 +5,14 @@ dotenv.config();
 
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
+import helmet from "helmet";
+import {
+  apiLimiter,
+  authLimiter,
+  otpLimiter,
+  passwordResetLimiter,
+  uploadLimiter
+} from "./middlewares/rateLimit.middleware";
 import { useExpressServer } from "routing-controllers";
 import { AppDataSource } from "./data-source";
 import { Member } from "./entity/Member";
@@ -38,6 +46,9 @@ import { MilestoneCronService } from "./services/milestoneCron.service";
 let isReady = false;
 
 const app = express();
+// Enable trust proxy for reverse proxies / PM2 / Nginx / ALBs (correct client IP extraction)
+app.set("trust proxy", 1);
+
 const PORT = process.env.PORT || 4000;
 const httpServer = createServer(app);
 
@@ -86,7 +97,13 @@ app.use(
   })
 );
 app.use(express.static("public"));
-
+app.use(helmet());
+// Apply rate limits BEFORE routing
+app.use(apiLimiter);
+app.use(authLimiter);
+app.use(otpLimiter);
+app.use(passwordResetLimiter);
+app.use(uploadLimiter);
 // Health & root always respond instantly (bypasses the 503 gate)
 app.get("/api/health", (_req: Request, res: Response) => {
   res.status(200).json({
@@ -104,6 +121,28 @@ app.get("/", (_req: Request, res: Response) => {
     uptime: process.uptime()
   });
 });
+
+// ─────────────────────────────────────────────────────────
+// 🛡️ Rate Limiting Middleware
+// ─────────────────────────────────────────────────────────
+// Auth & Security Specific Limiters
+app.use("/api/admin/auth/forgot-pin", passwordResetLimiter);
+app.use("/api/admin/auth/verify-otp", otpLimiter);
+app.use("/api/admin/auth", authLimiter);
+
+app.use("/mobile-api/verification/send-otp", otpLimiter);
+app.use("/mobile-api/verification/verify-otp", otpLimiter);
+app.use("/mobile-api/auth/send-otp", otpLimiter);
+app.use("/mobile-api/auth/verify-otp", otpLimiter);
+app.use("/mobile-api/auth", authLimiter);
+
+// File Upload & Import Limiters
+app.use("/api/admin/categories/import", uploadLimiter);
+app.use("/api/admin/migrations", uploadLimiter);
+
+// General API Limiters
+app.use("/api", apiLimiter);
+app.use("/mobile-api", apiLimiter);
 
 import { setupBullBoard } from "./admin/bullboard.config";
 import { registerGracefulShutdown } from "./utils/gracefulShutdown";

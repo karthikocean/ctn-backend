@@ -1,5 +1,5 @@
 import { Queue, QueueEvents, JobsOptions } from "bullmq";
-import { redisConfig } from "../config/redis.config";
+import { bullRedisConfig } from "../config/bullmq.config";
 
 export const QUEUE_NAMES = {
   PERSONAL: "notification-personal",
@@ -8,7 +8,7 @@ export const QUEUE_NAMES = {
   DLQ: "notification-dlq",
 } as const;
 
-// Default job options with exponential backoff retries
+// Default job options with exponential backoff retries & Stream retention controls
 export const defaultJobOptions: JobsOptions = {
   attempts: 5,
   backoff: {
@@ -27,31 +27,47 @@ export const defaultJobOptions: JobsOptions = {
 
 // Queue instances
 export const personalNotificationQueue = new Queue(QUEUE_NAMES.PERSONAL, {
-  connection: redisConfig,
+  connection: bullRedisConfig,
   defaultJobOptions,
 });
 
 export const broadcastNotificationQueue = new Queue(QUEUE_NAMES.BROADCAST, {
-  connection: redisConfig,
+  connection: bullRedisConfig,
   defaultJobOptions,
 });
 
 export const dlqNotificationQueue = new Queue(QUEUE_NAMES.DLQ, {
-  connection: redisConfig,
+  connection: bullRedisConfig,
   defaultJobOptions: {
     removeOnComplete: false,
     removeOnFail: false,
   },
 });
 
-// QueueEvents listeners for global monitoring
-export const personalQueueEvents = new QueueEvents(QUEUE_NAMES.PERSONAL, {
-  connection: redisConfig,
-});
+// QueueEvents listeners for monitoring job failures (with Redis stream maxLen configuration)
+export const personalQueueEvents = new QueueEvents(
+  QUEUE_NAMES.PERSONAL,
+  {
+    connection: bullRedisConfig,
+    streams: {
+      events: {
+        maxLen: 10000,
+      },
+    },
+  } as any
+);
 
-export const broadcastQueueEvents = new QueueEvents(QUEUE_NAMES.BROADCAST, {
-  connection: redisConfig,
-});
+export const broadcastQueueEvents = new QueueEvents(
+  QUEUE_NAMES.BROADCAST,
+  {
+    connection: bullRedisConfig,
+    streams: {
+      events: {
+        maxLen: 10000,
+      },
+    },
+  } as any
+);
 
 personalQueueEvents.on("failed", ({ jobId, failedReason }: { jobId: string; failedReason: string }) => {
   console.error(`❌ [PersonalQueueEvent] Job ${jobId} failed: ${failedReason}`);

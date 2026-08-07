@@ -105,6 +105,10 @@ export class AdminMemberController {
     @QueryParam("status") status: string,
     @QueryParam("regionId") regionId: string,
     @QueryParam("activityFilter") activityFilter: string,
+    @QueryParam("joinedStart") joinedStart: string,
+    @QueryParam("joinedEnd") joinedEnd: string,
+    @QueryParam("expiredStart") expiredStart: string,
+    @QueryParam("expiredEnd") expiredEnd: string,
     @Res() res: any
   ) {
     page = Number(page) || 0;
@@ -171,7 +175,6 @@ export class AdminMemberController {
           where.businessRegion = new ObjectId();
         }
       }
-
       if (status) {
         where.status = status;
       }
@@ -186,6 +189,23 @@ export class AdminMemberController {
       }
       if (city) where.city = city;
       if (category) where.businessCategory = new ObjectId(category);
+
+      if (joinedStart && joinedEnd) {
+        where.createdAt = {
+          $gte: new Date(joinedStart),
+          $lte: new Date(joinedEnd)
+        };
+      }
+
+      if (expiredStart && expiredEnd) {
+        // Only members whose subscription has already expired (≤ today)
+        const today = new Date().toISOString();
+        const effectiveEnd = expiredEnd < today ? expiredEnd : today;
+        where.subscriptionEndDate = {
+          $gte: expiredStart,
+          $lte: effectiveEnd
+        };
+      }
 
       const [members, total] = await this.memberRepo.findAndCount({
         where,

@@ -14,6 +14,7 @@ import { Referral } from "../../entity/Referral";
 import { ThankYouSlip } from "../../entity/ThankYouSlip";
 import { Training } from "../../entity/Training";
 import { MemberTraining } from "../../entity/MemberTraining";
+import { MemberSubscription } from "../../entity/MemberSubscription";
 import { BusinessRegion } from "../../entity/BusinessRegion";
 import { State } from "../../entity/State";
 import { Category } from "../../entity/Category";
@@ -89,6 +90,7 @@ export class AdminDashboardController {
   private thankYouSlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
   private trainingRepo = AppDataSource.getMongoRepository(Training);
   private memberTrainingRepo = AppDataSource.getMongoRepository(MemberTraining);
+  private memberSubscriptionRepo = AppDataSource.getMongoRepository(MemberSubscription);
   private regionRepo = AppDataSource.getMongoRepository(BusinessRegion);
   private stateRepo = AppDataSource.getMongoRepository(State);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
@@ -164,13 +166,24 @@ export class AdminDashboardController {
       const now = new Date();
       const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
+      // Paid members check (excludes trial users)
+      const paidSubscriptions = await this.memberSubscriptionRepo.find({
+        where: {
+          isTrial: { $ne: true } as any,
+          isDeleted: false
+        }
+      });
+      const paidMemberIds = new Set(paidSubscriptions.map(s => s.memberId.toString()));
+
       const expiringSoon = allMembers.filter(m => {
+        if (!paidMemberIds.has(m._id.toString())) return false;
         if (!m.subscriptionEndDate) return false;
         const exp = new Date(m.subscriptionEndDate);
         return exp >= now && exp <= thirtyDaysFromNow;
       }).length;
 
       const expiredMembers = allMembers.filter(m => {
+        if (!paidMemberIds.has(m._id.toString())) return false;
         if (m.status === MemberStatus.INACTIVE) return true;
         if (!m.subscriptionEndDate) return false;
         const exp = new Date(m.subscriptionEndDate);
@@ -307,13 +320,16 @@ export class AdminDashboardController {
         const expiredInMonth = allMembers.filter(mem => {
           if (!mem.subscriptionEndDate) return false;
           const dt = new Date(mem.subscriptionEndDate);
-          return dt >= m.start && dt <= m.end;
+          // Only count as expired if the subscription has already ended (≤ now)
+          return dt >= m.start && dt <= m.end && dt <= now;
         }).length;
 
         return {
           month: m.name,
           joined: joinedInMonth,
-          expired: expiredInMonth
+          expired: expiredInMonth,
+          start: m.start.toISOString(),
+          end: m.end.toISOString()
         };
       });
 
@@ -344,14 +360,16 @@ export class AdminDashboardController {
         }
       });
 
-      const regionCounts = new Map<string, number>();
+      const regionCounts = new Map<string, { id?: string, count: number }>();
       allMembers.forEach(m => {
-        const rName = m.businessRegion ? (regionMap.get(m.businessRegion.toString()) || m.state || "Other Region") : (m.state || "Unassigned");
-        regionCounts.set(rName, (regionCounts.get(rName) || 0) + 1);
+        const id = m.businessRegion ? m.businessRegion.toString() : undefined;
+        const rName = m.businessRegion ? (regionMap.get(id!) || m.state || "Other Region") : (m.state || "Unassigned");
+        const existing = regionCounts.get(rName) || { id, count: 0 };
+        regionCounts.set(rName, { id: existing.id || id, count: existing.count + 1 });
       });
 
       const regionOverview = Array.from(regionCounts.entries())
-        .map(([name, count]) => ({ name, value: count, members: count }))
+        .map(([name, data]) => ({ name, value: data.count, members: data.count, id: data.id }))
         .sort((a, b) => b.members - a.members)
         .slice(0, 6);
 
@@ -360,14 +378,16 @@ export class AdminDashboardController {
       const categoryMap = new Map<string, string>();
       allCategories.forEach(c => categoryMap.set(c._id.toString(), c.name));
 
-      const categoryCounts = new Map<string, number>();
+      const categoryCounts = new Map<string, { id?: string, count: number }>();
       allMembers.forEach(m => {
-        const cName = m.businessCategory ? (categoryMap.get(m.businessCategory.toString()) || m.industry || "Other Category") : (m.industry || "General");
-        categoryCounts.set(cName, (categoryCounts.get(cName) || 0) + 1);
+        const id = m.businessCategory ? m.businessCategory.toString() : undefined;
+        const cName = m.businessCategory ? (categoryMap.get(id!) || m.industry || "Other Category") : (m.industry || "General");
+        const existing = categoryCounts.get(cName) || { id, count: 0 };
+        categoryCounts.set(cName, { id: existing.id || id, count: existing.count + 1 });
       });
 
       const categoryOverview = Array.from(categoryCounts.entries())
-        .map(([name, count]) => ({ name, count }))
+        .map(([name, data]) => ({ name, count: data.count, id: data.id }))
         .sort((a, b) => b.count - a.count)
         .slice(0, 6);
 

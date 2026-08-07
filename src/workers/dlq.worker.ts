@@ -1,5 +1,5 @@
 import { Worker, Job } from "bullmq";
-import { redisConfig } from "../config/redis.config";
+import { bullRedisConfig } from "../config/bullmq.config";
 import { QUEUE_NAMES } from "../queues/notification.queue";
 
 export interface DlqJobPayload {
@@ -27,7 +27,7 @@ export const dlqWorker = new Worker(
     // Here you can persist the DLQ record into a MongoDB collection or send an alert email/Slack webhook
   },
   {
-    connection: redisConfig,
+    connection: bullRedisConfig,
     concurrency: 5,
   }
 );

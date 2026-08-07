@@ -18,7 +18,7 @@ import { AppDataSource } from "../../data-source";
 import { Category, CategoryType, CategoryStatus } from "../../entity/Category";
 import { Member } from "../../entity/Member";
 import { CreateCategoryDto, UpdateCategoryDto } from "../../dto/admin/Category.dto";
-import * as XLSX from "xlsx";
+import { parseExcelBufferToJson } from "../../utils/excelHelper";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
@@ -144,10 +144,7 @@ export class CategoryController {
       }
 
       const file = req.files.file;
-      const workbook = XLSX.read(file.data, { type: "buffer" });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
+      const jsonData = await parseExcelBufferToJson<any>(file.data);
 
       let createdMainCount = 0;
       let createdSubCount = 0;
