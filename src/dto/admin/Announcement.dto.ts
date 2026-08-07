@@ -127,6 +127,14 @@ export class CreateAnnouncementDto {
   @ValidateNested()
   @Type(() => StallConfigDto)
     stallConfig?: StallConfigDto;
+
+  @IsString()
+  @IsOptional()
+    link?: string;
+
+  @IsString()
+  @IsOptional()
+    trainingId?: string;
 }
 
 export class UpdateAnnouncementDto {
@@ -213,4 +221,12 @@ export class UpdateAnnouncementDto {
   @IsArray()
   @IsOptional()
     regionIds?: string[];
+
+  @IsString()
+  @IsOptional()
+    link?: string;
+
+  @IsString()
+  @IsOptional()
+    trainingId?: string;
 }

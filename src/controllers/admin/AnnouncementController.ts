@@ -15,7 +15,7 @@ import {
   Req
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
-import { Announcement, AnnouncementStatus } from "../../entity/Announcement";
+import { Announcement, AnnouncementStatus, AnnouncementType } from "../../entity/Announcement";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
@@ -112,6 +112,25 @@ export class AdminAnnouncementController {
       if (data.fromDate) announcement.fromDate = new Date(data.fromDate);
       if (data.toDate) announcement.toDate = new Date(data.toDate);
       if (data.date) announcement.date = new Date(data.date);
+
+      if (data.announcementType === AnnouncementType.OTHERS) {
+        if (!data.link || !data.link.trim()) {
+          throw new BadRequestError("Link is required when announcement type is Others");
+        }
+        announcement.link = data.link;
+        announcement.trainingId = undefined;
+      } else if (data.announcementType === AnnouncementType.TRAINING) {
+        if (!data.trainingId) {
+          throw new BadRequestError("Training is required when announcement type is Training");
+        }
+        announcement.link = undefined;
+        if (ObjectId.isValid(data.trainingId)) {
+          announcement.trainingId = new ObjectId(data.trainingId);
+        }
+      } else {
+        announcement.link = undefined;
+        announcement.trainingId = undefined;
+      }
 
       if (announcement.stallConfig && Array.isArray(announcement.stallConfig.stalls)) {
         announcement.stallConfig.stalls = announcement.stallConfig.stalls.map((s: any) => {
@@ -269,6 +288,24 @@ export class AdminAnnouncementController {
       if (data.fromDate) announcement.fromDate = new Date(data.fromDate);
       if (data.toDate) announcement.toDate = new Date(data.toDate);
       if (data.date) announcement.date = new Date(data.date);
+
+      if (announcement.announcementType === AnnouncementType.OTHERS) {
+        if (!announcement.link || !announcement.link.trim()) {
+          throw new BadRequestError("Link is required when announcement type is Others");
+        }
+        announcement.trainingId = undefined;
+      } else if (announcement.announcementType === AnnouncementType.TRAINING) {
+        if (!data.trainingId && !announcement.trainingId) {
+          throw new BadRequestError("Training is required when announcement type is Training");
+        }
+        announcement.link = undefined;
+        if (data.trainingId && ObjectId.isValid(data.trainingId)) {
+          announcement.trainingId = new ObjectId(data.trainingId);
+        }
+      } else if (data.announcementType) {
+        announcement.link = undefined;
+        announcement.trainingId = undefined;
+      }
 
       if (announcement.stallConfig && Array.isArray(announcement.stallConfig.stalls)) {
         announcement.stallConfig.stalls = announcement.stallConfig.stalls.map((s: any) => {

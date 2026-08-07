@@ -175,49 +175,77 @@ export async function notifyAllActiveMembers(dto: {
   try {
     const memberRepo = AppDataSource.getMongoRepository(Member);
     const notificationRepo = AppDataSource.getMongoRepository(PushNotification);
+
     const activeMembers = await memberRepo.find({
       where: {
         status: MemberStatus.ACTIVE,
-        isDeleted: false
-      } as any
+        isDeleted: false,
+      } as any,
+      select: {
+        _id: true,
+        fcmToken: true,
+      } as any,
     });
+
+    if (!activeMembers.length) {
+      return;
+    }
 
     const notifications = activeMembers.map(member => ({
       sub: dto.subject,
       msg: dto.content,
       moduleName: dto.moduleName,
-      moduleId: dto.moduleId ? new ObjectId(dto.moduleId) : undefined,
+      moduleId: dto.moduleId
+        ? new ObjectId(dto.moduleId)
+        : undefined,
       receiverId: member._id,
-      senderId: dto.senderId ? new ObjectId(dto.senderId) : undefined,
+      senderId: dto.senderId
+        ? new ObjectId(dto.senderId)
+        : undefined,
       isRead: false,
       isDeleted: false,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     }));
 
-    if (notifications.length > 0) {
-      await notificationRepo.insertMany(notifications);
+    // Insert notifications in bulk
+    await notificationRepo.insertMany(notifications);
 
-      // Emit live unread count to each receiver via socket
-      activeMembers.forEach(member => {
-        emitUnreadCount(member._id.toString()).catch(() => { });
-      });
-    }
+    // Emit unread count
+    await Promise.allSettled(
+      activeMembers.map(member =>
+        emitUnreadCount(member._id.toString())
+      )
+    );
 
-    // Send push notification to all active members with FCM token
-    const membersWithToken = activeMembers.filter(m => m.fcmToken);
+    // Members having FCM token
+    const membersWithToken = activeMembers.filter(
+      member => !!member.fcmToken
+    );
+
     const batchSize = 100;
+
     for (let i = 0; i < membersWithToken.length; i += batchSize) {
       const batch = membersWithToken.slice(i, i + batchSize);
-      await Promise.all(
+
+      await Promise.allSettled(
         batch.map(member =>
-          sendPushNotification(member.fcmToken!, dto.subject, {
-            content: dto.content,
-            moduleName: dto.moduleName,
-            moduleId: dto.moduleId
-          }).catch(err => console.error("[notifyAllActiveMembers] FCM error:", err))
+          sendPushNotification(
+            member.fcmToken!,
+            dto.subject,
+            {
+              content: dto.content,
+              moduleName: dto.moduleName,
+              moduleId: dto.moduleId,
+            }
+          )
         )
       );
+
+      // Prevent FCM throttling
+      if (i + batchSize < membersWithToken.length) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
     }
   } catch (error) {
     console.error("Failed to notify all active members:", error);
