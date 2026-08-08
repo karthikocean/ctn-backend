@@ -174,13 +174,6 @@ export class VerificationController {
         });
       }
 
-      // Test bypass
-      if (otp === "1234") {
-        return res.status(StatusCodes.OK).json({
-          message: `${type === "email" ? "Email" : "Phone"} verified successfully`
-        });
-      }
-
       const verification = await this.verificationRepo.findOne({
         where: { identifier, type, otp, isVerified: false }
       });

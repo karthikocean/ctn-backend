@@ -58,7 +58,11 @@ export async function seedAdmin() {
   });
 
   if (!adminUser) {
-    const hashedPin = await bcrypt.hash("1234", 10);
+    const pin = process.env.SUPER_ADMIN_INITIAL_PIN;
+    if (!pin) {
+      throw new Error("SUPER_ADMIN_INITIAL_PIN is not defined");
+    }
+    const hashedPin = await bcrypt.hash(pin, 10);
 
     adminUser = userRepo.create({
       name: "Super Admin",

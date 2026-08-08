@@ -203,8 +203,11 @@ AppDataSource.initialize()
   .then(async () => {
     console.log("✅ Database connected");
 
-    // ✅ Swagger route
-    app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+    // ✅ Swagger route — only available in non-production environments
+    if (process.env.NODE_ENV !== "production") {
+      app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+      console.log(`📚 Swagger UI available at /api-docs (NODE_ENV=${process.env.NODE_ENV})`);
+    }
 
     const ext = __filename.endsWith(".ts") ? "ts" : "js";
 

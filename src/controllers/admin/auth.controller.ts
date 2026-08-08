@@ -326,36 +326,6 @@ export class AuthController {
 
       const verificationRepo = AppDataSource.getMongoRepository(Verification);
 
-      if (otp === "1234") {
-        let verification = await verificationRepo.findOne({
-          where: { identifier: phoneNumber, type: "phone" },
-          order: { createdAt: "DESC" }
-        });
-
-        const expiresAt = new Date();
-        expiresAt.setMinutes(expiresAt.getMinutes() + 2);
-
-        if (!verification) {
-          verification = verificationRepo.create({
-            identifier: phoneNumber,
-            type: "phone",
-            otp: "1234",
-            expiresAt,
-            isVerified: true
-          });
-        } else {
-          verification.isVerified = true;
-          verification.expiresAt = expiresAt;
-        }
-
-        await verificationRepo.save(verification);
-
-        return res.status(StatusCodes.OK).json({
-          success: true,
-          message: "OTP verified successfully"
-        });
-      }
-
       const verification = await verificationRepo.findOne({
         where: { identifier: phoneNumber, type: "phone", otp, isVerified: false }
       });
