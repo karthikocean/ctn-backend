@@ -21,7 +21,7 @@ import { Member } from "../../entity/Member";
 import { PostModel, PostType } from "../../entity/Post";
 import { Category } from "../../entity/Category";
 import { OneToOne } from "../../entity/OneToOne";
-import { Referral } from "../../entity/Referral";
+import { Referral, ReferralStatus } from "../../entity/Referral";
 import { ThankYouSlip } from "../../entity/ThankYouSlip";
 import { Milestone } from "../../entity/Milestone";
 import { OnlineStallProduct } from "../../entity/OnlineStallProduct";
@@ -517,7 +517,34 @@ export class MobileChatController {
         }
       }
 
-      const populatedMessages = await Promise.all(messages.map(async (msg) => {
+      // Batch fetch related entities to eliminate N+1 queries
+      const postIds = [...new Set(messages.filter(m => (m.type === MessageType.POST_RESPONSE || m.type === MessageType.POST_SHARE) && m.postId).map(m => m.postId!))];
+      const productIds = [...new Set(messages.filter(m => m.type === MessageType.PRODUCT_RESPONSE && (m as any).productId).map(m => (m as any).productId!))];
+      const milestoneIds = [...new Set(messages.filter(m => m.type === MessageType.MILESTONE_REPLY && m.milestoneId).map(m => m.milestoneId!))];
+      const replyToIds = [...new Set(messages.filter(m => m.replyToMessageId).map(m => m.replyToMessageId!))];
+      const otoIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.ONE_TO_ONE).map(m => m.businessActionId!))];
+      const refIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.REFERRAL).map(m => m.businessActionId!))];
+      const tyIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.THANK_YOU_SLIP).map(m => m.businessActionId!))];
+
+      const [posts, products, milestones, replyMsgs, otos, refs, tys] = await Promise.all([
+        postIds.length > 0 ? this.postRepo.find({ where: { _id: { $in: postIds } } as any }) : [],
+        productIds.length > 0 ? this.productRepo.find({ where: { _id: { $in: productIds } } as any }) : [],
+        milestoneIds.length > 0 ? this.milestoneRepo.find({ where: { _id: { $in: milestoneIds } } as any }) : [],
+        replyToIds.length > 0 ? this.messageRepo.find({ where: { _id: { $in: replyToIds } } as any }) : [],
+        otoIds.length > 0 ? this.oneToOneRepo.find({ where: { _id: { $in: otoIds } } as any }) : [],
+        refIds.length > 0 ? this.referralRepo.find({ where: { _id: { $in: refIds } } as any }) : [],
+        tyIds.length > 0 ? this.tySlipRepo.find({ where: { _id: { $in: tyIds } } as any }) : []
+      ]);
+
+      const postMap = new Map(posts.map(p => [p._id.toString(), p]));
+      const productMap = new Map(products.map(p => [p._id.toString(), p]));
+      const milestoneMap = new Map(milestones.map(m => [m._id.toString(), m]));
+      const replyMap = new Map(replyMsgs.map(m => [m._id.toString(), m]));
+      const otoMap = new Map(otos.map(o => [o._id.toString(), o]));
+      const refMap = new Map(refs.map(r => [r._id.toString(), r]));
+      const tyMap = new Map(tys.map(t => [t._id.toString(), t]));
+
+      const populatedMessages = messages.map((msg) => {
         if (msg.isDeleted) {
           return {
             _id: msg._id,
@@ -542,19 +569,19 @@ export class MobileChatController {
         };
 
         if ((msg.type === MessageType.POST_RESPONSE || msg.type === MessageType.POST_SHARE) && msg.postId) {
-          result.post = await this.postRepo.findOneBy({ _id: msg.postId });
+          result.post = postMap.get(msg.postId.toString()) || null;
         }
 
         if (msg.type === MessageType.PRODUCT_RESPONSE && (msg as any).productId) {
-          result.product = await this.productRepo.findOneBy({ _id: (msg as any).productId });
+          result.product = productMap.get((msg as any).productId.toString()) || null;
         }
 
         if (msg.type === MessageType.MILESTONE_REPLY && msg.milestoneId) {
-          result.milestone = await this.milestoneRepo.findOneBy({ _id: msg.milestoneId });
+          result.milestone = milestoneMap.get(msg.milestoneId.toString()) || null;
         }
 
         if (msg.replyToMessageId) {
-          const repliedMsg = await this.messageRepo.findOneBy({ _id: msg.replyToMessageId });
+          const repliedMsg = replyMap.get(msg.replyToMessageId.toString());
           if (repliedMsg) {
             result.replyTo = {
               _id: repliedMsg._id,
@@ -566,17 +593,18 @@ export class MobileChatController {
         }
 
         if (msg.businessActionId) {
+          const baKey = msg.businessActionId.toString();
           if (msg.type === MessageType.ONE_TO_ONE) {
-            result.businessAction = await this.oneToOneRepo.findOneBy({ _id: msg.businessActionId });
+            result.businessAction = otoMap.get(baKey) || null;
           } else if (msg.type === MessageType.REFERRAL) {
-            result.businessAction = await this.referralRepo.findOneBy({ _id: msg.businessActionId });
+            result.businessAction = refMap.get(baKey) || null;
           } else if (msg.type === MessageType.THANK_YOU_SLIP) {
-            result.businessAction = await this.tySlipRepo.findOneBy({ _id: msg.businessActionId });
+            result.businessAction = tyMap.get(baKey) || null;
           }
         }
 
         return result;
-      }));
+      });
 
       return res.status(200).json({
         success: true,
@@ -726,12 +754,25 @@ export class MobileChatController {
       const post = await this.postRepo.findOneBy({ _id: new ObjectId(postId) });
       if (!post) throw new NotFoundError("Post not found");
 
+      if (post.isActive === false || post.status === "inactive" || post.status === "deactivated") {
+        throw new BadRequestError("This post has been deactivated and can no longer receive responses");
+      }
+
       if (post.type === PostType.REQUIREMENT) {
         await validateRequirementResponseLimit(senderId);
       }
 
       // Increment response count
       post.responsedCount = (post.responsedCount || 0) + 1;
+
+      // Deactivate Requirement, Ask, and Give posts if response count reaches 10
+      const autoDeactivateTypes = [PostType.REQUIREMENT, PostType.ASK, PostType.GIVE];
+      if (autoDeactivateTypes.includes(post.type) && post.responsedCount >= 10) {
+        post.isActive = false;
+        post.status = "inactive";
+        post.statusReason = "Deactivated: Reached maximum limit of 10 responses";
+      }
+
       await this.postRepo.save(post);
 
       const receiverId = post.memberId;
@@ -1161,6 +1202,7 @@ export class MobileChatController {
           ref.referralEmail = actionData.referralEmail || actionData.email;
           ref.location = actionData.location;
           ref.comments = actionData.comments;
+          ref.status = ReferralStatus.NOT_CONTACTED;
           const savedRef = await this.referralRepo.save(ref);
           newMessage.businessActionId = savedRef._id;
 

@@ -168,6 +168,9 @@ export async function notifyPostAudience(dto: {
       return;
     }
 
+    // Ensure sender is excluded from target members so creator never receives notification for their own post
+    targetMembers = targetMembers.filter(m => m._id.toString() !== senderObjectId.toString());
+
     // Queue target personal notifications via BullMQ batch producer
     const personalDtos = targetMembers.map((member) => ({
       receiverId: member._id.toString(),

@@ -1,7 +1,8 @@
-import { Entity, ObjectIdColumn, Column, CreateDateColumn, UpdateDateColumn } from "typeorm";
+import { Entity, ObjectIdColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from "typeorm";
 import { ObjectId } from "mongodb";
 
 @Entity("user_tokens")
+@Index(["userId", "token"])
 export class UserToken {
 
     @Column({ nullable: true })

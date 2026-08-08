@@ -81,11 +81,16 @@ async function handleBroadcastInitiate(job: Job<BroadcastInitiateJobData>): Prom
 
   const memberRepo = AppDataSource.getMongoRepository(Member);
 
-  // Use MongoDB Cursor for 1M records (projecting only _id and fcmToken to save RAM)
-  const mongoCursor = memberRepo.createCursor({
+  const queryFilter: any = {
     status: MemberStatus.ACTIVE,
     isDeleted: false,
-  } as any).project({ _id: 1, fcmToken: 1 });
+  };
+  if (senderId && ObjectId.isValid(senderId)) {
+    queryFilter._id = { $ne: new ObjectId(senderId) };
+  }
+
+  // Use MongoDB Cursor for 1M records (projecting only _id and fcmToken to save RAM)
+  const mongoCursor = memberRepo.createCursor(queryFilter as any).project({ _id: 1, fcmToken: 1 });
 
   let memberBuffer: Array<{ id: string; fcmToken?: string }> = [];
   let chunkJobsBuffer: Array<{
@@ -177,8 +182,14 @@ async function handleBroadcastInitiate(job: Job<BroadcastInitiateJobData>): Prom
  * Performs 1 insertMany DB call, batched FCM push, and online-only Socket emissions.
  */
 async function handleBroadcastChunk(job: Job<BroadcastChunkJobData>): Promise<void> {
-  const { subject, content, moduleName, moduleId, senderId, members, useTopic } = job.data;
+  let { subject, content, moduleName, moduleId, senderId, members, useTopic } = job.data;
   if (!members || members.length === 0) return;
+
+  if (senderId) {
+    const senderIdStr = senderId.toString();
+    members = members.filter((m: { id: string; fcmToken?: string }) => m.id !== senderIdStr);
+  }
+  if (members.length === 0) return;
 
   const notificationRepo = AppDataSource.getMongoRepository(PushNotification);
 

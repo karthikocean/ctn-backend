@@ -3,7 +3,8 @@ import {
   ObjectIdColumn,
   Column,
   CreateDateColumn,
-  UpdateDateColumn
+  UpdateDateColumn,
+  Index
 } from "typeorm";
 import { ObjectId } from "mongodb";
 
@@ -30,6 +31,7 @@ export enum NotifyBy {
 }
 
 @Entity("reminders")
+@Index(["status", "isDeleted", "nextReminderDate"])
 export class Reminder {
   @ObjectIdColumn()
     _id!: ObjectId;
