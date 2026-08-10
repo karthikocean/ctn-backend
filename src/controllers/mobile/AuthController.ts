@@ -108,7 +108,9 @@ export class MobileAuthController {
       });
 
       if (!member) {
-        throw new BadRequestError("Member not found with this " + type === 'phone' ? 'phone number' : type);
+        throw new BadRequestError(
+          "Member not found with this " + (type === 'phone' ? 'phone number' : type)
+        );
       }
       if (member.status !== MemberStatus.ACTIVE) {
         throw new BadRequestError('Account is not active. Please contact administrator.')
