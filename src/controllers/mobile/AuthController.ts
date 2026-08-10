@@ -173,23 +173,21 @@ export class MobileAuthController {
       if (!fcmToken) {
         throw new BadRequestError("FCM token is required");
       }
-      // Test bypass
-      if (otp !== "1234") {
-        const verification = await this.verificationRepo.findOne({
-          where: { identifier, type, otp, isVerified: false }
-        });
 
-        if (!verification) {
-          throw new BadRequestError("Invalid or expired verification code");
-        }
+      const verification = await this.verificationRepo.findOne({
+        where: { identifier, type, otp, isVerified: false }
+      });
 
-        if (new Date() > verification.expiresAt) {
-          throw new BadRequestError("Verification code has expired");
-        }
-
-        verification.isVerified = true;
-        await this.verificationRepo.save(verification);
+      if (!verification) {
+        throw new BadRequestError("Invalid or expired verification code");
       }
+
+      if (new Date() > verification.expiresAt) {
+        throw new BadRequestError("Verification code has expired");
+      }
+
+      verification.isVerified = true;
+      await this.verificationRepo.save(verification);
 
       const member = await this.memberRepo.findOne({
         where: type === "email" ? { email: identifier } : { mobileNumber: identifier }
@@ -329,47 +327,24 @@ export class MobileAuthController {
   }
 
   private async generateToken(member: Member): Promise<string> {
+    const jwtSecret = process.env.JWT_SECRET as string;
+    const jwtExpiresIn = (process.env.JWT_EXPIRES_IN || "30d") as any;
+    const tokenPayload = {
+      userId: member._id.toString(),
+      userType: "MEMBER"
+    };
+
     const existingToken = await this.tokenRepo.findOne({
       where: { userId: member._id }
     });
 
+    const token = jwt.sign(tokenPayload, jwtSecret, { expiresIn: jwtExpiresIn });
+
     if (existingToken) {
-      try {
-        jwt.verify(existingToken.token, process.env.JWT_SECRET as string);
-        const token = jwt.sign(
-          {
-            userId: member._id.toString(),
-            userType: "MEMBER"
-          },
-          process.env.JWT_SECRET as string
-        );
-
-        existingToken.token = token;
-        await this.tokenRepo.save(existingToken);
-        return token;
-      } catch (error: any) {
-        console.log(error);
-        const token = jwt.sign(
-          {
-            userId: member._id.toString(),
-            userType: "MEMBER"
-          },
-          process.env.JWT_SECRET as string
-        );
-
-        existingToken.token = token;
-        await this.tokenRepo.save(existingToken);
-        return token;
-      }
+      existingToken.token = token;
+      await this.tokenRepo.save(existingToken);
+      return token;
     }
-
-    const token = jwt.sign(
-      {
-        userId: member._id.toString(),
-        userType: "MEMBER"
-      },
-      process.env.JWT_SECRET as string
-    );
 
     const userToken = new UserToken();
     userToken.userId = member._id;

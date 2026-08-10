@@ -82,17 +82,19 @@ export class RoleController {
       });
 
       const userRepo = AppDataSource.getMongoRepository(AdminUser);
+      const roleIds = roles.map(r => r._id);
+      const userCountAgg = roleIds.length > 0
+        ? await userRepo.aggregate([
+          { $match: { roleId: { $in: roleIds }, isDeleted: false } },
+          { $group: { _id: "$roleId", count: { $sum: 1 } } }
+        ]).toArray()
+        : [];
 
-      const rolesWithCounts = await Promise.all(roles.map(async (role) => {
-        const userCount = await userRepo.count({
-          roleId: role._id,
-          isDeleted: false
-        });
+      const countMap = new Map(userCountAgg.map((item: any) => [item._id?.toString(), item.count]));
 
-        return {
-          ...role,
-          userCount
-        };
+      const rolesWithCounts = roles.map((role) => ({
+        ...role,
+        userCount: countMap.get(role._id.toString()) || 0
       }));
 
       return pagination(totalCount, rolesWithCounts, Number(limit), Number(page), res);

@@ -239,13 +239,16 @@ export class MobileMemberController {
 
   private async getOrRefreshMemberToken(member: Member): Promise<string> {
     const tokenRepo = AppDataSource.getMongoRepository(UserToken);
+    const jwtSecret = process.env.JWT_SECRET as string;
+    const jwtExpiresIn = (process.env.JWT_EXPIRES_IN || "30d") as any;
+
     const existingToken = await tokenRepo.findOne({
       where: { userId: member._id }
     });
 
     if (existingToken) {
       try {
-        jwt.verify(existingToken.token, process.env.JWT_SECRET as string);
+        jwt.verify(existingToken.token, jwtSecret);
         return existingToken.token;
       } catch (error: any) {
         console.log(error);
@@ -254,7 +257,8 @@ export class MobileMemberController {
             userId: member._id.toString(),
             userType: "MEMBER"
           },
-          process.env.JWT_SECRET as string
+          jwtSecret,
+          { expiresIn: jwtExpiresIn }
         );
 
         existingToken.token = token;
@@ -268,7 +272,8 @@ export class MobileMemberController {
         userId: member._id.toString(),
         userType: "MEMBER"
       },
-      process.env.JWT_SECRET as string
+      jwtSecret,
+      { expiresIn: jwtExpiresIn }
     );
 
     const userToken = new UserToken();

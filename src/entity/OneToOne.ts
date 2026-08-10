@@ -24,6 +24,12 @@ export class OneToOne {
   @Column({ nullable: true })
     media?: string[];
 
+  @Column({ nullable: true })
+    status?: string;
+
+  @Column({ nullable: true })
+    reason?: string;
+
   @CreateDateColumn()
     createdAt!: Date;
 

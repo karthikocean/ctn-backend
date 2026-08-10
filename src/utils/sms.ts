@@ -51,7 +51,7 @@ export const sendForgotPinSMS = async (phoneNumber: string, otp: string) => {
         params: {
           apikey: API_KEY,
           senderid: SENDER_ID,
-          templateid: WELCOME_TEMPLATE_ID,
+          templateid: FORGOT_PIN_TEMPLATE_ID,
           number: phoneNumber,
           message: `Dear customer, the OTP For Nalsuvai Agro Foods is ${otp}. This OTP will expire in 5 minutes. Thank you.`,
         },

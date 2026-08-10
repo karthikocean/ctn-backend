@@ -112,7 +112,7 @@ export class MailService {
         <div style="background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
           <h2 style="color: #333; margin-top: 0;">Email Verification</h2>
           <p style="color: #666; font-size: 16px; line-height: 1.5;">Hello,</p>
-          <p style="color: #666; font-size: 16px; line-height: 1.5;">Thank you for joining <strong>Trusted Network</strong>. Please use the following 6-digit verification code to complete your registration:</p>
+          <p style="color: #666; font-size: 16px; line-height: 1.5;">Thank you for joining <strong>Trusted Network</strong>. Please use the following 4-digit verification code to complete your registration:</p>
           
           <div style="text-align: center; margin: 30px 0;">
             <div style="display: inline-block; background-color: #14532D; color: #ffffff; font-size: 32px; font-weight: bold; letter-spacing: 10px; padding: 15px 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(20, 83, 45, 0.2);">

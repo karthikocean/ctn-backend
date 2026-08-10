@@ -1,6 +1,6 @@
 import { Worker, Job } from "bullmq";
 import { ObjectId } from "mongodb";
-import { redisConfig } from "../config/redis.config";
+import { bullRedisConfig } from "../config/bullmq.config";
 import { QUEUE_NAMES, dlqNotificationQueue } from "../queues/notification.queue";
 import { AppDataSource } from "../data-source";
 import { PushNotification } from "../entity/PushNotifications";
@@ -73,7 +73,7 @@ export const personalWorker = new Worker(
     }
   },
   {
-    connection: redisConfig,
+    connection: bullRedisConfig,
     concurrency: 20, // Concurrency for personal worker execution
   }
 );

@@ -4,10 +4,13 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index
 } from "typeorm";
 import { ObjectId } from "mongodb";
 
 @Entity("payments")
+@Index(["transactionId"], { unique: true })
+@Index(["memberId", "createdAt"])
 export class Payment {
   @ObjectIdColumn()
     _id!: ObjectId;

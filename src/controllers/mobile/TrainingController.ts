@@ -93,14 +93,16 @@ export class MobileTrainingController {
         order: { createdAt: "DESC" }
       });
 
+      const memberOid = new ObjectId(userId);
+
       // Fetch enrollments for this user
       const enrollments = await this.enrollmentRepo.find({
-        where: { memberId: userId }
+        where: { memberId: memberOid }
       });
 
       // Fetch all progress for this user to calculate completion counts
       const allProgress = await this.progressRepo.find({
-        where: { memberId: userId }
+        where: { memberId: memberOid }
       });
 
       // Fetch categories for the trainings
@@ -274,18 +276,19 @@ export class MobileTrainingController {
         categoryName = cat ? cat.name : null;
       }
 
-      const member = await this.memberRepo.findOneBy({ _id: userId });
+      const memberOid = new ObjectId(userId);
+      const member = await this.memberRepo.findOneBy({ _id: memberOid });
       if (!member) throw new NotFoundError("Member not found");
 
       // Check if already unlocked using the enrollment collection
       const isUnlocked = await this.enrollmentRepo.findOneBy({
-        memberId: userId,
+        memberId: memberOid,
         trainingId: training._id
       });
 
       // Fetch progress for each lesson
       const progressList = await this.progressRepo.find({
-        where: { memberId: userId, trainingId: training._id }
+        where: { memberId: memberOid, trainingId: training._id }
       });
 
       const progressMap = new Map<string, any>(progressList.map(p => [p.lessonId.toString(), p]));
@@ -346,11 +349,12 @@ export class MobileTrainingController {
       });
       if (!training) throw new NotFoundError("Training not found");
 
-      const member = await this.memberRepo.findOneBy({ _id: userId });
+      const memberOid = new ObjectId(userId);
+      const member = await this.memberRepo.findOneBy({ _id: memberOid });
       if (!member) throw new NotFoundError("Member not found");
 
       const isUnlocked = await this.enrollmentRepo.findOneBy({
-        memberId: userId,
+        memberId: memberOid,
         trainingId: training._id
       });
       if (isUnlocked || training.isFree) {
@@ -366,7 +370,7 @@ export class MobileTrainingController {
       let discountPercentage = 0;
       try {
         const subscriptionService = new SubscriptionService();
-        const plan = await subscriptionService.getMemberPlan(userId);
+        const plan = await subscriptionService.getMemberPlan(memberOid);
         discountPercentage = plan.benefits?.trainingDiscountPercentage || 0;
       } catch {
         // No active plan or benefit — use full price
@@ -385,7 +389,7 @@ export class MobileTrainingController {
       try {
         const pointService = new PointService();
         const deductResult = await pointService.deductPoints({
-          memberId: userId,
+          memberId: memberOid,
           moduleName: "Trainings",
           points: pointsToDeduct,
           referenceId: training._id,
@@ -402,7 +406,7 @@ export class MobileTrainingController {
 
       // Create new enrollment record
       const enrollment = new MemberTraining();
-      enrollment.memberId = userId;
+      enrollment.memberId = memberOid;
       enrollment.trainingId = training._id;
       await this.enrollmentRepo.save(enrollment);
 

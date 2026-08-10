@@ -5,6 +5,17 @@ dotenv.config();
 
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
+import helmet from "helmet";
+import {
+  apiLimiter,
+  mobileApiLimiter,
+  adminApiLimiter,
+  authLimiter,
+  otpLimiter,
+  passwordResetLimiter,
+  uploadLimiter,
+  paymentLimiter
+} from "./middlewares/rateLimit.middleware";
 import { useExpressServer } from "routing-controllers";
 import { AppDataSource } from "./data-source";
 import { Member } from "./entity/Member";
@@ -19,7 +30,7 @@ import { seedModules } from "./seed/seedModules";
 import { createServer } from "http";
 import { initSocket, getIO, waitForDisconnects } from "./utils/socket";
 import { SubscriptionCronService } from "./services/subscriptionCron.service";
-import { DailyScoreCronService } from "./services/dailyScoreCron.service";
+// import { DailyScoreCronService } from "./services/dailyScoreCron.service";
 import { SpotlightCronService } from "./services/spotlightCron.service";
 import { OnlineStallCronService } from "./services/onlineStallCron.service";
 import { AnnouncementCronService } from "./services/announcementCron.service";
@@ -38,6 +49,9 @@ import { MilestoneCronService } from "./services/milestoneCron.service";
 let isReady = false;
 
 const app = express();
+// Enable trust proxy for reverse proxies / PM2 / Nginx / ALBs (correct client IP extraction)
+app.set("trust proxy", 1);
+
 const PORT = process.env.PORT || 4000;
 const httpServer = createServer(app);
 
@@ -86,8 +100,9 @@ app.use(
   })
 );
 app.use(express.static("public"));
+app.use(helmet());
 
-// Health & root always respond instantly (bypasses the 503 gate)
+// Health & root always respond instantly (bypasses rate limiters & 503 gate)
 app.get("/api/health", (_req: Request, res: Response) => {
   res.status(200).json({
     status: isReady ? "ready" : "starting",
@@ -104,6 +119,38 @@ app.get("/", (_req: Request, res: Response) => {
     uptime: process.uptime()
   });
 });
+
+// ─────────────────────────────────────────────────────────
+// 🛡️ Route-Specific Rate Limiting Middleware
+// ─────────────────────────────────────────────────────────
+// Auth & Security Specific Limiters
+app.use("/api/admin/auth/forgot-pin", passwordResetLimiter);
+app.use("/api/admin/auth/verify-otp", otpLimiter);
+app.use("/api/admin/auth/login", authLimiter);
+app.use("/api/admin/auth", authLimiter);
+
+app.use("/mobile-api/verification/send-otp", otpLimiter);
+app.use("/mobile-api/verification/verify-otp", otpLimiter);
+app.use("/mobile-api/auth/send-otp", otpLimiter);
+app.use("/mobile-api/auth/verify-otp", otpLimiter);
+app.use("/mobile-api/auth/login", authLimiter);
+app.use("/mobile-api/auth/reset-pin", passwordResetLimiter);
+app.use("/mobile-api/auth", authLimiter);
+
+// File Upload & Import Limiters
+app.use("/mobile-api/media/upload", uploadLimiter);
+app.use("/api/admin/media/upload", uploadLimiter);
+app.use("/api/admin/categories/import", uploadLimiter);
+app.use("/api/admin/migrations", uploadLimiter);
+
+// Payment & Subscription Limiters
+app.use("/mobile-api/subscription/create-order", paymentLimiter);
+app.use("/mobile-api/subscription/verify-payment", paymentLimiter);
+
+// Scoped API Group Limiters
+app.use("/mobile-api", mobileApiLimiter);
+app.use("/api/admin", adminApiLimiter);
+app.use("/api", apiLimiter);
 
 import { setupBullBoard } from "./admin/bullboard.config";
 import { registerGracefulShutdown } from "./utils/gracefulShutdown";
@@ -164,8 +211,11 @@ AppDataSource.initialize()
   .then(async () => {
     console.log("✅ Database connected");
 
-    // ✅ Swagger route
-    app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+    // ✅ Swagger route — only available in non-production environments
+    if (process.env.NODE_ENV !== "production") {
+      app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+      console.log(`📚 Swagger UI available at /api-docs (NODE_ENV=${process.env.NODE_ENV})`);
+    }
 
     const ext = __filename.endsWith(".ts") ? "ts" : "js";
 
@@ -237,7 +287,7 @@ AppDataSource.initialize()
 
       // Initialize Cron Jobs
       SubscriptionCronService.init();
-      DailyScoreCronService.init();
+      // DailyScoreCronService.init();
       SpotlightCronService.init();
       OnlineStallCronService.init();
       AnnouncementCronService.init();

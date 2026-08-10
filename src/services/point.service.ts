@@ -1,4 +1,5 @@
 import { ObjectId } from "mongodb";
+import { BadRequestError } from "routing-controllers";
 import { AppDataSource } from "../data-source";
 import { Member } from "../entity/Member";
 import { PointConfig, PointConfigType } from "../entity/PointConfig";
@@ -125,22 +126,17 @@ export class PointService {
             return;
           }
 
-          // Update or Create MemberPoints record
-          let memberPoints = await this.memberPointsRepo.findOneBy({ memberId: memberOid });
-          if (!memberPoints) {
-            memberPoints = new MemberPoints();
-            memberPoints.memberId = memberOid;
-            memberPoints.totalPoints = 0;
-          }
-          memberPoints.totalPoints += calculatedPoints;
-          await this.memberPointsRepo.save(memberPoints);
-
-          // Update Member model points
-          const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
-          if (member) {
-            member.points = (member.points || 0) + calculatedPoints;
-            await this.memberRepo.save(member);
-          }
+          // Update or Create MemberPoints record atomically
+          await this.memberPointsRepo.updateOne(
+            { memberId: memberOid },
+            { $inc: { totalPoints: calculatedPoints } },
+            { upsert: true }
+          );
+          await this.memberRepo.updateOne(
+            { _id: memberOid },
+            { $inc: { points: calculatedPoints } }
+          );
+          const memberPoints = await this.memberPointsRepo.findOneBy({ memberId: memberOid });
 
           // Create PointHistory entry
           const history = new PointHistory();
@@ -150,10 +146,10 @@ export class PointService {
           history.actionType = type;
           history.type = "earned";
           history.points = calculatedPoints;
-          history.balanceAfter = memberPoints.totalPoints;
+          history.balanceAfter = memberPoints ? memberPoints.totalPoints : calculatedPoints;
           await this.historyRepo.save(history);
 
-          result = { awarded: calculatedPoints, balance: memberPoints.totalPoints };
+          result = { awarded: calculatedPoints, balance: memberPoints ? memberPoints.totalPoints : calculatedPoints };
         });
 
         if (result) return result;
@@ -178,20 +174,16 @@ export class PointService {
 
     // 5. Non-transactional execution fallback with manual rollback on collision
     try {
-      let memberPoints = await this.memberPointsRepo.findOneBy({ memberId: memberOid });
-      if (!memberPoints) {
-        memberPoints = new MemberPoints();
-        memberPoints.memberId = memberOid;
-        memberPoints.totalPoints = 0;
-      }
-      memberPoints.totalPoints += calculatedPoints;
-      await this.memberPointsRepo.save(memberPoints);
-
-      const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
-      if (member) {
-        member.points = (member.points || 0) + calculatedPoints;
-        await this.memberRepo.save(member);
-      }
+      await this.memberPointsRepo.updateOne(
+        { memberId: memberOid },
+        { $inc: { totalPoints: calculatedPoints } },
+        { upsert: true }
+      );
+      await this.memberRepo.updateOne(
+        { _id: memberOid },
+        { $inc: { points: calculatedPoints } }
+      );
+      const memberPoints = await this.memberPointsRepo.findOneBy({ memberId: memberOid });
 
       const history = new PointHistory();
       history.memberId = memberOid;
@@ -200,23 +192,21 @@ export class PointService {
       history.actionType = type;
       history.type = "earned";
       history.points = calculatedPoints;
-      history.balanceAfter = memberPoints.totalPoints;
+      history.balanceAfter = memberPoints ? memberPoints.totalPoints : calculatedPoints;
       await this.historyRepo.save(history);
 
-      return { awarded: calculatedPoints, balance: memberPoints.totalPoints };
+      return { awarded: calculatedPoints, balance: memberPoints ? memberPoints.totalPoints : calculatedPoints };
     } catch (err: any) {
       if (err.code === 11000) {
         // Duplicate index collision: rollback the added points
-        let memberPoints = await this.memberPointsRepo.findOneBy({ memberId: memberOid });
-        if (memberPoints) {
-          memberPoints.totalPoints = Math.max(0, memberPoints.totalPoints - calculatedPoints);
-          await this.memberPointsRepo.save(memberPoints);
-        }
-        const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
-        if (member) {
-          member.points = Math.max(0, (member.points || 0) - calculatedPoints);
-          await this.memberRepo.save(member);
-        }
+        await this.memberPointsRepo.updateOne(
+          { memberId: memberOid },
+          { $inc: { totalPoints: -calculatedPoints } }
+        );
+        await this.memberRepo.updateOne(
+          { _id: memberOid },
+          { $inc: { points: -calculatedPoints } }
+        );
         const balance = await this.getMemberBalance(memberOid);
         return { awarded: 0, balance };
       }
@@ -243,20 +233,22 @@ export class PointService {
       return { balance };
     }
 
-    let memberPoints = await this.memberPointsRepo.findOneBy({ memberId: memberOid });
-    if (!memberPoints) {
-      memberPoints = new MemberPoints();
-      memberPoints.memberId = memberOid;
-      memberPoints.totalPoints = 0;
-    }
-    memberPoints.totalPoints = Math.max(0, memberPoints.totalPoints - points);
-    await this.memberPointsRepo.save(memberPoints);
+    // Atomic conditional deduction enforcing points >= deduction to prevent negative balance
+    const updateResult = await this.memberRepo.updateOne(
+      { _id: memberOid, points: { $gte: points }, isDeleted: false },
+      { $inc: { points: -points } }
+    );
 
-    const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
-    if (member) {
-      member.points = Math.max(0, (member.points || 0) - points);
-      await this.memberRepo.save(member);
+    if (updateResult.matchedCount === 0) {
+      throw new BadRequestError("Insufficient points balance");
     }
+
+    await this.memberPointsRepo.updateOne(
+      { memberId: memberOid },
+      { $inc: { totalPoints: -points } },
+      { upsert: true }
+    );
+    const memberPoints = await this.memberPointsRepo.findOneBy({ memberId: memberOid });
 
     const history = new PointHistory();
     history.memberId = memberOid;
@@ -265,9 +257,9 @@ export class PointService {
     history.actionType = actionType;
     history.type = "spent";
     history.points = -points;
-    history.balanceAfter = memberPoints.totalPoints;
+    history.balanceAfter = memberPoints ? memberPoints.totalPoints : 0;
     await this.historyRepo.save(history);
 
-    return { balance: memberPoints.totalPoints };
+    return { balance: memberPoints ? memberPoints.totalPoints : 0 };
   }
 }

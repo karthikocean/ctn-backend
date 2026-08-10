@@ -96,7 +96,6 @@ export class MobileConnectionController {
       connection.status = ConnectionStatus.PENDING;
 
       const saved = await this.connectionRepo.save(connection);
-      console.log(receiver.fcmToken, "receiver.fcmToken");
       // ✅ Send Notification to Receiver
       if (receiver.fcmToken) {
         const sender = await this.memberRepo.findOneBy({ _id: new ObjectId(senderId), isDeleted: false });

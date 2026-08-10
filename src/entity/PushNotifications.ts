@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index
 } from "typeorm";
 import { ObjectId } from "mongodb";
 
@@ -40,6 +41,7 @@ export enum NotificationModule {
 }
 
 @Entity("push_notifications")
+@Index(["receiverId", "createdAt"])
 export class PushNotification {
   @ObjectIdColumn()
     _id!: ObjectId;

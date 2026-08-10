@@ -150,7 +150,8 @@ export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => v
         isMember
           ? { userId: userId.toString(), userType: "MEMBER" }
           : { id: userId.toString(), roleId: decoded.roleId },
-        process.env.JWT_SECRET as string
+        process.env.JWT_SECRET as string,
+        { expiresIn: (process.env.JWT_EXPIRES_IN || "30d") as any }
       );
 
       activeTokenRecord.token = newToken;

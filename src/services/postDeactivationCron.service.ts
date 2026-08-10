@@ -8,7 +8,7 @@ export class PostDeactivationCronService {
   /**
    * Initializes the Post Deactivation cron job.
    * Runs every day at 12:05 AM to deactivate (soft-delete) posts
-   * of type PROMOTION, ASK, and GIVE that are older than 9 days.
+   * of type PROMOTION, ASK, and GIVE that are older than 7 days.
    */
   static init() {
     console.log("⏰ Initializing Post Deactivation Cron Job...");
@@ -25,20 +25,26 @@ export class PostDeactivationCronService {
 
   /**
    * Deactivates (soft-deletes) posts of type PROMOTION, ASK, and GIVE
-   * that were created more than 9 days ago and are still active.
+   * that were created more than 7 days ago and are still active.
    */
   static async deactivateExpiredPosts() {
-    const nineDaysAgo = new Date();
-    nineDaysAgo.setDate(nineDaysAgo.getDate() - 9);
-    nineDaysAgo.setHours(0, 0, 0, 0);
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
 
     const result = await this.postRepo.updateMany(
       {
-        type: { $in: [PostType.PROMOTION, PostType.ASK, PostType.GIVE] },
-        createdAt: { $lte: nineDaysAgo },
+        type: { $in: [PostType.PROMOTION] },
+        createdAt: { $lte: sevenDaysAgo },
         isDeleted: false
       },
-      { $set: { isDeleted: true } }
+      {
+        $set: {
+          isActive: false,
+          status: "inactive",
+          statusReason: "Deactivated due to time expiration"
+        }
+      }
     );
 
     if (result.modifiedCount > 0) {

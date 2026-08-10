@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { ObjectId } from "mongodb";
 import { AppDataSource } from "../data-source";
 import { Member } from "../entity/Member";
@@ -685,7 +686,7 @@ export class SubscriptionService {
       throw new NotFoundError("Subscription plan not found");
     }
 
-    const transactionId = "TXN_" + Math.random().toString(36).substr(2, 9).toUpperCase();
+    const transactionId = "TXN_" + crypto.randomBytes(8).toString("hex").toUpperCase();
 
     const payment = new Payment();
     payment.memberId = memberObjectId;
@@ -714,24 +715,36 @@ export class SubscriptionService {
       throw new NotFoundError("Payment transaction not found");
     }
 
-    if (payment.status !== "PENDING") {
-      throw new BadRequestError(`Payment has already been processed with status: ${payment.status}`);
+    // Atomic state transition from PENDING to target status to prevent duplicate processing under concurrent webhooks
+    const updateResult = await this.paymentRepo.updateOne(
+      { _id: payment._id, status: "PENDING" },
+      { $set: { status: status, updatedAt: new Date() } }
+    );
+
+    if (updateResult.matchedCount === 0) {
+      // Payment already processed — idempotent response without duplicate subscription activation
+      const existingPayment = await this.paymentRepo.findOneBy({ _id: payment._id });
+      const activeSub = await this.getActiveSubscription(payment.memberId);
+      return {
+        payment: existingPayment || payment,
+        subscription: activeSub,
+        success: existingPayment?.status === "COMPLETED"
+      };
     }
 
     payment.status = status;
-    const updatedPayment = await this.paymentRepo.save(payment);
 
     if (status === "COMPLETED") {
       const activeSub = await this.activateSubscription(payment.memberId, payment.planId, payment._id);
       return {
-        payment: updatedPayment,
+        payment: payment,
         subscription: activeSub,
         success: true
       };
     }
 
     return {
-      payment: updatedPayment,
+      payment: payment,
       success: false
     };
   }

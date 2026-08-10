@@ -1,11 +1,15 @@
 import {
   JsonController,
   Get,
+  Put,
+  Patch,
   Param,
   QueryParam,
+  Body,
   Res,
   Req,
-  UseBefore
+  UseBefore,
+  HttpCode
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { OneToOne } from "../../entity/OneToOne";
@@ -19,10 +23,14 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { canAccess } from "../../middlewares/PermissionMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
+import { SlipService } from "../../services/slip.service";
+import { UpdateSlipStatusDto } from "../../dto/mobile/Slip.dto";
+import { StatusCodes } from "http-status-codes";
 
 @JsonController("/contributions")
 @UseBefore(AuthMiddleware, franchiseFilter, canAccess("contributions", "view"))
 export class AdminContributionController {
+  private slipService = new SlipService();
   private oneToOneRepo = AppDataSource.getMongoRepository(OneToOne);
   private tySlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
   private referralRepo = AppDataSource.getMongoRepository(Referral);
@@ -419,6 +427,37 @@ export class AdminContributionController {
       return res.status(200).json({
         success: true,
         data: populated
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/contributions/status:
+   *   put:
+   *     summary: Update status of a contribution slip (Admin)
+   *     tags: [Admin Contribution]
+   */
+  @Put("/status")
+  @HttpCode(StatusCodes.OK)
+  async updateStatus(
+    @Body() body: UpdateSlipStatusDto,
+    @Res() res: any
+  ) {
+    try {
+      const result = await this.slipService.updateStatus({
+        id: body.id,
+        status: body.status,
+        reason: body.reason,
+        type: body.type
+      });
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: `${result.type} status updated successfully`,
+        data: result
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

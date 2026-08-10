@@ -1,6 +1,16 @@
 import { getDashboardDateRange, AdminDashboardController } from "../src/controllers/admin/DashboardController";
-import { MemberStatus } from "../src/entity/Member";
-import { PostType } from "../src/entity/Post";
+import { Member, MemberStatus } from "../src/entity/Member";
+import { PostModel, PostType } from "../src/entity/Post";
+import { OneToOne } from "../src/entity/OneToOne";
+import { Referral } from "../src/entity/Referral";
+import { ThankYouSlip } from "../src/entity/ThankYouSlip";
+import { Training } from "../src/entity/Training";
+import { MemberTraining } from "../src/entity/MemberTraining";
+import { MemberSubscription } from "../src/entity/MemberSubscription";
+import { BusinessRegion } from "../src/entity/BusinessRegion";
+import { State } from "../src/entity/State";
+import { Category } from "../src/entity/Category";
+import { AppDataSource } from "../src/data-source";
 import { ObjectId } from "mongodb";
 
 describe("Dashboard Controller & Date Range Utilities", () => {
@@ -43,8 +53,48 @@ describe("Dashboard Controller & Date Range Utilities", () => {
     let mockRes: any;
     let mockReq: any;
 
+    let mockMemberRepo: any;
+    let mockPostRepo: any;
+    let mockOneToOneRepo: any;
+    let mockReferralRepo: any;
+    let mockThankYouSlipRepo: any;
+    let mockTrainingRepo: any;
+    let mockMemberTrainingRepo: any;
+    let mockMemberSubscriptionRepo: any;
+    let mockRegionRepo: any;
+    let mockStateRepo: any;
+    let mockCategoryRepo: any;
+
     beforeEach(() => {
+      mockMemberRepo = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), count: jest.fn() };
+      mockPostRepo = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), count: jest.fn() };
+      mockOneToOneRepo = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), count: jest.fn() };
+      mockReferralRepo = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), count: jest.fn() };
+      mockThankYouSlipRepo = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), count: jest.fn() };
+      mockTrainingRepo = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), count: jest.fn() };
+      mockMemberTrainingRepo = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), count: jest.fn() };
+      mockMemberSubscriptionRepo = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), count: jest.fn() };
+      mockRegionRepo = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), count: jest.fn() };
+      mockStateRepo = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), count: jest.fn() };
+      mockCategoryRepo = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), count: jest.fn() };
+
+      jest.spyOn(AppDataSource, "getMongoRepository").mockImplementation((entity: any) => {
+        if (entity === Member) return mockMemberRepo;
+        if (entity === PostModel) return mockPostRepo;
+        if (entity === OneToOne) return mockOneToOneRepo;
+        if (entity === Referral) return mockReferralRepo;
+        if (entity === ThankYouSlip) return mockThankYouSlipRepo;
+        if (entity === Training) return mockTrainingRepo;
+        if (entity === MemberTraining) return mockMemberTrainingRepo;
+        if (entity === MemberSubscription) return mockMemberSubscriptionRepo;
+        if (entity === BusinessRegion) return mockRegionRepo;
+        if (entity === State) return mockStateRepo;
+        if (entity === Category) return mockCategoryRepo;
+        return { find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), count: jest.fn() } as any;
+      });
+
       controller = new AdminDashboardController();
+
       mockReq = {
         isFranchise: false,
         franchiseAreaIds: []
@@ -53,6 +103,10 @@ describe("Dashboard Controller & Date Range Utilities", () => {
         status: jest.fn().mockReturnThis(),
         json: jest.fn().mockReturnThis()
       };
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
     });
 
     it("should return correct 16 metric counts and chart datasets", async () => {
@@ -105,12 +159,15 @@ describe("Dashboard Controller & Date Range Utilities", () => {
         { _id: new ObjectId(), senderId: m2Oid, receiverId: m1Oid, amount: 15000, createdAt: new Date() }
       ];
 
-      // Mocks for charts
       const mockTrainings: any[] = [
         { _id: new ObjectId(), title: "Sales 101", isDeleted: false, createdAt: new Date() }
       ];
       const mockMemberTrainings: any[] = [
         { _id: new ObjectId(), memberId: m1Oid, createdAt: new Date() }
+      ];
+      const mockSubscriptions: any[] = [
+        { _id: new ObjectId(), memberId: m1Oid, isTrial: false, isDeleted: false },
+        { _id: new ObjectId(), memberId: m2Oid, isTrial: false, isDeleted: false }
       ];
       const mockRegions: any[] = [
         { _id: new ObjectId(), state: new ObjectId(), isDeleted: false }
@@ -122,16 +179,17 @@ describe("Dashboard Controller & Date Range Utilities", () => {
         { _id: new ObjectId(), name: "Trading", isDeleted: false }
       ];
 
-      (controller as any).memberRepo = { find: jest.fn().mockResolvedValue(mockMembers) };
-      (controller as any).postRepo = { find: jest.fn().mockResolvedValue(mockPosts) };
-      (controller as any).oneToOneRepo = { find: jest.fn().mockResolvedValue(mockOneToOnes) };
-      (controller as any).referralRepo = { find: jest.fn().mockResolvedValue(mockReferrals) };
-      (controller as any).thankYouSlipRepo = { find: jest.fn().mockResolvedValue(mockThankYouSlips) };
-      (controller as any).trainingRepo = { find: jest.fn().mockResolvedValue(mockTrainings) };
-      (controller as any).memberTrainingRepo = { find: jest.fn().mockResolvedValue(mockMemberTrainings) };
-      (controller as any).regionRepo = { find: jest.fn().mockResolvedValue(mockRegions) };
-      (controller as any).stateRepo = { find: jest.fn().mockResolvedValue(mockStates) };
-      (controller as any).categoryRepo = { find: jest.fn().mockResolvedValue(mockCategories) };
+      mockMemberRepo.find.mockResolvedValue(mockMembers);
+      mockPostRepo.find.mockResolvedValue(mockPosts);
+      mockOneToOneRepo.find.mockResolvedValue(mockOneToOnes);
+      mockReferralRepo.find.mockResolvedValue(mockReferrals);
+      mockThankYouSlipRepo.find.mockResolvedValue(mockThankYouSlips);
+      mockTrainingRepo.find.mockResolvedValue(mockTrainings);
+      mockMemberTrainingRepo.find.mockResolvedValue(mockMemberTrainings);
+      mockMemberSubscriptionRepo.find.mockResolvedValue(mockSubscriptions);
+      mockRegionRepo.find.mockResolvedValue(mockRegions);
+      mockStateRepo.find.mockResolvedValue(mockStates);
+      mockCategoryRepo.find.mockResolvedValue(mockCategories);
 
       await controller.getDashboardStats(
         mockReq,

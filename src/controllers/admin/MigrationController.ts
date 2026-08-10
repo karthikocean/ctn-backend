@@ -17,7 +17,7 @@ import { StatusCodes } from "http-status-codes";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { canAccess } from "../../middlewares/PermissionMiddleware";
-import * as XLSX from "xlsx";
+import { parseExcelBufferToJson } from "../../utils/excelHelper";
 
 @JsonController("/migrations")
 @UseBefore(AuthMiddleware)
@@ -58,10 +58,7 @@ export class MigrationController {
       }
 
       const file = req.files.file;
-      const workbook = XLSX.read(file.data, { type: "buffer" });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
+      const jsonData = await parseExcelBufferToJson<any>(file.data);
 
       let statesCreated = 0;
       let citiesCreated = 0;
@@ -237,10 +234,7 @@ export class MigrationController {
       }
 
       const file = req.files.file;
-      const workbook = XLSX.read(file.data, { type: "buffer" });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
+      const jsonData = await parseExcelBufferToJson<any>(file.data);
 
       let mainCategoriesCreated = 0;
       let subCategoriesCreated = 0;

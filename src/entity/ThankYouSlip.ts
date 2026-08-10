@@ -27,6 +27,12 @@ export class ThankYouSlip {
   @Column({ nullable: true })
     businessDetails?: string;
 
+  @Column({ nullable: true })
+    status?: string;
+
+  @Column({ nullable: true })
+    reason?: string;
+
   @CreateDateColumn()
     createdAt!: Date;
 
