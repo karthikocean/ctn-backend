@@ -26,25 +26,25 @@ export class DailyTaskCronService {
       }
     });
 
-    // 2. Cron job for 6:00 PM: "0 18 * * *"
-    cron.schedule("0 18 * * *", async () => {
-      try {
-        console.log("🕒 Running Daily Task Reminder Cron (6:00 PM)...");
-        await this.processDailyTaskReminders();
-      } catch (error: any) {
-        console.error("❌ Daily Task Reminder Cron (6:00 PM) Failed:", error.message);
-      }
-    });
+    // // 2. Cron job for 6:00 PM: "0 18 * * *"
+    // cron.schedule("0 18 * * *", async () => {
+    //   try {
+    //     console.log("🕒 Running Daily Task Reminder Cron (6:00 PM)...");
+    //     await this.processDailyTaskReminders();
+    //   } catch (error: any) {
+    //     console.error("❌ Daily Task Reminder Cron (6:00 PM) Failed:", error.message);
+    //   }
+    // });
 
-    // 3. Cron job for 10:00 PM: "0 22 * * *"
-    cron.schedule("0 22 * * *", async () => {
-      try {
-        console.log("🕒 Running Daily Task Reminder Cron (10:00 PM)...");
-        await this.processDailyTaskReminders();
-      } catch (error: any) {
-        console.error("❌ Daily Task Reminder Cron (10:00 PM) Failed:", error.message);
-      }
-    });
+    // // 3. Cron job for 10:00 PM: "0 22 * * *"
+    // cron.schedule("0 22 * * *", async () => {
+    //   try {
+    //     console.log("🕒 Running Daily Task Reminder Cron (10:00 PM)...");
+    //     await this.processDailyTaskReminders();
+    //   } catch (error: any) {
+    //     console.error("❌ Daily Task Reminder Cron (10:00 PM) Failed:", error.message);
+    //   }
+    // });
   }
 
   /**

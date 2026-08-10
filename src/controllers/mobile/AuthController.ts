@@ -2,7 +2,7 @@ import { JsonController, Post, Body, Res, HttpCode, UnauthorizedError, BadReques
 import { StatusCodes } from "http-status-codes";
 import jwt from "jsonwebtoken";
 import { AppDataSource } from "../../data-source";
-import { Member } from "../../entity/Member";
+import { Member, MemberStatus } from "../../entity/Member";
 import { Verification } from "../../entity/Verification";
 import { UserToken } from "../../entity/UserToken";
 import { MobileLoginDto, MobileSendOtpDto, MobileVerifyOtpLoginDto, ChangePinDto } from "../../dto/mobile/Auth.dto";
@@ -104,11 +104,14 @@ export class MobileAuthController {
       const { identifier, type } = body;
 
       const member = await this.memberRepo.findOne({
-        where: type === "email" ? { email: identifier } : { mobileNumber: identifier }
+        where: type === "email" ? { email: identifier, isDeleted: false } : { mobileNumber: identifier, isDeleted: false }
       });
 
       if (!member) {
         throw new BadRequestError("Member not found with this " + type);
+      }
+      if (member.status !== MemberStatus.ACTIVE) {
+        throw new BadRequestError('Account is not active. Please contact administrator.')
       }
 
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
