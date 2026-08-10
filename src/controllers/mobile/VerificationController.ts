@@ -79,7 +79,7 @@ export class VerificationController {
           : Promise.resolve(),
       ]);
 
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
       const messages: string[] = [];
 
       const sendOtp = async (
@@ -184,7 +184,7 @@ export class VerificationController {
             message: "Invalid or expired verification code"
           });
         }
-
+        console.log(new Date() > verification.expiresAt, new Date(), verification.expiresAt)
         if (new Date() > verification.expiresAt) {
           return res.status(StatusCodes.BAD_REQUEST).json({
             message: "Verification code has expired"

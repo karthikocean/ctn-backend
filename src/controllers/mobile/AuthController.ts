@@ -197,13 +197,15 @@ export class MobileAuthController {
       }
 
       const member = await this.memberRepo.findOne({
-        where: type === "email" ? { email: identifier } : { mobileNumber: identifier }
+        where: type === "email" ? { email: identifier, isDeleted: false } : { mobileNumber: identifier, isDeleted: false }
       });
 
       if (!member) {
         throw new UnauthorizedError("User not found");
       }
-
+      if (member.status !== MemberStatus.ACTIVE) {
+        throw new BadRequestError('Account is not active. Please contact administrator.')
+      }
       if (fcmToken) {
         member.fcmToken = fcmToken;
         await this.memberRepo.save(member);
