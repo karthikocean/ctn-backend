@@ -17,6 +17,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Connection, ConnectionStatus } from "../../entity/Connection";
 import { Member, MemberStatus } from "../../entity/Member";
+import { Category } from "../../entity/Category";
 import { CreateConnectionDto, UpdateConnectionStatusDto } from "../../dto/mobile/Connection.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -31,6 +32,7 @@ import { NotificationModule } from "../../entity/PushNotifications";
 export class MobileConnectionController {
   private connectionRepo = AppDataSource.getMongoRepository(Connection);
   private memberRepo = AppDataSource.getMongoRepository(Member);
+  private categoryRepo = AppDataSource.getMongoRepository(Category);
 
   /**
    * @swagger
@@ -67,12 +69,10 @@ export class MobileConnectionController {
       if (!receiver) throw new NotFoundError("Receiver not found");
 
       // Check if already connected or request pending (only in THIS direction)
-      const existing = await this.connectionRepo.findOne({
-        where: {
-          senderId: new ObjectId(senderId),
-          receiverId: new ObjectId(receiverId),
-          status: { $ne: ConnectionStatus.CANCELLED }
-        } as any
+      const existing = await this.connectionRepo.findOneBy({
+        senderId: new ObjectId(senderId),
+        receiverId: new ObjectId(receiverId),
+        status: { $ne: ConnectionStatus.CANCELLED } as any
       });
 
       if (existing) {
@@ -82,20 +82,28 @@ export class MobileConnectionController {
           data: existing
         });
       }
+      const existingReqFollowBack = await this.connectionRepo.findOneBy({
+        senderId: new ObjectId(receiverId),
+        receiverId: new ObjectId(senderId),
+        status: ConnectionStatus.PENDING
+      });
       // auto following
       const connectionFOllow = new Connection();
       connectionFOllow.senderId = new ObjectId(senderId);
       connectionFOllow.receiverId = new ObjectId(receiverId);
       connectionFOllow.status = ConnectionStatus.ACCEPTED;
       await this.connectionRepo.save(connectionFOllow);
+      let saved;
+      if (!existingReqFollowBack) {
+        // pending request for follow back
+        const connection = new Connection();
+        connection.senderId = new ObjectId(receiverId);
+        connection.receiverId = new ObjectId(senderId);
+        connection.status = ConnectionStatus.PENDING;
+        saved = await this.connectionRepo.save(connection);
+      }
 
-      // pending request for follow back
-      const connection = new Connection();
-      connection.senderId = new ObjectId(receiverId);
-      connection.receiverId = new ObjectId(senderId);
-      connection.status = ConnectionStatus.PENDING;
 
-      const saved = await this.connectionRepo.save(connection);
       // ✅ Send Notification to Receiver
       if (receiver.fcmToken) {
         const sender = await this.memberRepo.findOneBy({ _id: new ObjectId(senderId), isDeleted: false });
@@ -104,7 +112,7 @@ export class MobileConnectionController {
           subject: "New Connection Request",
           content: `${sender?.fullName || "A member"} has sent you a connection request.`,
           moduleName: NotificationModule.CONNECTION,
-          moduleId: saved._id.toString(),
+          moduleId: existingReqFollowBack ? existingReqFollowBack?._id.toString() : saved?._id.toString(),
           receiverId: receiverId,
           senderId: senderId
         });
@@ -155,11 +163,9 @@ export class MobileConnectionController {
       if (!receiver) throw new NotFoundError("Receiver not found");
 
       // Check if already connected or request exists (in THIS direction)
-      let connection = await this.connectionRepo.findOne({
-        where: {
-          senderId: new ObjectId(senderId),
-          receiverId: new ObjectId(receiverId)
-        } as any
+      let connection = await this.connectionRepo.findOneBy({
+        senderId: new ObjectId(senderId),
+        receiverId: new ObjectId(receiverId)
       });
 
       if (connection) {
@@ -240,12 +246,10 @@ export class MobileConnectionController {
       }
 
       // Check if connection exists in this direction
-      const connection = await this.connectionRepo.findOne({
-        where: {
-          senderId: new ObjectId(senderId),
-          receiverId: new ObjectId(receiverId),
-          status: ConnectionStatus.ACCEPTED
-        } as any
+      const connection = await this.connectionRepo.findOneBy({
+        senderId: new ObjectId(senderId),
+        receiverId: new ObjectId(receiverId),
+        status: ConnectionStatus.ACCEPTED
       });
 
       if (!connection) {
@@ -347,15 +351,36 @@ export class MobileConnectionController {
       const members = memberIds.length > 0
         ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
         : [];
-      const memberMap = new Map(members.map(m => [m._id.toString(), {
-        _id: m._id,
-        fullName: m.fullName,
-        profilePhoto: m.profilePhoto,
-        businessName: m.businessName,
-        businessType: m.businessType,
-        legalName: m.legalName,
-        city: m.city
-      }]));
+
+      // Fetch Category details for Members
+      const categoryIds = [...new Set(
+        members
+          .map(m => m.businessCategory)
+          .filter((id): id is ObjectId => !!id)
+          .map(id => id.toString())
+      )].map(id => new ObjectId(id));
+
+      const categories = categoryIds.length > 0
+        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : [];
+      const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
+
+      const memberMap = new Map(members.map(m => {
+        const catName = m.businessCategory ? (categoryMap.get(m.businessCategory.toString()) || null) : null;
+        return [m._id.toString(), {
+          _id: m._id,
+          fullName: m.fullName,
+          profilePhoto: m.profilePhoto,
+          businessName: m.businessName,
+          businessType: m.businessType,
+          legalName: m.legalName,
+          city: m.city,
+          businessCategory: catName,
+          businessCategoryName: catName,
+          categoryName: catName,
+          category: catName
+        }];
+      }));
 
       const data = connections.map(c => {
         const otherMemberId = c.senderId.toString() === userId ? c.receiverId.toString() : c.senderId.toString();
@@ -432,13 +457,14 @@ export class MobileConnectionController {
     @QueryParam("category") category: string,
     @QueryParam("state") state: string,
     @QueryParam("region") region: string,
+    @QueryParam("userId") userId: string,
     @Res() res: any
   ) {
-    const userId = req.user.userId;
     page = Number(page) || 0;
     limit = Number(limit) || 10;
 
     try {
+      userId = userId || req.user.userId;
       let targetMemberIds: ObjectId[] = [];
       let total = 0;
 
@@ -538,8 +564,22 @@ export class MobileConnectionController {
         : [];
       const outgoingMap = new Map(myOutgoingConnections.map(c => [c.receiverId.toString(), c.status]));
 
+      // Fetch Category details for Members
+      const categoryIds = [...new Set(
+        members
+          .map(m => m.businessCategory)
+          .filter((id): id is ObjectId => !!id)
+          .map(id => id.toString())
+      )].map(id => new ObjectId(id));
+
+      const categories = categoryIds.length > 0
+        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : [];
+      const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
+
       // Map data
       const data = members.map(m => {
+        const catName = m.businessCategory ? (categoryMap.get(m.businessCategory.toString()) || null) : null;
         return {
           _id: m._id,
           fullName: m.fullName,
@@ -548,6 +588,10 @@ export class MobileConnectionController {
           businessType: m.businessType,
           legalName: m.legalName,
           city: m.city,
+          businessCategory: catName,
+          businessCategoryName: catName,
+          categoryName: catName,
+          category: catName,
           status: outgoingMap.get(m._id.toString()) === "ACCEPTED"
             ? "Following"
             : outgoingMap.get(m._id.toString()) === "PENDING"

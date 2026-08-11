@@ -105,7 +105,7 @@ export async function notifyPostAudience(dto: {
     const memberRepo = AppDataSource.getMongoRepository(Member);
     const connectionRepo = AppDataSource.getMongoRepository(Connection);
 
-    const isMutualFriend = post.requirementVisibility === RequirementVisibility.MUTUAL_FRIEND;
+    const isMutualFriend = post.requirementVisibility === RequirementVisibility.MUTUAL_FRIEND || post.type === PostType.GIVE;
     const hasCategoryFilter = (post.categoryIds && post.categoryIds.length > 0) ||
       (post.subCategoryIds && post.subCategoryIds.length > 0);
 
