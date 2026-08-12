@@ -84,6 +84,78 @@ export async function notifyAllActiveMembers(dto: {
 }
 
 /**
+ * Separate function to send Push Notifications ONLY for GIVE posts.
+ * Strictly notifies mutual connections of the sender and logs mutual IDs.
+ */
+export async function notifyGivePostAudience(dto: {
+  post: PostModel;
+  senderId: string;
+  subject: string;
+  content: string;
+}) {
+  try {
+    const { post, senderId, subject, content } = dto;
+    const senderObjectId = new ObjectId(senderId);
+
+    const connectionRepo = AppDataSource.getMongoRepository(Connection);
+    const memberRepo = AppDataSource.getMongoRepository(Member);
+
+    // 1. Fetch people that the sender follows (ACCEPTED)
+    const following = await connectionRepo.find({
+      where: { senderId: senderObjectId, status: ConnectionStatus.ACCEPTED } as any
+    });
+    const followingIds = new Set(following.map(c => c.receiverId.toString()));
+
+    // 2. Fetch people that follow the sender (ACCEPTED)
+    const followers = await connectionRepo.find({
+      where: { receiverId: senderObjectId, status: ConnectionStatus.ACCEPTED } as any
+    });
+    const followerIds = new Set(followers.map(c => c.senderId.toString()));
+
+    // 3. Mutual connections = Intersection of following and followers
+    const mutualIds = [...followingIds].filter(id => followerIds.has(id));
+
+    // Log the mutual connection IDs as requested
+    console.log(`[GivePostNotification] Post ID: ${post._id} | Sender ID: ${senderId} | Mutual Connection IDs (${mutualIds.length}):`, mutualIds);
+
+    if (mutualIds.length === 0) {
+      console.log(`[GivePostNotification] Sender ${senderId} has 0 mutual connections. Skipping Give post notification.`);
+      return;
+    }
+
+    const mutualObjectIds = mutualIds.map(id => new ObjectId(id));
+
+    // 4. Fetch active members strictly from mutual connections
+    let targetMembers = await memberRepo.find({
+      where: {
+        _id: { $in: mutualObjectIds },
+        isDeleted: false,
+        status: MemberStatus.ACTIVE
+      } as any
+    });
+
+    // Exclude sender if present
+    targetMembers = targetMembers.filter(m => m._id.toString() !== senderObjectId.toString());
+
+    // 5. Enqueue target personal notifications via BullMQ batch producer
+    const personalDtos = targetMembers.map((member) => ({
+      receiverId: member._id.toString(),
+      subject,
+      content,
+      moduleName: NotificationModule.GIVE as any,
+      moduleId: post._id?.toString(),
+      senderId,
+      fcmToken: member.fcmToken,
+    }));
+
+    await NotificationProducerService.enqueuePersonalBatch(personalDtos);
+    console.log(`[GivePostNotification] Successfully queued ${personalDtos.length} Give post notification(s) for mutual users.`);
+  } catch (error: any) {
+    console.error("[GivePostNotification] Failed to send Give post notification:", error.message);
+  }
+}
+
+/**
  * Sends post-creation push notifications to targeted post audience using BullMQ batch producer.
  */
 export async function notifyPostAudience(dto: {
@@ -94,18 +166,23 @@ export async function notifyPostAudience(dto: {
 }) {
   try {
     const { post, senderId, subject, content } = dto;
+
+    // Delegate GIVE posts to the dedicated notifyGivePostAudience function
+    if (post.type === PostType.GIVE || String(post.type).toUpperCase() === PostType.GIVE) {
+      return await notifyGivePostAudience(dto);
+    }
+
     const senderObjectId = new ObjectId(senderId);
 
     let mappedModule = NotificationModule.GENERAL;
     if (post.type === PostType.PROMOTION) mappedModule = NotificationModule.PROMOTION;
     else if (post.type === PostType.ASK) mappedModule = NotificationModule.ASK;
-    else if (post.type === PostType.GIVE) mappedModule = NotificationModule.GIVE;
     else if (post.type === PostType.REQUIREMENT) mappedModule = NotificationModule.REQUIREMENT;
 
     const memberRepo = AppDataSource.getMongoRepository(Member);
     const connectionRepo = AppDataSource.getMongoRepository(Connection);
 
-    const isMutualFriend = post.requirementVisibility === RequirementVisibility.MUTUAL_FRIEND || post.type === PostType.GIVE;
+    const isMutualFriend = post.requirementVisibility === RequirementVisibility.MUTUAL_FRIEND;
     const hasCategoryFilter = (post.categoryIds && post.categoryIds.length > 0) ||
       (post.subCategoryIds && post.subCategoryIds.length > 0);
 

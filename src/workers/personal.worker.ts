@@ -75,6 +75,7 @@ export const personalWorker = new Worker(
   {
     connection: bullRedisConfig,
     concurrency: 20, // Concurrency for personal worker execution
+    skipVersionCheck: true,
   }
 );
 

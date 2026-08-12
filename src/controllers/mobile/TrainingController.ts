@@ -4,11 +4,12 @@ import { Training, TrainingStatus } from "../../entity/Training";
 import { Member } from "../../entity/Member";
 import { LessonProgress } from "../../entity/LessonProgress";
 import { MemberTraining } from "../../entity/MemberTraining";
-import { TrainingCategory } from "../../entity/TrainingCategory";
+import { TrainingCategory, TrainingCategoryStatus } from "../../entity/TrainingCategory";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import handleErrorResponse from "../../utils/commonFunction";
+import pagination from "../../utils/pagination";
 import { validateModuleUsage } from "../../services/moduleUsage.service";
 import { PointService } from "../../services/point.service";
 import { SubscriptionService } from "../../services/subscription.service";
@@ -25,9 +26,13 @@ export class MobileTrainingController {
 
   /**
    * @swagger
+  /**
+   * @swagger
+  /**
+   * @swagger
    * /mobile-api/trainings/active:
    *   get:
-   *     summary: Get all active trainings
+   *     summary: Get all active trainings (flat list with pagination)
    *     tags: [Mobile Training]
    *     security:
    *       - bearerAuth: []
@@ -47,9 +52,14 @@ export class MobileTrainingController {
    *         schema:
    *           type: string
    *         description: Search query for title and description
+   *       - in: query
+   *         name: categoryId
+   *         schema:
+   *           type: string
+   *         description: Filter active trainings by category ID
    *     responses:
    *       200:
-   *         description: List of active trainings
+   *         description: Paginated list of active trainings
    */
   @Get("/active")
   async getActive(
@@ -57,6 +67,7 @@ export class MobileTrainingController {
     @QueryParam("page") page: number,
     @QueryParam("limit") limit: number,
     @QueryParam("search") search: string,
+    @QueryParam("categoryId") categoryId: string,
     @Res() res: any
   ) {
     page = Number(page) || 0;
@@ -64,14 +75,12 @@ export class MobileTrainingController {
     try {
       const userId = new ObjectId(req.user.userId);
 
-      // ✅ Fetch training discount from the member's active subscription plan
+      // Fetch training discount from member's active subscription plan
       let trainingDiscountPercentage = 0;
-      let planTitle: string | null = null;
       try {
         const subscriptionService = new SubscriptionService();
         const plan = await subscriptionService.getMemberPlan(userId);
         trainingDiscountPercentage = plan.benefits?.trainingDiscountPercentage || 0;
-        planTitle = plan.title || null;
       } catch {
         // No active plan — no discount
       }
@@ -88,121 +97,145 @@ export class MobileTrainingController {
         ];
       }
 
-      const trainings = await this.trainingRepo.find({
+      if (categoryId && ObjectId.isValid(categoryId)) {
+        whereClause.categoryId = new ObjectId(categoryId);
+      }
+
+      const [trainings, total] = await this.trainingRepo.findAndCount({
         where: whereClause,
+        skip: page * limit,
+        take: limit,
         order: { createdAt: "DESC" }
       });
 
-      const memberOid = new ObjectId(userId);
+      const formattedData = await this.formatTrainings(trainings, userId, trainingDiscountPercentage);
 
-      // Fetch enrollments for this user
-      const enrollments = await this.enrollmentRepo.find({
-        where: { memberId: memberOid }
+      return pagination(total, formattedData, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/trainings/categories:
+   *   get:
+   *     summary: Get all active training categories (names and IDs)
+   *     tags: [Mobile Training]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: List of training category names
+   */
+  @Get("/categories")
+  async getCategories(@Res() res: any) {
+    try {
+      const categories = await this.trainingCategoryRepo.find({
+        where: { isDeleted: false, status: TrainingCategoryStatus.ACTIVE } as any,
+        order: { name: "ASC" }
       });
 
-      // Fetch all progress for this user to calculate completion counts
-      const allProgress = await this.progressRepo.find({
-        where: { memberId: memberOid }
-      });
-
-      // Fetch categories for the trainings
-      const categoryIds = [...new Set(trainings.map(t => t.categoryId).filter((id): id is ObjectId => !!id))];
-      const categories = categoryIds.length > 0
-        ? await this.trainingCategoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
-        : [];
-      const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
-
-      const data = trainings.map(t => {
-        const trainingProgress = allProgress.filter(p => p.trainingId.toString() === t._id.toString());
-        const completedCount = trainingProgress.filter(p => p.isCompleted).length;
-        const totalLessons = t.lessons?.length || 0;
-
-        // Find enrollment to get the last watched lesson
-        const enrollment = enrollments.find(e => e.trainingId.toString() === t._id.toString());
-        const lastWatchedLessonId = enrollment?.lessonId?.toString() || null;
-
-        // Map lessons with their individual progress
-        const lessonsWithProgress = t.lessons?.map(lesson => {
-          const lp = trainingProgress.find(p => p.lessonId.toString() === lesson._id?.toString());
-          const durationSec = this.durationToSeconds(lesson.duration);
-          const lastPos = lp?.lastWatchedPosition || 0;
-
-          // Calculate if completed based on position or existing flag
-          const isCompleted = lp?.isCompleted || (durationSec > 0 && lastPos >= durationSec);
-
-          return {
-            ...lesson,
-            progress: {
-              position: lastPos,
-              isCompleted: isCompleted,
-              updatedAt: lp?.updatedAt
-            }
-          };
-        });
-
-        // Find detailed progress for the last watched lesson (summary at top level)
-        const lastWatchedProgress = lastWatchedLessonId
-          ? trainingProgress.find(p => p.lessonId.toString() === lastWatchedLessonId.toString())
-          : null;
-
-        // Calculate total duration
-        const totalDuration = this.sumDurations(t.lessons?.map(l => l.duration) || []);
-
-        const categoryName = t.categoryId ? categoryMap.get(t.categoryId.toString()) || null : null;
-
-        // ✅ Compute discounted unlock cost based on plan
-        const discountAmount = Math.floor(t.overallPoints * (trainingDiscountPercentage / 100));
-        const discountedPoints = Math.max(0, t.overallPoints - discountAmount);
-
-        return {
-          ...t,
-          categoryName,
-          lessons: lessonsWithProgress,
-          completedLessonsCount: completedCount,
-          totalLessonsCount: totalLessons,
-          totalDuration,
-          isUnlocked: t.isFree || !!enrollment,
-          lastWatchedLessonId,
-          lastWatchedLessonProgress: lastWatchedProgress ? {
-            position: lastWatchedProgress.lastWatchedPosition,
-            isCompleted: lastWatchedProgress.isCompleted,
-            updatedAt: lastWatchedProgress.updatedAt
-          } : null,
-          discountedPoints,
-          discountAmount
-        };
-      });
-
-      const groupsMap = new Map<string, { categoryId: string | null; categoryName: string; trainings: any[] }>();
-
-      for (const t of data) {
-        const catIdStr = t.categoryId ? t.categoryId.toString() : "uncategorized";
-        const catName = t.categoryName || "General";
-
-        if (!groupsMap.has(catIdStr)) {
-          groupsMap.set(catIdStr, {
-            categoryId: t.categoryId ? t.categoryId.toString() : null,
-            categoryName: catName,
-            trainings: []
-          });
-        }
-        groupsMap.get(catIdStr)!.trainings.push(t);
-      }
-
-      const groupedData = Array.from(groupsMap.values());
+      const data = categories.map(cat => ({
+        _id: cat._id.toString(),
+        name: cat.name,
+        status: cat.status
+      }));
 
       return res.status(StatusCodes.OK).json({
         success: true,
-        planTitle,
-        trainingDiscountPercentage,
-        description: trainingDiscountPercentage > 0
-          ? `Your ${planTitle} plan gives you a ${trainingDiscountPercentage}% discount on all training unlocks.`
-          : "No training discount is available on your current plan.",
-        data: groupedData
+        data
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
+  }
+
+  private async formatTrainings(
+    trainings: Training[],
+    userId: ObjectId,
+    trainingDiscountPercentage: number
+  ) {
+    if (!trainings || trainings.length === 0) return [];
+
+    const memberOid = new ObjectId(userId);
+
+    // Fetch enrollments for this user
+    const enrollments = await this.enrollmentRepo.find({
+      where: { memberId: memberOid }
+    });
+
+    // Fetch all progress for this user to calculate completion counts
+    const allProgress = await this.progressRepo.find({
+      where: { memberId: memberOid }
+    });
+
+    // Fetch categories for the trainings
+    const categoryIds = [...new Set(trainings.map(t => t.categoryId).filter((id): id is ObjectId => !!id))];
+    const categories = categoryIds.length > 0
+      ? await this.trainingCategoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+      : [];
+    const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
+
+    return trainings.map(t => {
+      const trainingProgress = allProgress.filter(p => p.trainingId.toString() === t._id.toString());
+      const completedCount = trainingProgress.filter(p => p.isCompleted).length;
+      const totalLessons = t.lessons?.length || 0;
+
+      // Find enrollment to get the last watched lesson
+      const enrollment = enrollments.find(e => e.trainingId.toString() === t._id.toString());
+      const lastWatchedLessonId = enrollment?.lessonId?.toString() || null;
+
+      // Map lessons with their individual progress
+      const lessonsWithProgress = t.lessons?.map(lesson => {
+        const lp = trainingProgress.find(p => p.lessonId.toString() === lesson._id?.toString());
+        const durationSec = this.durationToSeconds(lesson.duration);
+        const lastPos = lp?.lastWatchedPosition || 0;
+
+        // Calculate if completed based on position or existing flag
+        const isCompleted = lp?.isCompleted || (durationSec > 0 && lastPos >= durationSec);
+
+        return {
+          ...lesson,
+          progress: {
+            position: lastPos,
+            isCompleted: isCompleted,
+            updatedAt: lp?.updatedAt
+          }
+        };
+      });
+
+      // Find detailed progress for the last watched lesson
+      const lastWatchedProgress = lastWatchedLessonId
+        ? trainingProgress.find(p => p.lessonId.toString() === lastWatchedLessonId.toString())
+        : null;
+
+      // Calculate total duration
+      const totalDuration = this.sumDurations(t.lessons?.map(l => l.duration) || []);
+      const categoryName = t.categoryId ? categoryMap.get(t.categoryId.toString()) || null : null;
+
+      // Compute discounted unlock cost based on plan
+      const discountAmount = Math.floor(t.overallPoints * (trainingDiscountPercentage / 100));
+      const discountedPoints = Math.max(0, t.overallPoints - discountAmount);
+
+      return {
+        ...t,
+        categoryName,
+        lessons: lessonsWithProgress,
+        completedLessonsCount: completedCount,
+        totalLessonsCount: totalLessons,
+        totalDuration,
+        isUnlocked: t.isFree || !!enrollment,
+        lastWatchedLessonId,
+        lastWatchedLessonProgress: lastWatchedProgress ? {
+          position: lastWatchedProgress.lastWatchedPosition,
+          isCompleted: lastWatchedProgress.isCompleted,
+          updatedAt: lastWatchedProgress.updatedAt
+        } : null,
+        discountedPoints,
+        discountAmount
+      };
+    });
   }
 
   private sumDurations(durations: (string | undefined)[]): string {

@@ -7,6 +7,7 @@ import { ObjectId } from "mongodb";
 import { BadRequestError, NotFoundError } from "routing-controllers";
 import { insertPushNotification } from "./pushnotification.service";
 import { NotificationModule } from "../entity/PushNotifications";
+import { Contact } from "../entity/Contact";
 
 export interface UpdateStatusOptions {
   id: string;
@@ -16,11 +17,32 @@ export interface UpdateStatusOptions {
   currentUserId?: string; // Optional: If initiated by a authenticated mobile member
 }
 
+type SlipType = "ONE_TO_ONE" | "REFERRAL" | "THANK_YOU_SLIP";
+
+const TYPE_ALIAS_MAP: Record<string, SlipType> = {
+  ONE_TO_ONE: "ONE_TO_ONE",
+  "121": "ONE_TO_ONE",
+  "1_2_1": "ONE_TO_ONE",
+  REFERRAL: "REFERRAL",
+  THANK_YOU_SLIP: "THANK_YOU_SLIP",
+  THANKYOUSLIP: "THANK_YOU_SLIP",
+  TY_SLIP: "THANK_YOU_SLIP"
+};
+
+const ALL_SLIP_TYPES: SlipType[] = ["ONE_TO_ONE", "REFERRAL", "THANK_YOU_SLIP"];
+
+const NOTIFICATION_CONFIG: Record<SlipType, { module: NotificationModule; label: string }> = {
+  ONE_TO_ONE: { module: NotificationModule.ONE_TO_ONE, label: "1-to-1 Slip" },
+  REFERRAL: { module: NotificationModule.REFERRAL, label: "Referral" },
+  THANK_YOU_SLIP: { module: NotificationModule.THANK_YOU_SLIP, label: "Thank You Slip" }
+};
+
 export class SlipService {
   private oneToOneRepo = AppDataSource.getMongoRepository(OneToOne);
   private referralRepo = AppDataSource.getMongoRepository(Referral);
   private tySlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
   private memberRepo = AppDataSource.getMongoRepository(Member);
+  private contactRepo = AppDataSource.getMongoRepository(Contact);
 
   async updateStatus(options: UpdateStatusOptions) {
     const { id, status, reason, type, currentUserId } = options;
@@ -33,141 +55,149 @@ export class SlipService {
       throw new BadRequestError("Status is required");
     }
 
+    const trimmedStatus = status.trim();
     const objId = new ObjectId(id);
-    let updatedRecord: any = null;
-    let detectedType: string = "";
-    let senderId: ObjectId | null = null;
-    let receiverId: ObjectId | null = null;
 
-    const normalizedType = type ? type.trim().toUpperCase().replace(/-/g, "_") : "";
+    // 1. Determine search order based on requested type (if any)
+    const normalizedInputType = type ? type.trim().toUpperCase().replace(/-/g, "_") : "";
+    const primaryType = TYPE_ALIAS_MAP[normalizedInputType];
 
-    // 1. If explicit type is provided
-    if (normalizedType === "ONE_TO_ONE" || normalizedType === "121") {
-      const record = await this.oneToOneRepo.findOneBy({ _id: objId });
-      if (record) {
-        record.status = status.trim();
-        if (reason !== undefined) record.reason = reason;
-        updatedRecord = await this.oneToOneRepo.save(record);
-        detectedType = "ONE_TO_ONE";
-        senderId = record.senderId;
-        receiverId = record.receiverId;
-      }
-    } else if (normalizedType === "REFERRAL") {
-      const record = await this.referralRepo.findOneBy({ _id: objId });
-      if (record) {
-        record.status = status.trim() as any;
-        if (reason !== undefined) record.reason = reason;
-        updatedRecord = await this.referralRepo.save(record);
-        detectedType = "REFERRAL";
-        senderId = record.senderId;
-        receiverId = record.receiverId;
-      }
-    } else if (
-      normalizedType === "THANK_YOU_SLIP" ||
-      normalizedType === "THANKYOUSLIP" ||
-      normalizedType === "TY_SLIP"
-    ) {
-      const record = await this.tySlipRepo.findOneBy({ _id: objId });
-      if (record) {
-        record.status = status.trim();
-        if (reason !== undefined) record.reason = reason;
-        updatedRecord = await this.tySlipRepo.save(record);
-        detectedType = "THANK_YOU_SLIP";
-        senderId = record.senderId;
-        receiverId = record.receiverId;
+    const searchTypes: SlipType[] = primaryType
+      ? [primaryType, ...ALL_SLIP_TYPES.filter(t => t !== primaryType)]
+      : ALL_SLIP_TYPES;
+
+    let updatedResult: {
+      type: SlipType;
+      record: any;
+      senderId?: ObjectId;
+      receiverId?: ObjectId;
+    } | null = null;
+
+    // 2. Search repositories sequentially and stop immediately on first match
+    for (const slipType of searchTypes) {
+      const result = await this.updateSlipRecord(slipType, objId, trimmedStatus, reason);
+      if (result) {
+        updatedResult = result;
+        break;
       }
     }
 
-    // 2. Auto-detect if not found by explicit type (or type wasn't provided)
-    if (!updatedRecord) {
-      // Try 121 (OneToOne)
-      const oto = await this.oneToOneRepo.findOneBy({ _id: objId });
-      if (oto) {
-        oto.status = status.trim();
-        if (reason !== undefined) oto.reason = reason;
-        updatedRecord = await this.oneToOneRepo.save(oto);
-        detectedType = "ONE_TO_ONE";
-        senderId = oto.senderId;
-        receiverId = oto.receiverId;
-      } else {
-        // Try Referral
-        const ref = await this.referralRepo.findOneBy({ _id: objId });
-        if (ref) {
-          ref.status = status.trim() as any;
-          if (reason !== undefined) ref.reason = reason;
-          updatedRecord = await this.referralRepo.save(ref);
-          detectedType = "REFERRAL";
-          senderId = ref.senderId;
-          receiverId = ref.receiverId;
-        } else {
-          // Try ThankYouSlip
-          const ty = await this.tySlipRepo.findOneBy({ _id: objId });
-          if (ty) {
-            ty.status = status.trim();
-            if (reason !== undefined) ty.reason = reason;
-            updatedRecord = await this.tySlipRepo.save(ty);
-            detectedType = "THANK_YOU_SLIP";
-            senderId = ty.senderId;
-            receiverId = ty.receiverId;
-          }
-        }
-      }
-    }
-
-    if (!updatedRecord) {
+    if (!updatedResult) {
       throw new NotFoundError("Slip record (121, Referral, or Thank You Slip) not found");
     }
 
-    // Push notification logic if triggered by a user
+    const { type: detectedType, record: updatedRecord, senderId, receiverId } = updatedResult;
+
+    // 3. Send push notification if initiated by a member
     if (currentUserId && (senderId || receiverId)) {
-      try {
-        const isSender = senderId?.toString() === currentUserId;
-        const targetMemberId = isSender ? receiverId : senderId;
-
-        if (targetMemberId && ObjectId.isValid(targetMemberId)) {
-          const targetMember = await this.memberRepo.findOneBy({ _id: targetMemberId, isDeleted: false });
-          const currentMember = await this.memberRepo.findOneBy({
-            _id: new ObjectId(currentUserId),
-            isDeleted: false
-          });
-
-          if (targetMember?.fcmToken) {
-            let notificationModule = NotificationModule.MESSAGE;
-            let displayType = "Slip";
-
-            if (detectedType === "ONE_TO_ONE") {
-              notificationModule = NotificationModule.ONE_TO_ONE;
-              displayType = "1-to-1 Slip";
-            } else if (detectedType === "REFERRAL") {
-              notificationModule = NotificationModule.REFERRAL;
-              displayType = "Referral";
-            } else if (detectedType === "THANK_YOU_SLIP") {
-              notificationModule = NotificationModule.THANK_YOU_SLIP;
-              displayType = "Thank You Slip";
-            }
-
-            const senderName = currentMember?.fullName || "A member";
-            const reasonSuffix = reason ? ` (Reason: ${reason})` : "";
-
-            await insertPushNotification({
-              token: targetMember.fcmToken,
-              subject: `${displayType} Status Updated`,
-              content: `${senderName} updated status of ${displayType} to '${status}'${reasonSuffix}.`,
-              moduleName: notificationModule,
-              moduleId: updatedRecord._id.toString(),
-              receiverId: targetMemberId.toString(),
-              senderId: currentUserId
-            });
-          }
-        }
-      } catch (notifyErr) {
-        console.error("Failed to send push notification on slip status update:", notifyErr);
-      }
+      await this.sendNotificationOnStatusUpdate({
+        currentUserId,
+        senderId,
+        receiverId,
+        detectedType,
+        status: trimmedStatus,
+        reason,
+        moduleId: updatedRecord._id.toString()
+      });
     }
 
     return {
       type: detectedType,
       record: updatedRecord
     };
+  }
+
+  private async updateSlipRecord(
+    slipType: SlipType,
+    objId: ObjectId,
+    status: string,
+    reason?: string
+  ) {
+    if (slipType === "ONE_TO_ONE") {
+      const record = await this.oneToOneRepo.findOneBy({ _id: objId });
+      if (!record) return null;
+      record.status = status;
+      if (reason !== undefined) record.reason = reason;
+      const updatedRecord = await this.oneToOneRepo.save(record);
+      return { type: slipType, record: updatedRecord, senderId: record.senderId, receiverId: record.receiverId };
+    }
+
+    if (slipType === "REFERRAL") {
+      const record = await this.referralRepo.findOneBy({ _id: objId });
+      if (!record) return null;
+      record.status = status as any;
+      if (reason !== undefined) record.reason = reason;
+      const updatedRecord = await this.referralRepo.save(record);
+
+      if (record.referralMobile && record.receiverId) {
+        const contactData = await this.contactRepo.findOneBy({
+          phoneNumber: record.referralMobile,
+          referredBy: record.receiverId
+        });
+        if (contactData) {
+          contactData.status = status as any;
+          await this.contactRepo.save(contactData);
+        }
+      }
+      return { type: slipType, record: updatedRecord, senderId: record.senderId, receiverId: record.receiverId };
+    }
+
+    if (slipType === "THANK_YOU_SLIP") {
+      const record = await this.tySlipRepo.findOneBy({ _id: objId });
+      if (!record) return null;
+      record.status = status;
+      if (reason !== undefined) record.reason = reason;
+      const updatedRecord = await this.tySlipRepo.save(record);
+      return { type: slipType, record: updatedRecord, senderId: record.senderId, receiverId: record.receiverId };
+    }
+
+    return null;
+  }
+
+  private async sendNotificationOnStatusUpdate(params: {
+    currentUserId: string;
+    senderId?: ObjectId;
+    receiverId?: ObjectId;
+    detectedType: SlipType;
+    status: string;
+    reason?: string;
+    moduleId: string;
+  }) {
+    try {
+      const { currentUserId, senderId, receiverId, detectedType, status, reason, moduleId } = params;
+
+      const isSender = senderId?.toString() === currentUserId;
+      const targetMemberId = isSender ? receiverId : senderId;
+
+      if (!targetMemberId || !ObjectId.isValid(targetMemberId)) return;
+
+      // Parallelize fetching target member and current member from database
+      const [targetMember, currentMember] = await Promise.all([
+        this.memberRepo.findOneBy({ _id: targetMemberId, isDeleted: false }),
+        this.memberRepo.findOneBy({ _id: new ObjectId(currentUserId), isDeleted: false })
+      ]);
+
+      if (targetMember?.fcmToken) {
+        const config = NOTIFICATION_CONFIG[detectedType] || {
+          module: NotificationModule.MESSAGE,
+          label: "Slip"
+        };
+
+        const senderName = currentMember?.fullName || "A member";
+        const reasonSuffix = reason ? ` (Reason: ${reason})` : "";
+
+        await insertPushNotification({
+          token: targetMember.fcmToken,
+          subject: `${config.label} Status Updated`,
+          content: `${senderName} updated status of ${config.label} to '${status}'${reasonSuffix}.`,
+          moduleName: config.module,
+          moduleId,
+          receiverId: targetMemberId.toString(),
+          senderId: currentUserId
+        });
+      }
+    } catch (notifyErr) {
+      console.error("Failed to send push notification on slip status update:", notifyErr);
+    }
   }
 }

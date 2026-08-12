@@ -728,7 +728,7 @@ export class MobileChatController {
 
       return res.status(StatusCodes.OK).json({
         success: true,
-        message: `Conversation status updated to ${status}`,
+        message: `Conversation status updated`,
         data: conversation
       });
     } catch (error: any) {
@@ -1149,6 +1149,7 @@ export class MobileChatController {
         contact.isActive = true;
         contact.isDeleted = false;
         contact.referredBy = receiverId;
+        contact.status = ReferralStatus.NOT_CONTACTED;
         await this.contactRepo.save(contact);
       }
 
@@ -1187,7 +1188,7 @@ export class MobileChatController {
             pointsResult = await pointService.awardPoints({
               memberId: senderId,
               moduleName: "One to One",
-              type: PointConfigType.RESPONSE,
+              type: PointConfigType.CREATION,
               referenceId: savedOto._id
             });
           } catch (pointError) {
@@ -1433,15 +1434,52 @@ export class MobileChatController {
 
       message.isDeleted = true;
       message.content = "This message was deleted";
+      if ((message as any).media) delete (message as any).media;
       await this.messageRepo.save(message);
 
       const conversation = await this.conversationRepo.findOneBy({ _id: message.conversationId });
       if (conversation) {
-        const otherId = conversation.participants.find(p => !p.equals(userId));
-        if (otherId) {
-          getIO().to(otherId.toString()).emit("message_deleted", {
-            messageId: message._id
-          });
+        // Find the latest message for this conversation to update lastMessage
+        const latestMessage = await this.messageRepo.findOne({
+          where: { conversationId: conversation._id } as any,
+          order: { createdAt: "DESC" }
+        });
+
+        if (latestMessage) {
+          if (latestMessage.isDeleted) {
+            conversation.lastMessage = "This message was deleted";
+          } else {
+            conversation.lastMessage = latestMessage.content || (latestMessage.media && (latestMessage.media as any).length > 0 ? "📷 Photo" : "");
+          }
+          conversation.lastMessageTime = latestMessage.createdAt;
+          conversation.lastMessageSenderId = latestMessage.senderId;
+          await this.conversationRepo.save(conversation);
+        }
+
+        const io = getIO();
+        const deletedPayload = {
+          messageId: message._id.toString(),
+          conversationId: conversation._id.toString(),
+          content: "This message was deleted",
+          isDeleted: true
+        };
+
+        const convUpdatePayload = {
+          conversationId: conversation._id.toString(),
+          lastMessage: conversation.lastMessage,
+          lastMessageTime: conversation.lastMessageTime,
+          lastMessageSenderId: conversation.lastMessageSenderId?.toString()
+        };
+
+        // 1. Emit to specific conversation room
+        io.to(`conversation_${conversation._id}`).emit("message_deleted", deletedPayload);
+        io.to(`conversation_${conversation._id}`).emit("conversation_updated", convUpdatePayload);
+
+        // 2. Emit to all participant personal rooms
+        for (const participantId of conversation.participants || []) {
+          const pStr = participantId.toString();
+          io.to(pStr).emit("message_deleted", deletedPayload);
+          io.to(pStr).emit("conversation_updated", convUpdatePayload);
         }
       }
 
@@ -1527,7 +1565,7 @@ export class MobileChatController {
           token: receiver.fcmToken,
           subject: "Birthday Wish! 🎂",
           content: content,
-          moduleName: NotificationModule.BIRTHDAY,
+          moduleName: NotificationModule.MESSAGE,
           moduleId: conversation._id.toString(),
           receiverId: recId.toString(),
           senderId: senderId.toString()

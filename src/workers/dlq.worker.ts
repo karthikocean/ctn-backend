@@ -29,6 +29,7 @@ export const dlqWorker = new Worker(
   {
     connection: bullRedisConfig,
     concurrency: 5,
+    skipVersionCheck: true,
   }
 );
 
