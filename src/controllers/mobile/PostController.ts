@@ -420,7 +420,9 @@ export class MobilePostController {
         fullName: m.fullName,
         profilePhoto: m.profilePhoto,
         businessName: m.businessName,
-        categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null
+        categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null,
+        businessCategoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null,
+        businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null
       }]));
 
       // 5. Check which posts are saved by current user
@@ -606,17 +608,13 @@ export class MobilePostController {
         ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
         : [];
 
-      const memberMap = new Map(members.map(m => [m._id.toString(), {
-        _id: m._id,
-        fullName: m.fullName,
-        profilePhoto: m.profilePhoto,
-        businessName: m.businessName,
-        city: m.city,
-        businessRegion: m.businessRegion
-      }]));
-
-      // Fetch categories & subcategories bulk
+      // Fetch categories & subcategories bulk (including member businessCategory)
       const categoryIdsToFetch = new Set<string>();
+      members.forEach(m => {
+        if (m.businessCategory) {
+          categoryIdsToFetch.add(m.businessCategory.toString());
+        }
+      });
       posts.forEach(p => {
         if (p.categoryIds) {
           p.categoryIds.forEach(id => categoryIdsToFetch.add(id.toString()));
@@ -631,6 +629,18 @@ export class MobilePostController {
         ? await this.categoryRepo.find({ where: { _id: { $in: uniqueCategoryIds } } as any })
         : [];
       const categoriesMap = new Map(categoriesList.map(c => [c._id.toString(), c.name]));
+
+      const memberMap = new Map(members.map(m => [m._id.toString(), {
+        _id: m._id,
+        fullName: m.fullName,
+        profilePhoto: m.profilePhoto,
+        businessName: m.businessName,
+        city: m.city,
+        businessRegion: m.businessRegion,
+        categoryName: m.businessCategory ? (categoriesMap.get(m.businessCategory.toString()) || null) : null,
+        businessCategoryName: m.businessCategory ? (categoriesMap.get(m.businessCategory.toString()) || null) : null,
+        businessCategory: m.businessCategory ? (categoriesMap.get(m.businessCategory.toString()) || null) : null
+      }]));
 
       // // 5. Check which posts are saved by current user
       // const savedPosts = await this.savedPostRepo.find({
@@ -821,7 +831,9 @@ export class MobilePostController {
         fullName: m.fullName,
         profilePhoto: m.profilePhoto,
         businessName: m.businessName,
-        categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null
+        categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null,
+        businessCategoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null,
+        businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null
       }]));
 
       // Check which posts are saved by current user
@@ -1002,7 +1014,9 @@ export class MobilePostController {
         businessName: m.businessName,
         city: m.city,
         businessRegion: m.businessRegion,
-        categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null
+        categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null,
+        businessCategoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null,
+        businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null
       }]));
 
       // 5. Check which posts are saved by current user
@@ -1259,11 +1273,22 @@ export class MobilePostController {
         ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
         : [];
 
+      // Fetch Category Info for Members
+      const categoryIds = [...new Set(members.map(m => m.businessCategory).filter((id): id is ObjectId => !!id))];
+      const categories = categoryIds.length > 0
+        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : [];
+
+      const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
+
       const memberMap = new Map(members.map(m => [m._id.toString(), {
         _id: m._id,
         fullName: m.fullName,
         profilePhoto: m.profilePhoto,
-        businessName: m.businessName
+        businessName: m.businessName,
+        categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null,
+        businessCategoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null,
+        businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null
       }]));
 
       // Check which posts are saved by current user
@@ -1314,21 +1339,24 @@ export class MobilePostController {
         const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
         if (!currentMember) throw new BadRequestError("Member not found");
 
-        // if (post.subCategoryIds && post.subCategoryIds.length > 0) {
-        //   const memberSub = currentMember.subCategory ? currentMember.subCategory.toString() : null;
-        //   const match = post.subCategoryIds.some(catId => catId.toString() === memberSub);
-        //   if (!match) throw new BadRequestError("You do not have access to view this post");
-        // } else if (post.categoryIds && post.categoryIds.length > 0) {
-        //   const memberCat = currentMember.businessCategory ? currentMember.businessCategory.toString() : null;
-        //   const match = post.categoryIds.some(catId => catId.toString() === memberCat);
-        //   if (!match) throw new BadRequestError("You do not have access to view this post");
-        // }
+        if (post.subCategoryIds && post.subCategoryIds.length > 0) {
+          const memberSub = currentMember.subCategory ? currentMember.subCategory.toString() : null;
+          const match = post.subCategoryIds.some(catId => catId.toString() === memberSub);
+          if (!match) throw new BadRequestError("Post not found");
+        } else if (post.categoryIds && post.categoryIds.length > 0) {
+          const memberCat = currentMember.businessCategory ? currentMember.businessCategory.toString() : null;
+          const match = post.categoryIds.some(catId => catId.toString() === memberCat);
+          if (!match) throw new BadRequestError("Post not found");
+        }
       }
 
       const member = await this.memberRepo.findOneBy({ _id: post.memberId });
 
-      // Fetch categories & subcategories bulk for the single post
+      // Fetch categories & subcategories bulk for the single post and member
       const categoryIdsToFetch = new Set<string>();
+      if (member && member.businessCategory) {
+        categoryIdsToFetch.add(member.businessCategory.toString());
+      }
       if (post.categoryIds) {
         post.categoryIds.forEach(id => categoryIdsToFetch.add(id.toString()));
       }
@@ -1362,13 +1390,18 @@ export class MobilePostController {
         postId: post._id
       }));
 
+      const memberCategoryName = member && member.businessCategory ? (categoriesMap.get(member.businessCategory.toString()) || null) : null;
+
       const data = {
         ...post,
         member: member ? {
           _id: member._id,
           fullName: member.fullName,
           profilePhoto: member.profilePhoto,
-          businessName: member.businessName
+          businessName: member.businessName,
+          categoryName: memberCategoryName,
+          businessCategoryName: memberCategoryName,
+          businessCategory: memberCategoryName
         } : null,
         categories,
         subCategories,
@@ -1547,11 +1580,11 @@ export class MobilePostController {
    *                 type: string
    */
   @Post("/:id/share")
-  async share(@Req() req: any, @Param("id") id: string, @Body() body: { receiverId: string }, @Res() res: any) {
+  async share(@Req() req: any, @Param("id") id: string, @Body() body: { receiverId: string, message: string }, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
       const userId = new ObjectId(req.user.userId);
-      const { receiverId } = body;
+      const { receiverId, message } = body;
 
       if (!receiverId || !ObjectId.isValid(receiverId)) {
         throw new BadRequestError("Invalid or missing receiverId");
@@ -1616,7 +1649,7 @@ export class MobilePostController {
         const newMessage = new Message();
         newMessage.conversationId = targetConversation._id;
         newMessage.senderId = userId;
-        newMessage.content = "Shared a post";
+        newMessage.content = message;
         newMessage.type = MessageType.POST_SHARE;
         newMessage.postId = post._id;
         newMessage.isRead = false;
@@ -1629,7 +1662,7 @@ export class MobilePostController {
         await this.messageRepo.save(newMessage);
 
         // Update conversation last message and unread count
-        targetConversation.lastMessage = "Shared a post";
+        targetConversation.lastMessage = message;
         targetConversation.lastMessageTime = new Date();
         targetConversation.lastMessageSenderId = userId;
 
@@ -1665,7 +1698,7 @@ export class MobilePostController {
 
           io.to(otherId.toString()).emit("conversation_updated", {
             ...targetConversation,
-            lastMessage: "Shared a post",
+            lastMessage: message,
             lastMessageTime: targetConversation.lastMessageTime,
             lastMessageSenderId: userId,
             otherUser: sender ? {
@@ -1821,11 +1854,22 @@ export class MobilePostController {
         ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
         : [];
 
+      // Fetch Category Info for Members
+      const categoryIds = [...new Set(members.map(m => m.businessCategory).filter((id): id is ObjectId => !!id))];
+      const categories = categoryIds.length > 0
+        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : [];
+
+      const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
+
       const memberMap = new Map(members.map(m => [m._id.toString(), {
         _id: m._id,
         fullName: m.fullName,
         profilePhoto: m.profilePhoto,
-        businessName: m.businessName
+        businessName: m.businessName,
+        categoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null,
+        businessCategoryName: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null,
+        businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null
       }]));
 
       const postMap = new Map(posts.map(p => [p._id.toString(), p]));
