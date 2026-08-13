@@ -541,7 +541,8 @@ export class MobilePostController {
         type: PostType.REQUIREMENT,
         isDeleted: false,
         status: { $ne: "reported" },
-        memberId: { $ne: new ObjectId(userId) }
+        memberId: { $ne: new ObjectId(userId) },
+        isActive: true
       };
 
       const visibilityOrArray: any[] = [
@@ -1090,7 +1091,7 @@ export class MobilePostController {
     const userId = req.user.userId;
 
     try {
-      const where: any = { isDeleted: false, status: { $ne: "reported" } };
+      const where: any = { isDeleted: false, isActive: true, status: { $ne: "reported" } };
 
       if (type) where.type = type;
 

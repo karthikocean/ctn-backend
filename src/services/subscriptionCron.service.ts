@@ -158,6 +158,64 @@ export class SubscriptionCronService {
     }
 
     // ==========================================
+    // 3. PROCESS SUBSCRIPTIONS ENDING IN 15 DAYS
+    // ==========================================
+    const fifteenDaysFromNowStart = new Date();
+    fifteenDaysFromNowStart.setDate(fifteenDaysFromNowStart.getDate() + 15);
+    fifteenDaysFromNowStart.setHours(0, 0, 0, 0);
+
+    const fifteenDaysFromNowEnd = new Date();
+    fifteenDaysFromNowEnd.setDate(fifteenDaysFromNowEnd.getDate() + 15);
+    fifteenDaysFromNowEnd.setHours(23, 59, 59, 999);
+
+    const expiringIn15DaysSubs = await this.subRepo.find({
+      where: {
+        endDate: {
+          $gte: fifteenDaysFromNowStart,
+          $lte: fifteenDaysFromNowEnd
+        },
+        status: "ACTIVE",
+        isDeleted: false
+      } as any
+    });
+
+    console.log(`[Cron] Found ${expiringIn15DaysSubs.length} subscriptions ending in 15 days.`);
+
+    for (const sub of expiringIn15DaysSubs) {
+      if (sub.type === "FREE") continue;
+
+      try {
+        const member = await this.memberRepo.findOneBy({ _id: sub.memberId, isDeleted: false });
+        if (!member) continue;
+
+        const planName = sub.type === "TRIAL" ? "Trial Period" : `${sub.type} Subscription`;
+        const messageText = `Your ${planName} is ending in 15 days. Renew or upgrade now to retain all your premium benefits!`;
+
+        // Email
+        if (member.email) {
+          await MailService.sendEmail(
+            member.email,
+            "Action Required: Your Subscription Ends in 15 Days",
+            `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
+          );
+        }
+
+        // Push Notification
+        if (member.fcmToken) {
+          await insertPushNotification({
+            token: member.fcmToken,
+            subject: "Subscription Ending in 15 Days",
+            content: messageText,
+            moduleName: NotificationModule.PLAN_EXPIRY,
+            receiverId: member._id.toString()
+          });
+        }
+      } catch (err: any) {
+        console.error(`[Cron] Error sending 15 days notification for sub ${sub._id}:`, err.message);
+      }
+    }
+
+    // ==========================================
     // 3. PROCESS SUBSCRIPTIONS ENDING SOON (IN 3 DAYS)
     // ==========================================
     const threeDaysFromNowStart = new Date();

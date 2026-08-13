@@ -28,17 +28,17 @@ export class DailyTaskCronService {
       timezone: "Asia/Kolkata"
     });
 
-    // // 2. Cron job for 4:00 PM: "0 16 * * *"
-    // cron.schedule("0 16 * * *", async () => {
-    //   try {
-    //     console.log("🕒 Running Daily Task Reminder Cron (4:00 PM)...");
-    //     await this.processDailyTaskReminders();
-    //   } catch (error: any) {
-    //     console.error("❌ Daily Task Reminder Cron (4:00 PM) Failed:", error.message);
-    //   }
-    // }, {
-    //   timezone: "Asia/Kolkata"
-    // });
+    // 2. Cron job for 4:00 PM: "0 16 * * *"
+    cron.schedule("0 16 * * *", async () => {
+      try {
+        console.log("🕒 Running Daily Task Reminder Cron (4:00 PM)...");
+        await this.processDailyTaskReminders();
+      } catch (error: any) {
+        console.error("❌ Daily Task Reminder Cron (4:00 PM) Failed:", error.message);
+      }
+    }, {
+      timezone: "Asia/Kolkata"
+    });
 
     // // 3. Cron job for 6:00 PM: "0 18 * * *"
     // cron.schedule("0 18 * * *", async () => {

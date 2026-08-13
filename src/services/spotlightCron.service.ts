@@ -23,13 +23,13 @@ export class SpotlightCronService {
     });
 
     // ✅ Spotlight Deactivation Cron - Runs every minute
-    // cron.schedule("* * * * *", async () => {
-    //   try {
-    //     await this.deactivateExpiredSpotlights();
-    //   } catch (error: any) {
-    //     console.error("❌ Spotlight Deactivation Cron Failed:", error.message);
-    //   }
-    // });
+    cron.schedule("* * * * *", async () => {
+      try {
+        await this.deactivateExpiredSpotlights();
+      } catch (error: any) {
+        console.error("❌ Spotlight Deactivation Cron Failed:", error.message);
+      }
+    });
   }
 
   /**

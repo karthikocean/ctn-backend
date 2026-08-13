@@ -765,8 +765,8 @@ export class MobileChatController {
       // Increment response count
       post.responsedCount = (post.responsedCount || 0) + 1;
 
-      // Deactivate Requirement, Ask, and Give posts if response count reaches 10
-      const autoDeactivateTypes = [PostType.REQUIREMENT, PostType.ASK, PostType.GIVE];
+      // Deactivate Requirement, Give posts if response count reaches 10
+      const autoDeactivateTypes = [PostType.REQUIREMENT, PostType.GIVE];
       if (autoDeactivateTypes.includes(post.type) && post.responsedCount >= 10) {
         post.isActive = false;
         post.status = "inactive";

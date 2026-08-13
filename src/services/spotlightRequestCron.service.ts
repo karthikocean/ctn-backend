@@ -19,10 +19,10 @@ export class SpotlightRequestCronService {
   static init() {
     console.log("⏰ Initializing Spotlight Request Cron Jobs...");
 
-    // ✅ Daily 12:00 AM Cron - Auto Create Spotlight from Yesterday's First 50 Pending Requests
-    cron.schedule("0 0 * * *", async () => {
+    // ✅ Daily 1:00 AM Cron - Auto Create Spotlight from Yesterday's First 50 Pending Requests
+    cron.schedule("0 1 * * *", async () => {
       try {
-        console.log("🕒 Running Daily Spotlight Creation Cron (12:00 AM)...");
+        console.log("🕒 Running Daily Spotlight Creation Cron (1:00 AM)...");
         await this.createSpotlightFromYesterdayRequests();
       } catch (error: any) {
         console.error("❌ Daily Spotlight Creation Cron Failed:", error.message);
@@ -41,7 +41,7 @@ export class SpotlightRequestCronService {
   }
 
   /**
-   * At 12:00 AM every day, find yesterday's first 50 members with PENDING status in SpotlightRequest
+   * At 1:00 AM every day, find yesterday's first 50 members with PENDING status in SpotlightRequest
    * and insert a new Spotlight for today.
    */
   static async createSpotlightFromYesterdayRequests() {
