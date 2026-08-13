@@ -151,7 +151,7 @@ export class MobileSuggestionController {
           skip: page * limit,
           take: limit
         }),
-        this.suggestionRepo.count({ where: matchFilter })
+        this.suggestionRepo.count(matchFilter as any)
       ]);
 
       return pagination(total, suggestions, limit, page, res);
