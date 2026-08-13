@@ -357,6 +357,7 @@ export class RazorpayUpgradeService {
 export class RazorpayVerificationService {
   private paymentRepo = AppDataSource.getMongoRepository(Payment);
   private memberRepo = AppDataSource.getMongoRepository(Member);
+  private planRepo = AppDataSource.getMongoRepository(Plan);
   private subService = new SubscriptionService();
 
   async verifyUpgradePayment(razorpayOrderId: string, razorpayPaymentId: string, razorpaySignature: string) {
@@ -404,10 +405,14 @@ export class RazorpayVerificationService {
     if (!member) {
       throw new BadRequestError("Member not found");
     }
+    const plan = await this.planRepo.findOneBy({ _id: new ObjectId(payment.planId) });
+    const rawPlanName = plan?.title || "Advance";
+    const planName = rawPlanName.toLowerCase().includes("plan") ? rawPlanName : `${rawPlanName} Plan`;
+
     await insertPushNotification({
       token: member.fcmToken || "",
-      subject: "Plan Upgraded Successfully",
-      content: "Congratulations! Your subscription plan has been upgraded successfully.",
+      subject: "Plan Upgraded",
+      content: `Your subscription has been successfully upgraded to the ${planName}.`,
       moduleName: NotificationModule.UPGRADE,
       moduleId: payment.planId.toString(),
       receiverId: member._id.toString()

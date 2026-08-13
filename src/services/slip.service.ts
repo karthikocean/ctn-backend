@@ -178,19 +178,38 @@ export class SlipService {
       ]);
 
       if (targetMember?.fcmToken) {
-        const config = NOTIFICATION_CONFIG[detectedType] || {
-          module: NotificationModule.MESSAGE,
-          label: "Slip"
-        };
-
-        const senderName = currentMember?.fullName || "A member";
+        const senderName = currentMember?.fullName ? currentMember.fullName.trim() : "A member";
+        const formattedStatus = status
+          .replace(/_/g, " ")
+          .trim()
+          .split(/\s+/)
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+          .join(" ");
         const reasonSuffix = reason ? ` (Reason: ${reason})` : "";
+
+        let subject = "Status Updated";
+        let content = `${senderName} updated status to "${formattedStatus}"${reasonSuffix}.`;
+        let moduleName = NotificationModule.GENERAL;
+
+        if (detectedType === "REFERRAL") {
+          moduleName = NotificationModule.REFERRAL;
+          subject = "Referral Status Updated";
+          content = `${senderName} updated the referral status to "${formattedStatus}"${reasonSuffix}.`;
+        } else if (detectedType === "ONE_TO_ONE") {
+          moduleName = NotificationModule.ONE_TO_ONE;
+          subject = "Direct Meet Status Updated";
+          content = `${senderName} updated the direct meet status to "${formattedStatus}"${reasonSuffix}.`;
+        } else if (detectedType === "THANK_YOU_SLIP") {
+          moduleName = NotificationModule.THANK_YOU_SLIP;
+          subject = "Thank You Slip Status Updated";
+          content = `${senderName} updated the thank you slip status to "${formattedStatus}"${reasonSuffix}.`;
+        }
 
         await insertPushNotification({
           token: targetMember.fcmToken,
-          subject: `${config.label} Status Updated`,
-          content: `${senderName} updated status of ${config.label} to '${status}'${reasonSuffix}.`,
-          moduleName: config.module,
+          subject,
+          content,
+          moduleName,
           moduleId,
           receiverId: targetMemberId.toString(),
           senderId: currentUserId

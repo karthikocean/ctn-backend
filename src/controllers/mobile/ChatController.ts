@@ -1571,17 +1571,17 @@ export class MobileChatController {
       const savedMessage = await this.messageRepo.save(newMessage);
 
       // Send Push Notification if receiver is not active in the chat room and has fcmToken
-      if (!isReceiverActive && receiver.fcmToken) {
-        await insertPushNotification({
-          token: receiver.fcmToken,
-          subject: "Birthday Wish! 🎂",
-          content: content,
-          moduleName: NotificationModule.MESSAGE,
-          moduleId: conversation._id.toString(),
-          receiverId: recId.toString(),
-          senderId: senderId.toString()
-        });
-      }
+      // if (!isReceiverActive && receiver.fcmToken) {
+      //   await insertPushNotification({
+      //     token: receiver.fcmToken,
+      //     subject: "Birthday Wish! 🎂",
+      //     content: content,
+      //     moduleName: NotificationModule.MESSAGE,
+      //     moduleId: conversation._id.toString(),
+      //     receiverId: recId.toString(),
+      //     senderId: senderId.toString()
+      //   });
+      // }
 
       // Update conversation details
       conversation.lastMessage = content;
