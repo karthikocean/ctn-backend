@@ -84,17 +84,21 @@ export class WebsiteCommonController {
     try {
       // 1. Active Members Count
       const activeMembersCount = await this.memberRepo.count({
-        where: { isDeleted: false, status: MemberStatus.ACTIVE } as any
+        isDeleted: false,
+        status: MemberStatus.ACTIVE
       });
 
       // 2. Category Count (Main Category Count)
       const categoryCount = await this.categoryRepo.count({
-        where: { isDeleted: false, status: CategoryStatus.ACTIVE, type: CategoryType.MAIN } as any
+        isDeleted: false,
+        status: CategoryStatus.ACTIVE,
+        type: CategoryType.MAIN
       });
 
       // 3. Total Regions (Sum of all areas inside Business Regions)
       const regions = await this.businessRegionRepo.find({
-        where: { isDeleted: false, status: BusinessRegionStatus.ACTIVE } as any
+        isDeleted: false,
+        status: BusinessRegionStatus.ACTIVE
       });
       let totalRegions = 0;
       for (const region of regions) {
@@ -111,7 +115,8 @@ export class WebsiteCommonController {
 
       // 6. Requirements Count
       const requirementsCount = await this.postRepo.count({
-        where: { isDeleted: false, type: PostType.REQUIREMENT } as any
+        isDeleted: false,
+        type: PostType.REQUIREMENT
       });
 
       // 7. Business Done (Thank You Slip count and total amount)

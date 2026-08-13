@@ -121,7 +121,7 @@ export class AdminSuggestionController {
             }
           }
         ]).toArray(),
-        this.suggestionRepo.count({ where: matchFilter })
+        this.suggestionRepo.count(matchFilter as any)
       ]);
 
       return pagination(total, suggestions, limit, page, res);

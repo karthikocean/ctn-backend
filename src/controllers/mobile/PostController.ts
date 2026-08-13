@@ -1987,7 +1987,7 @@ export class MobilePostController {
       const savedReport = await postReportRepo.save(report);
 
       // 5. Count total reports for this post and block if >= 10
-      const reportCount = await postReportRepo.count({ where: { postId } as any });
+      const reportCount = await postReportRepo.count({ postId } as any);
       if (reportCount >= 10) {
         post.status = "reported";
         await this.postRepo.save(post);
