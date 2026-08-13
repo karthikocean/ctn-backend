@@ -728,7 +728,7 @@ export class MobileChatController {
 
       return res.status(StatusCodes.OK).json({
         success: true,
-        message: `Conversation status updated`,
+        message: "Conversation status updated",
         data: conversation
       });
     } catch (error: any) {
@@ -1258,20 +1258,31 @@ export class MobileChatController {
       // Send Push Notification if receiver is not active in the chat room and has fcmToken
       const receiver = await this.memberRepo.findOneBy({ _id: receiverId, isDeleted: false });
       if (!isReceiverActive && receiver?.fcmToken) {
-        // const sender = await this.memberRepo.findOneBy({ _id: senderId });
+        const sender = await this.memberRepo.findOneBy({ _id: senderId, isDeleted: false });
+        const senderName = sender?.fullName ? sender.fullName.trim() : "A member";
+
         let notificationModule = NotificationModule.MESSAGE;
+        let subject = `New Message from ${senderName}`;
+        let notificationContent = newMessage.content;
+
         if (type === MessageType.ONE_TO_ONE) {
           notificationModule = NotificationModule.ONE_TO_ONE;
+          subject = "Direct Meet Update";
+          notificationContent = `${senderName} has registered a direct meeting with you.  we made valuable conversation!`;
         } else if (type === MessageType.REFERRAL) {
           notificationModule = NotificationModule.REFERRAL;
+          subject = "New Referral Received";
+          notificationContent = `${senderName} shared a business referral with you. Check the referral details and connect.`;
         } else if (type === MessageType.THANK_YOU_SLIP) {
           notificationModule = NotificationModule.THANK_YOU_SLIP;
+          subject = "Business Closed";
+          notificationContent = `${senderName} marked the business as successfully completed. Congratulations on the new business connection! 🎉`;
         }
 
         await insertPushNotification({
           token: receiver.fcmToken,
-          subject: "New Message",
-          content: newMessage.content,
+          subject,
+          content: notificationContent,
           moduleName: notificationModule,
           moduleId: conversation._id.toString(),
           receiverId: receiverId.toString(),
@@ -1560,17 +1571,17 @@ export class MobileChatController {
       const savedMessage = await this.messageRepo.save(newMessage);
 
       // Send Push Notification if receiver is not active in the chat room and has fcmToken
-      if (!isReceiverActive && receiver.fcmToken) {
-        await insertPushNotification({
-          token: receiver.fcmToken,
-          subject: "Birthday Wish! 🎂",
-          content: content,
-          moduleName: NotificationModule.MESSAGE,
-          moduleId: conversation._id.toString(),
-          receiverId: recId.toString(),
-          senderId: senderId.toString()
-        });
-      }
+      // if (!isReceiverActive && receiver.fcmToken) {
+      //   await insertPushNotification({
+      //     token: receiver.fcmToken,
+      //     subject: "Birthday Wish! 🎂",
+      //     content: content,
+      //     moduleName: NotificationModule.MESSAGE,
+      //     moduleId: conversation._id.toString(),
+      //     receiverId: recId.toString(),
+      //     senderId: senderId.toString()
+      //   });
+      // }
 
       // Update conversation details
       conversation.lastMessage = content;

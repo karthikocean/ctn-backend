@@ -40,7 +40,7 @@ export const identifierOrIpKey = (req: Request): string => {
   const identifier = body.identifier || body.phone || body.mobileNumber || body.email || "";
   const cleanId = String(identifier).trim().toLowerCase();
   const ip = req.ip || "127.0.0.1";
-  
+
   if (cleanId) {
     return `${ip}_${cleanId}`;
   }

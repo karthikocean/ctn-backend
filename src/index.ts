@@ -37,6 +37,7 @@ import { AnnouncementCronService } from "./services/announcementCron.service";
 import { PostDeactivationCronService } from "./services/postDeactivationCron.service";
 import { ReminderCronService } from "./services/reminderCron.service";
 import { BirthdayCronService } from "./services/birthdayCron.service";
+import { AnniversaryCronService } from "./services/anniversaryCron.service";
 import { DailyTaskCronService } from "./services/dailyTaskCron.service";
 import { SpotlightRequestCronService } from "./services/spotlightRequestCron.service";
 import { MilestoneCronService } from "./services/milestoneCron.service";
@@ -241,6 +242,17 @@ AppDataSource.initialize()
       classTransformer: true
     });
 
+    // ✅ Website APIs
+    useExpressServer(app, {
+      routePrefix: "/website-api",
+      controllers: [__dirname + `/controllers/website/*.${ext}`],
+      middlewares: [__dirname + `/middlewares/**/*.${ext}`],
+      interceptors: [__dirname + `/middlewares/ResponseInterceptor.${ext}`],
+      defaultErrorHandler: false,
+      validation: true,
+      classTransformer: true
+    });
+
     // ✅ Common / General APIs
     useExpressServer(app, {
       routePrefix: "/api",
@@ -294,6 +306,7 @@ AppDataSource.initialize()
       PostDeactivationCronService.init();
       ReminderCronService.init();
       BirthdayCronService.init();
+      AnniversaryCronService.init();
       DailyTaskCronService.init();
       SpotlightRequestCronService.init();
       MilestoneCronService.init();

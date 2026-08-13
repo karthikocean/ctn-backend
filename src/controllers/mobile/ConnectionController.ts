@@ -103,14 +103,16 @@ export class MobileConnectionController {
         saved = await this.connectionRepo.save(connection);
       }
 
-
       // ✅ Send Notification to Receiver
       if (receiver.fcmToken) {
         const sender = await this.memberRepo.findOneBy({ _id: new ObjectId(senderId), isDeleted: false });
+        const senderName = sender?.fullName ? sender.fullName.trim() : "A member";
+        const companyText = sender?.businessName?.trim() ? ` from ${sender.businessName.trim()}` : "";
+
         await insertPushNotification({
           token: receiver.fcmToken,
           subject: "New Connection Request",
-          content: `${sender?.fullName || "A member"} has sent you a connection request.`,
+          content: `${senderName}${companyText} wants to connect with you. Review the request and connect.`,
           moduleName: NotificationModule.CONNECTION,
           moduleId: existingReqFollowBack ? existingReqFollowBack?._id.toString() : saved?._id.toString(),
           receiverId: receiverId,

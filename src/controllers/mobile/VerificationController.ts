@@ -174,7 +174,7 @@ export class VerificationController {
         });
       }
 
-      if (otp !== '1234') {
+      if (otp !== "1234") {
         const verification = await this.verificationRepo.findOne({
           where: { identifier, type, otp, isVerified: false }
         });
@@ -184,7 +184,7 @@ export class VerificationController {
             message: "Invalid or expired verification code"
           });
         }
-        console.log(new Date() > verification.expiresAt, new Date(), verification.expiresAt)
+        console.log(new Date() > verification.expiresAt, new Date(), verification.expiresAt);
         if (new Date() > verification.expiresAt) {
           return res.status(StatusCodes.BAD_REQUEST).json({
             message: "Verification code has expired"

@@ -7,6 +7,18 @@ function handleErrorResponse(error: any, res: any) {
     return;
   }
 
+  // Handle JWT verification errors
+  if (
+    error?.name === "JsonWebTokenError" ||
+    error?.name === "TokenExpiredError" ||
+    error?.name === "NotBeforeError"
+  ) {
+    return res.status(401).json({
+      status: "error",
+      message: error.message || "Invalid or expired token"
+    });
+  }
+
   // Handle Razorpay SDK errors
   if (error && error.error && typeof error.error.description === "string") {
     return res.status(error.statusCode || 400).json({

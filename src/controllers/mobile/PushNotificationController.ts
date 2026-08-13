@@ -174,12 +174,12 @@ export class PushNotificationController {
         },
         Communication: {
           totalUnread: getCount([
-            NotificationModule.MESSAGE,
+            // NotificationModule.MESSAGE,
             // NotificationModule.CHAT,
             NotificationModule.MESSAGE_REQUEST
           ]),
           items: [
-            { module: NotificationModule.MESSAGE, label: "Messages", unreadCount: getCount([NotificationModule.MESSAGE]) },
+            // { module: NotificationModule.MESSAGE, label: "Messages", unreadCount: getCount([NotificationModule.MESSAGE]) },
             { module: NotificationModule.MESSAGE_REQUEST, label: "Message Requests", unreadCount: getCount([NotificationModule.MESSAGE_REQUEST]) },
             // { module: NotificationModule.CHAT, label: "Chats", unreadCount: getCount([NotificationModule.CHAT]) },
           ]
@@ -210,12 +210,13 @@ export class PushNotificationController {
         },
         Reminders: {
           totalUnread: getCount([NotificationModule.DAILY_TASK, NotificationModule.REMINDER,
-            NotificationModule.BIRTHDAY
+          NotificationModule.BIRTHDAY, NotificationModule.ANNIVERSARY
           ]),
           items: [
             { module: NotificationModule.DAILY_TASK, label: "Daily Tasks", unreadCount: getCount([NotificationModule.DAILY_TASK]) },
             { module: NotificationModule.REMINDER, label: "Reminder", unreadCount: getCount([NotificationModule.REMINDER]) },
             { module: NotificationModule.BIRTHDAY, label: "Birthdays", unreadCount: getCount([NotificationModule.BIRTHDAY]) },
+            { module: NotificationModule.ANNIVERSARY, label: "Anniversaries", unreadCount: getCount([NotificationModule.ANNIVERSARY]) },
           ]
         }
       };

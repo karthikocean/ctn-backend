@@ -130,14 +130,13 @@ export class SubscriptionCronService {
         const member = await this.memberRepo.findOneBy({ _id: sub.memberId, isDeleted: false });
         if (!member) continue;
 
-        const planName = sub.type === "TRIAL" ? "Trial Period" : `${sub.type} Subscription`;
-        const messageText = `Your ${planName} is ending in 30 days. Renew or upgrade now to retain all your premium benefits!`;
+        const messageText = "Your subscription plan will expire in 30 days. Renew your plan to continue enjoying Trusted Network benefits.";
 
         // Email
         if (member.email) {
           await MailService.sendEmail(
             member.email,
-            "Action Required: Your Subscription Ends in 30 Days",
+            "Plan Expiring Soon",
             `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
           );
         }
@@ -146,7 +145,7 @@ export class SubscriptionCronService {
         if (member.fcmToken) {
           await insertPushNotification({
             token: member.fcmToken,
-            subject: "Subscription Ending in 30 Days",
+            subject: "Plan Expiring Soon",
             content: messageText,
             moduleName: NotificationModule.PLAN_EXPIRY,
             receiverId: member._id.toString()
@@ -188,14 +187,13 @@ export class SubscriptionCronService {
         const member = await this.memberRepo.findOneBy({ _id: sub.memberId, isDeleted: false });
         if (!member) continue;
 
-        const planName = sub.type === "TRIAL" ? "Trial Period" : `${sub.type} Subscription`;
-        const messageText = `Your ${planName} is ending in 15 days. Renew or upgrade now to retain all your premium benefits!`;
+        const messageText = "Your subscription plan will expire in 15 days. Renew your plan to continue enjoying Trusted Network benefits.";
 
         // Email
         if (member.email) {
           await MailService.sendEmail(
             member.email,
-            "Action Required: Your Subscription Ends in 15 Days",
+            "Plan Expiring Soon",
             `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
           );
         }
@@ -204,7 +202,7 @@ export class SubscriptionCronService {
         if (member.fcmToken) {
           await insertPushNotification({
             token: member.fcmToken,
-            subject: "Subscription Ending in 15 Days",
+            subject: "Plan Expiring Soon",
             content: messageText,
             moduleName: NotificationModule.PLAN_EXPIRY,
             receiverId: member._id.toString()
@@ -247,14 +245,13 @@ export class SubscriptionCronService {
         const member = await this.memberRepo.findOneBy({ _id: sub.memberId, isDeleted: false });
         if (!member) continue;
 
-        const planName = sub.type === "TRIAL" ? "Trial Period" : `${sub.type} Subscription`;
-        const messageText = `Your ${planName} is ending soon in 3 days. Renew or upgrade now to retain all your premium benefits!`;
+        const messageText = "Your subscription plan will expire in 3 days. Renew your plan to continue enjoying Trusted Network benefits.";
 
         // Email
         if (member.email) {
           await MailService.sendEmail(
             member.email,
-            "Action Required: Your Subscription Ends in 3 Days",
+            "Plan Expiring Soon",
             `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
           );
         }
@@ -263,7 +260,7 @@ export class SubscriptionCronService {
         if (member.fcmToken) {
           await insertPushNotification({
             token: member.fcmToken,
-            subject: "Subscription Ending Soon",
+            subject: "Plan Expiring Soon",
             content: messageText,
             moduleName: NotificationModule.PLAN_EXPIRY,
             receiverId: member._id.toString()

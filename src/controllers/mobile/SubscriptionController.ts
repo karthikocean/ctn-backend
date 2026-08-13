@@ -429,10 +429,14 @@ export class MobileSubscriptionController {
       if (!member) {
         throw new BadRequestError("Member not found");
       }
+      const plan = await this.planRepo.findOneBy({ _id: new ObjectId(planId) });
+      const rawPlanName = plan?.title || "Basic";
+      const planName = rawPlanName.toLowerCase().includes("plan") ? rawPlanName : `${rawPlanName} Plan`;
+
       await insertPushNotification({
         token: member.fcmToken || "",
         subject: "Plan Downgraded",
-        content: "Your subscription plan has been downgraded successfully. Your new plan is now active.",
+        content: `Your subscription has been changed to the ${planName}.`,
         moduleName: NotificationModule.DOWNGRADE,
         moduleId: planId.toString(),
         receiverId: member._id.toString()

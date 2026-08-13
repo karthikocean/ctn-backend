@@ -223,20 +223,26 @@ export class MobilePostController {
 
       const savedPost = await this.postRepo.save(post);
       if (post.type !== PostType.PROMOTION) {
+        const senderMember = await this.memberRepo.findOneBy({ _id: memberObjectId });
+        const senderName = senderMember?.fullName ? senderMember.fullName.trim() : "Member";
+        const formattedType = post.type.charAt(0).toUpperCase() + post.type.slice(1).toLowerCase();
+        const subject = `${senderName} ${formattedType}`;
+        const content = data.title;
+
         if (post.type === PostType.GIVE) {
           notifyGivePostAudience({
             post: savedPost,
             senderId: userId,
-            subject: "New Give Post",
-            content: "A new give post has been shared"
+            subject,
+            content
           }).catch(err => console.error("[PostController] notifyGivePostAudience error:", err));
         } else {
           // Notify relevant members about the new post (non-blocking)
           notifyPostAudience({
             post: savedPost,
             senderId: userId,
-            subject: `New ${data.type.charAt(0) + data.type.slice(1).toLowerCase()} Post`,
-            content: "A new post has been shared"
+            subject,
+            content
           }).catch(err => console.error("[PostController] notifyPostAudience error:", err));
         }
       }

@@ -78,8 +78,8 @@ export class TrainingController {
 
       // Send push notification to all active members
       await notifyAllActiveMembers({
-        subject: "New Training Course Published! 🎓",
-        content: `A new training course is available: ${training.title}`,
+        subject: "New Training Available",
+        content: `Trusted Network has introduced a new ${training.title} program. Explore the details and register.`,
         moduleName: NotificationModule.TRAINING,
         moduleId: saved._id.toString(),
         senderId: req.user.userId

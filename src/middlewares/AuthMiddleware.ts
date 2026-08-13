@@ -34,10 +34,13 @@ export class AuthMiddleware implements ExpressMiddlewareInterface {
 
       const token = authHeader.split(" ")[1];
 
-      if (!token) {
-        throw new UnauthorizedError("Token missing");
+      let decoded: JwtPayload;
+      try {
+        decoded = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload;
+      } catch (jwtErr: any) {
+        throw new UnauthorizedError(jwtErr.message || "Invalid or expired token");
       }
-      const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload;
+
       const decodedId = decoded.id || decoded.userId;
 
       if (!decoded || typeof decoded !== "object" || !decodedId) {

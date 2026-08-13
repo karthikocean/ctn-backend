@@ -2,7 +2,6 @@ import {
   JsonController,
   Get,
   Put,
-  Patch,
   Param,
   QueryParam,
   Body,
