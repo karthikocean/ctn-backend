@@ -29,15 +29,18 @@ export const defaultJobOptions: JobsOptions = {
 export const personalNotificationQueue = new Queue(QUEUE_NAMES.PERSONAL, {
   connection: bullRedisConfig,
   defaultJobOptions,
+  skipVersionCheck: true,
 });
 
 export const broadcastNotificationQueue = new Queue(QUEUE_NAMES.BROADCAST, {
   connection: bullRedisConfig,
   defaultJobOptions,
+  skipVersionCheck: true,
 });
 
 export const dlqNotificationQueue = new Queue(QUEUE_NAMES.DLQ, {
   connection: bullRedisConfig,
+  skipVersionCheck: true,
   defaultJobOptions: {
     removeOnComplete: false,
     removeOnFail: false,
@@ -49,6 +52,7 @@ export const personalQueueEvents = new QueueEvents(
   QUEUE_NAMES.PERSONAL,
   {
     connection: bullRedisConfig,
+    skipVersionCheck: true,
     streams: {
       events: {
         maxLen: 10000,
@@ -61,6 +65,7 @@ export const broadcastQueueEvents = new QueueEvents(
   QUEUE_NAMES.BROADCAST,
   {
     connection: bullRedisConfig,
+    skipVersionCheck: true,
     streams: {
       events: {
         maxLen: 10000,

@@ -16,7 +16,7 @@ export class DailyTaskCronService {
   static init() {
     console.log("⏰ Initializing Daily Task Reminder Cron Jobs...");
 
-    // 1. Cron job for 11:00 AM: "0 11 * * *"
+    // 1. Cron job for 11:00 AM: "0 11 * * *" (Runs only once daily at 11:00 AM IST)
     cron.schedule("0 11 * * *", async () => {
       try {
         console.log("🕒 Running Daily Task Reminder Cron (11:00 AM)...");
@@ -24,9 +24,23 @@ export class DailyTaskCronService {
       } catch (error: any) {
         console.error("❌ Daily Task Reminder Cron (11:00 AM) Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
 
-    // // 2. Cron job for 6:00 PM: "0 18 * * *"
+    // 2. Cron job for 4:00 PM: "0 16 * * *"
+    cron.schedule("0 16 * * *", async () => {
+      try {
+        console.log("🕒 Running Daily Task Reminder Cron (4:00 PM)...");
+        await this.processDailyTaskReminders();
+      } catch (error: any) {
+        console.error("❌ Daily Task Reminder Cron (4:00 PM) Failed:", error.message);
+      }
+    }, {
+      timezone: "Asia/Kolkata"
+    });
+
+    // // 3. Cron job for 6:00 PM: "0 18 * * *"
     // cron.schedule("0 18 * * *", async () => {
     //   try {
     //     console.log("🕒 Running Daily Task Reminder Cron (6:00 PM)...");
@@ -34,9 +48,11 @@ export class DailyTaskCronService {
     //   } catch (error: any) {
     //     console.error("❌ Daily Task Reminder Cron (6:00 PM) Failed:", error.message);
     //   }
+    // }, {
+    //   timezone: "Asia/Kolkata"
     // });
 
-    // // 3. Cron job for 10:00 PM: "0 22 * * *"
+    // // 4. Cron job for 10:00 PM: "0 22 * * *"
     // cron.schedule("0 22 * * *", async () => {
     //   try {
     //     console.log("🕒 Running Daily Task Reminder Cron (10:00 PM)...");
@@ -44,6 +60,8 @@ export class DailyTaskCronService {
     //   } catch (error: any) {
     //     console.error("❌ Daily Task Reminder Cron (10:00 PM) Failed:", error.message);
     //   }
+    // }, {
+    //   timezone: "Asia/Kolkata"
     // });
   }
 
@@ -51,11 +69,12 @@ export class DailyTaskCronService {
    * Processes members who have not completed daily tasks today and sends them reminders.
    */
   static async processDailyTaskReminders() {
-    // Get local date string YYYY-MM-DD
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const day = String(now.getDate()).padStart(2, "0");
+    // Get local date string YYYY-MM-DD (IST)
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const now = new Date(new Date().getTime() + IST_OFFSET);
+    const year = now.getUTCFullYear();
+    const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(now.getUTCDate()).padStart(2, "0");
     const dateStr = `${year}-${month}-${day}`;
 
     console.log(`[DailyTaskCron] Processing reminders for date: ${dateStr}`);

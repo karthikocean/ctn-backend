@@ -37,7 +37,7 @@ import { SubscriptionService } from "../../services/subscription.service";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
 // import { DailyScoreService } from "../../services/dailyScore.service";
-import { notifyPostAudience } from "../../services/pushnotification.service";
+import { notifyPostAudience, notifyGivePostAudience } from "../../services/pushnotification.service";
 
 const getObjectIdStr = (val: any): string | null => {
   if (!val) return null;
@@ -223,13 +223,22 @@ export class MobilePostController {
 
       const savedPost = await this.postRepo.save(post);
       if (post.type !== PostType.PROMOTION) {
-        // Notify relevant members about the new post (non-blocking)
-        notifyPostAudience({
-          post: savedPost,
-          senderId: userId,
-          subject: `New ${data.type.charAt(0) + data.type.slice(1).toLowerCase()} Post`,
-          content: "A new post has been shared"
-        }).catch(err => console.error("[PostController] notifyPostAudience error:", err));
+        if (post.type === PostType.GIVE) {
+          notifyGivePostAudience({
+            post: savedPost,
+            senderId: userId,
+            subject: "New Give Post",
+            content: "A new give post has been shared"
+          }).catch(err => console.error("[PostController] notifyGivePostAudience error:", err));
+        } else {
+          // Notify relevant members about the new post (non-blocking)
+          notifyPostAudience({
+            post: savedPost,
+            senderId: userId,
+            subject: `New ${data.type.charAt(0) + data.type.slice(1).toLowerCase()} Post`,
+            content: "A new post has been shared"
+          }).catch(err => console.error("[PostController] notifyPostAudience error:", err));
+        }
       }
       let pointsResult = { awarded: 0, balance: 0 };
       // 2. Award Points
@@ -532,7 +541,8 @@ export class MobilePostController {
         type: PostType.REQUIREMENT,
         isDeleted: false,
         status: { $ne: "reported" },
-        memberId: { $ne: new ObjectId(userId) }
+        memberId: { $ne: new ObjectId(userId) },
+        isActive: true
       };
 
       const visibilityOrArray: any[] = [
@@ -1081,7 +1091,7 @@ export class MobilePostController {
     const userId = req.user.userId;
 
     try {
-      const where: any = { isDeleted: false, status: { $ne: "reported" } };
+      const where: any = { isDeleted: false, isActive: true, status: { $ne: "reported" } };
 
       if (type) where.type = type;
 

@@ -60,7 +60,7 @@ export class MobileContactController {
           throw new BadRequestError("Invalid referredBy ID");
         }
       }
-      const contactData = await this.contactRepo.findOne({ where: { phoneNumber: data.phoneNumber, createdBy: userId, isDeleted: false } });
+      const contactData = await this.contactRepo.findOneBy({ phoneNumber: data.phoneNumber, createdBy: new ObjectId(userId), isDeleted: false });
       if (contactData) {
         throw new BadRequestError("Contact already exists");
       }
@@ -378,6 +378,7 @@ export class MobileContactController {
       if (data.phoneNumber !== undefined) contact.phoneNumber = data.phoneNumber;
       if (data.type !== undefined) contact.type = data.type;
       if (data.isActive !== undefined) contact.isActive = data.isActive;
+      if (data.status !== undefined) contact.status = data.status;
 
       if (data.referredBy !== undefined) {
         if (data.referredBy && ObjectId.isValid(data.referredBy)) {

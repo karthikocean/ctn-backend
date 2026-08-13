@@ -118,7 +118,7 @@ export class MobileAuthController {
 
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
       const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+      expiresAt.setMinutes(expiresAt.getMinutes() + 5);
 
       let verification = await this.verificationRepo.findOne({
         where: { identifier, type, isVerified: false }

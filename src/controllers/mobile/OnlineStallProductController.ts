@@ -97,7 +97,7 @@ export class MobileOnlineStallProductController {
       if (endDate) {
         finalEndDate = new Date(endDate);
       } else {
-        finalEndDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        finalEndDate = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
       }
 
       const product = this.productRepo.create({

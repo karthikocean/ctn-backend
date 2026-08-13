@@ -7,6 +7,7 @@ import {
   Index
 } from "typeorm";
 import { ObjectId } from "mongodb";
+import { ReferralStatus } from "./Referral";
 
 export enum ContactType {
   MYSELF = "myself",
@@ -19,39 +20,46 @@ export enum ContactType {
 @Index(["isDeleted"])
 export class Contact {
   @ObjectIdColumn()
-    _id!: ObjectId;
+  _id!: ObjectId;
 
   @Column()
-    name!: string;
+  name!: string;
 
   @Column()
-    phoneNumber!: string;
+  phoneNumber!: string;
 
   @Column({
     type: "enum",
     enum: ContactType,
     default: ContactType.MYSELF
   })
-    type!: ContactType;
+  type!: ContactType;
 
   @Column({ nullable: true })
-    referredBy?: ObjectId;
+  referredBy?: ObjectId;
 
   @Column({ default: true })
-    isActive!: boolean;
+  isActive!: boolean;
 
   @Column({ default: false })
-    isDeleted!: boolean;
+  isDeleted!: boolean;
+
+  @Column({
+    type: "enum",
+    enum: ReferralStatus,
+    default: ReferralStatus.NOT_CONTACTED
+  })
+  status!: ReferralStatus;
 
   @Column()
-    createdBy!: ObjectId;
+  createdBy!: ObjectId;
 
   @Column({ nullable: true })
-    modifiedBy?: ObjectId;
+  modifiedBy?: ObjectId;
 
   @CreateDateColumn()
-    createdAt!: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-    updatedAt!: Date;
+  updatedAt!: Date;
 }

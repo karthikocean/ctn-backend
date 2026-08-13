@@ -53,6 +53,7 @@ export const broadcastWorker = new Worker(
   {
     connection: bullRedisConfig,
     concurrency: 10, // Adjust worker concurrency per CPU core
+    skipVersionCheck: true,
     limiter: {
       max: 100,
       duration: 1000, // Max 100 jobs processed per second per worker instance

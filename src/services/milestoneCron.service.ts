@@ -7,8 +7,8 @@ export class MilestoneCronService {
 
   /**
    * Initializes the Milestone cleanup cron job.
-   * Runs every hour to soft-delete milestones
-   * that are older than 48 hours from their createdAt date.
+   * Runs every 10 minutes to soft-delete milestones
+   * that are older than 24 hours from their createdAt date.
    */
   static init() {
     console.log("⏰ Initializing Milestone Cleanup Cron Job...");
@@ -26,15 +26,15 @@ export class MilestoneCronService {
 
   /**
    * Soft-deletes milestones that were created
-   * more than 48 hours ago and are still active.
+   * more than 24 hours ago and are still active.
    */
   static async softDeleteExpiredMilestones() {
-    const fortyEightHoursAgo = new Date();
-    fortyEightHoursAgo.setHours(fortyEightHoursAgo.getHours() - 48);
+    const twentyFourHoursAgo = new Date();
+    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
 
     const result = await this.milestoneRepo.updateMany(
       {
-        createdAt: { $lte: fortyEightHoursAgo },
+        createdAt: { $lte: twentyFourHoursAgo },
         isDeleted: false
       },
       { $set: { isDeleted: true } }
