@@ -28,7 +28,7 @@ export class BirthdayCronService {
   }
 
   /**
-   * Finds all members with a birthday today and notifies their mutual friends
+   * Finds all members with a birthday today, sends them a direct birthday notification, and notifies their mutual friends
    */
   static async processBirthdays() {
     const now = new Date();
@@ -58,6 +58,10 @@ export class BirthdayCronService {
 
     for (const birthdayMember of birthdayMembers) {
       try {
+        // 1. Send direct birthday wish push notification to the member
+        await this.notifyBirthdayMember(birthdayMember);
+
+        // 2. Notify mutual friends about the member's birthday
         await this.notifyMutualFriends(birthdayMember);
       } catch (err: any) {
         console.error(
@@ -66,6 +70,35 @@ export class BirthdayCronService {
         );
       }
     }
+  }
+
+  /**
+   * Sends a birthday wish push notification directly to the birthday member
+   */
+  private static async notifyBirthdayMember(birthdayMember: Member) {
+    if (!birthdayMember.fcmToken) {
+      console.log(
+        `[BirthdayCron] Skipped direct birthday wish for ${birthdayMember.fullName} — no FCM token.`
+      );
+      return;
+    }
+
+    const subject = "Birthday Wishes";
+    const content = `Wishing you a very Happy Birthday, ${birthdayMember.fullName}! Have a wonderful year ahead. 🎉`;
+
+    await insertPushNotification({
+      token: birthdayMember.fcmToken,
+      subject,
+      content,
+      moduleName: NotificationModule.BIRTHDAY,
+      moduleId: birthdayMember._id.toString(),
+      receiverId: birthdayMember._id.toString(),
+      senderId: birthdayMember._id.toString()
+    });
+
+    console.log(
+      `[BirthdayCron] Direct birthday wish notification sent to ${birthdayMember.fullName} (${birthdayMember._id})`
+    );
   }
 
   /**
@@ -101,8 +134,8 @@ export class BirthdayCronService {
       `[BirthdayCron] Notifying ${mutualIds.length} mutual friend(s) about ${birthdayMember.fullName}'s birthday.`
     );
 
-    const subject = `🎂 It's ${birthdayMember.fullName}'s Birthday Today!`;
-    const content = `Today is ${birthdayMember.fullName}'s birthday! Send them a wish and make their day special. 🎉`;
+    const subject = `${birthdayMember.fullName}'s Birthday`;
+    const content = `It's ${birthdayMember.fullName}'s birthday! Send your wishes and make her day special. 🎉`;
 
     for (const mutualId of mutualIds) {
       try {

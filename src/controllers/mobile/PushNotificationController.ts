@@ -210,12 +210,13 @@ export class PushNotificationController {
         },
         Reminders: {
           totalUnread: getCount([NotificationModule.DAILY_TASK, NotificationModule.REMINDER,
-            NotificationModule.BIRTHDAY
+            NotificationModule.BIRTHDAY, NotificationModule.ANNIVERSARY
           ]),
           items: [
             { module: NotificationModule.DAILY_TASK, label: "Daily Tasks", unreadCount: getCount([NotificationModule.DAILY_TASK]) },
             { module: NotificationModule.REMINDER, label: "Reminder", unreadCount: getCount([NotificationModule.REMINDER]) },
             { module: NotificationModule.BIRTHDAY, label: "Birthdays", unreadCount: getCount([NotificationModule.BIRTHDAY]) },
+            { module: NotificationModule.ANNIVERSARY, label: "Anniversaries", unreadCount: getCount([NotificationModule.ANNIVERSARY]) },
           ]
         }
       };

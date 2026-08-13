@@ -37,7 +37,8 @@ export enum NotificationModule {
   DOWNGRADE = "DOWNGRADE",
   DAILY_TASK = "DAILY_TASK",
   ANNOUNCEMENT = "ANNOUNCEMENT",
-  SUGGESTION = "SUGGESTION"
+  SUGGESTION = "SUGGESTION",
+  ANNIVERSARY = "ANNIVERSARY"
 }
 
 @Entity("push_notifications")
