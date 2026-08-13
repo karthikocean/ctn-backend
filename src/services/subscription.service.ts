@@ -5,7 +5,6 @@ import { Member } from "../entity/Member";
 import { Plan } from "../entity/Plan";
 import { MemberSubscription } from "../entity/MemberSubscription";
 import { Payment } from "../entity/Payment";
-import { SubscriptionFeatureUsage } from "../entity/SubscriptionFeatureUsage";
 import { PostModel, PostType } from "../entity/Post";
 import { Referral } from "../entity/Referral";
 import { Message, MessageType } from "../entity/Message";
@@ -471,27 +470,27 @@ export class SubscriptionService {
     const istStartDate = new Date(now.getTime() + IST_OFFSET);
 
     switch (frequency.toLowerCase()) {
-      case "daily":
-        istStartDate.setUTCDate(istEndDate.getUTCDate() - frequencyValue + 1);
-        istStartDate.setUTCHours(0, 0, 0, 0);
-        break;
-      case "weekly":
-        const day = istEndDate.getUTCDay();
-        istStartDate.setUTCDate(istEndDate.getUTCDate() - day - (7 * (frequencyValue - 1)));
-        istStartDate.setUTCHours(0, 0, 0, 0);
-        break;
-      case "monthly":
-        istStartDate.setUTCMonth(istEndDate.getUTCMonth() - frequencyValue + 1);
-        istStartDate.setUTCDate(1);
-        istStartDate.setUTCHours(0, 0, 0, 0);
-        break;
-      case "yearly":
-        istStartDate.setUTCFullYear(istEndDate.getUTCFullYear() - frequencyValue + 1);
-        istStartDate.setUTCMonth(0, 1);
-        istStartDate.setUTCHours(0, 0, 0, 0);
-        break;
-      default:
-        throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
+    case "daily":
+      istStartDate.setUTCDate(istEndDate.getUTCDate() - frequencyValue + 1);
+      istStartDate.setUTCHours(0, 0, 0, 0);
+      break;
+    case "weekly":
+      const day = istEndDate.getUTCDay();
+      istStartDate.setUTCDate(istEndDate.getUTCDate() - day - (7 * (frequencyValue - 1)));
+      istStartDate.setUTCHours(0, 0, 0, 0);
+      break;
+    case "monthly":
+      istStartDate.setUTCMonth(istEndDate.getUTCMonth() - frequencyValue + 1);
+      istStartDate.setUTCDate(1);
+      istStartDate.setUTCHours(0, 0, 0, 0);
+      break;
+    case "yearly":
+      istStartDate.setUTCFullYear(istEndDate.getUTCFullYear() - frequencyValue + 1);
+      istStartDate.setUTCMonth(0, 1);
+      istStartDate.setUTCHours(0, 0, 0, 0);
+      break;
+    default:
+      throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
     }
 
     // Shift back to get correct UTC dates
@@ -577,7 +576,7 @@ export class SubscriptionService {
       subscriptionId: activeSub._id || null,
       planId: activeSub.planId || null,
       planName,
-      type: plan?.billingType?.toUpperCase() ?? '',
+      type: plan?.billingType?.toUpperCase() ?? "",
       status: activeSub.status,
       startDate: activeSub.startDate,
       endDate: activeSub.endDate,

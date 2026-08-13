@@ -109,11 +109,11 @@ export class MobileAuthController {
 
       if (!member) {
         throw new BadRequestError(
-          "Member not found with this " + (type === 'phone' ? 'phone number' : type)
+          "Member not found with this " + (type === "phone" ? "phone number" : type)
         );
       }
       if (member.status !== MemberStatus.ACTIVE) {
-        throw new BadRequestError('Account is not active. Please contact administrator.')
+        throw new BadRequestError("Account is not active. Please contact administrator.");
       }
 
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
@@ -178,7 +178,7 @@ export class MobileAuthController {
       if (!fcmToken) {
         throw new BadRequestError("FCM token is required");
       }
-      if (otp !== '1234') {
+      if (otp !== "1234") {
 
         const verification = await this.verificationRepo.findOne({
           where: { identifier, type, otp, isVerified: false }
@@ -204,7 +204,7 @@ export class MobileAuthController {
         throw new UnauthorizedError("User not found");
       }
       if (member.status !== MemberStatus.ACTIVE) {
-        throw new BadRequestError('Account is not active. Please contact administrator.')
+        throw new BadRequestError("Account is not active. Please contact administrator.");
       }
       if (fcmToken) {
         member.fcmToken = fcmToken;

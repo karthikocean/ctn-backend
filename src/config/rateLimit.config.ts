@@ -5,7 +5,7 @@ dotenv.config();
 export const rateLimitConfig = {
   enabled: process.env.RATE_LIMIT_ENABLED !== "false",
   redisPrefix: process.env.RATE_LIMIT_REDIS_PREFIX || "rl:",
-  
+
   // 1. General API Throttling
   general: {
     windowMs: Number(process.env.API_RATE_LIMIT_WINDOW_MS) || 60 * 1000, // 1 minute
