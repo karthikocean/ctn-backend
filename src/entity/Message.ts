@@ -17,7 +17,8 @@ export enum MessageType {
   THANK_YOU_SLIP = "THANK_YOU_SLIP",
   POST_SHARE = "POST_SHARE",
   MILESTONE_REPLY = "MILESTONE_REPLY",
-  PRODUCT_RESPONSE = "PRODUCT_RESPONSE"
+  PRODUCT_RESPONSE = "PRODUCT_RESPONSE",
+  REMINDER = "REMINDER"
 }
 
 @Entity("messages")
@@ -53,6 +54,9 @@ export class Message {
   @Column({ nullable: true })
     milestoneId?: ObjectId; // Reference to milestone if it's a MILESTONE_REPLY
 
+  @Column({ nullable: true })
+    reminderId?: ObjectId; // Reference to reminder if it's a REMINDER
+
   @Column({ default: false })
     isRead!: boolean;
 
@@ -69,7 +73,7 @@ export class Message {
     media?: string[]; // For IMAGE or ONE_TO_ONE types
 
   @Column({ nullable: true })
-    businessActionId?: ObjectId; // Link to OneToOne, Referral, or ThankYouSlip record
+    businessActionId?: ObjectId; // Link to OneToOne, Referral, ThankYouSlip, or Reminder record
 
   @CreateDateColumn()
     createdAt!: Date;

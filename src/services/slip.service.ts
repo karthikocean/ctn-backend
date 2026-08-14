@@ -97,7 +97,7 @@ export class SlipService {
         detectedType,
         status: trimmedStatus,
         reason,
-        moduleId: updatedRecord._id.toString()
+        moduleId: updatedRecord.conversationId?.toString()
       });
     }
 

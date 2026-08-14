@@ -188,6 +188,7 @@ export class MobilePostController {
       Object.assign(post, data);
       post.memberId = memberObjectId;
       post.isDeleted = false;
+      post.isActive = true;
 
       // Convert stateIds / regionIds string arrays/objects to ObjectId arrays
       if (Array.isArray(inputStateIds)) {
@@ -493,7 +494,6 @@ export class MobilePostController {
 
     try {
       const userId = req.user.userId;
-
       // 1. Get logged-in member's location
       const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
       if (!currentMember) {

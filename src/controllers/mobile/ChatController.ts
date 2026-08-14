@@ -33,7 +33,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { getIO, isUserInConversation } from "../../utils/socket";
 import { pagination } from "../../utils";
 import { insertPushNotification } from "../../services/pushnotification.service";
-import { NotificationModule } from "../../entity/PushNotifications";
+import { NotificationModule, PushNotification } from "../../entity/PushNotifications";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
 import { validateRequirementResponseLimit } from "../../services/moduleUsage.service";
@@ -55,6 +55,7 @@ export class MobileChatController {
   private productRepo = AppDataSource.getMongoRepository(OnlineStallProduct);
   private contactRepo = AppDataSource.getMongoRepository(Contact);
   private connectionRepo = AppDataSource.getMongoRepository(Connection);
+  private pushNotificationRepo = AppDataSource.getMongoRepository(PushNotification);
 
   private async isBlocked(userA: ObjectId, userB: ObjectId): Promise<boolean> {
     const blockedConnection = await this.connectionRepo.findOne({
@@ -237,7 +238,7 @@ export class MobileChatController {
         where: whereClause as any,
         order: { updatedAt: "DESC" }
       });
-
+      console.log(conversationsRaw.length, 'conversationsRaw')
       const groupedConversations = new Map<string, Conversation>();
       for (const conv of conversationsRaw) {
         const otherParticipantId = conv.participants.find(p => !p.equals(userId));
@@ -1179,6 +1180,7 @@ export class MobileChatController {
           oto.senderId = senderId;
           oto.receiverId = receiverId;
           oto.media = media; // Store the screenshot in the business record too
+          oto.conversationId = conversation._id;
           const savedOto = await this.oneToOneRepo.save(oto);
           newMessage.businessActionId = savedOto._id;
 
@@ -1204,6 +1206,7 @@ export class MobileChatController {
           ref.location = actionData.location;
           ref.comments = actionData.comments;
           ref.status = ReferralStatus.NOT_CONTACTED;
+          ref.conversationId = conversation._id;
           const savedRef = await this.referralRepo.save(ref);
           newMessage.businessActionId = savedRef._id;
 
@@ -1225,6 +1228,7 @@ export class MobileChatController {
           ty.receiverId = receiverId;
           ty.amount = Number(actionData.amount) || Number(actionData.businessAmount) || 0;
           ty.businessDetails = actionData.businessDetails || actionData.remarks || content;
+          ty.conversationId = conversation._id;
           const savedTy = await this.tySlipRepo.save(ty);
           newMessage.businessActionId = savedTy._id;
 
@@ -1525,12 +1529,12 @@ export class MobileChatController {
   @Post("/birthday-wish")
   async birthdayWish(
     @Req() req: any,
-    @Body() data: { receiverId: string; },
+    @Body() data: { receiverId: string; notificationId: string },
     @Res() res: any
   ) {
     try {
       const senderId = new ObjectId(req.user.userId);
-      const { receiverId } = data;
+      const { receiverId, notificationId } = data;
 
       if (!receiverId || !ObjectId.isValid(receiverId)) {
         throw new BadRequestError("Invalid receiver ID");
@@ -1569,6 +1573,8 @@ export class MobileChatController {
       }
 
       const savedMessage = await this.messageRepo.save(newMessage);
+      await this.pushNotificationRepo.delete({ _id: new ObjectId(notificationId) })
+
 
       // Send Push Notification if receiver is not active in the chat room and has fcmToken
       // if (!isReceiverActive && receiver.fcmToken) {
