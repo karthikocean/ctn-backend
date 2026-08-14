@@ -1386,6 +1386,7 @@ export class MobileChatController {
           }
         }
 
+        io.to(`conversation_${conversation._id}`).emit("new_message", populatedMessage);
         io.to(receiverId.toString()).emit("new_message", populatedMessage);
 
         // Emit conversation update for the conversation list screen

@@ -145,11 +145,26 @@ export class ReminderService {
       conversation.lastMessageSenderId = creatorId;
       await this.conversationRepo.save(conversation);
 
-      if (targetReceiverId) {
-        const io = getIO();
+      const io = getIO();
+      const populatedMsg = {
+        ...savedMessage,
+        reminder: savedReminder
+      };
+
+      // Emit to conversation room
+      io.to(`conversation_${conversation._id}`).emit("new_message", populatedMsg);
+
+      // Emit to creator socket room
+      io.to(creatorId.toString()).emit("new_message", {
+        ...populatedMsg,
+        isMe: true
+      });
+
+      // Emit to receiver socket room if different
+      if (targetReceiverId && !targetReceiverId.equals(creatorId)) {
         io.to(targetReceiverId.toString()).emit("new_message", {
-          ...savedMessage,
-          reminder: savedReminder
+          ...populatedMsg,
+          isMe: false
         });
 
         const senderMember = await this.memberRepo.findOneBy({ _id: creatorId });
@@ -170,6 +185,23 @@ export class ReminderService {
           unreadCount
         });
       }
+
+      // Also emit conversation_updated to creator
+      const receiverMember = targetReceiverId ? await this.memberRepo.findOneBy({ _id: targetReceiverId }) : null;
+      io.to(creatorId.toString()).emit("conversation_updated", {
+        ...conversation,
+        lastMessage: savedMessage.content,
+        lastMessageTime: savedMessage.createdAt,
+        lastMessageSenderId: savedMessage.senderId,
+        otherUser: receiverMember ? {
+          _id: receiverMember._id,
+          fullName: receiverMember.fullName,
+          profilePhoto: receiverMember.profilePhoto,
+          isOnline: receiverMember.isOnline || false,
+          lastSeen: receiverMember.lastSeen || null
+        } : null,
+        unreadCount: conversation.unreadCounts?.[creatorId.toString()] || 0
+      });
     }
 
     return savedReminder;
