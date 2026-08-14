@@ -76,7 +76,7 @@ export class AdminReportController {
   ) {
     try {
       const page = Math.max(0, Number(pageParam) || 0);
-      const limit = Math.min(500, Number(limitParam) || 10);
+      const limit = Math.min(50000, Number(limitParam) || 10);
 
       // 1. Get all plans for fallback naming details
       const allPlans = await this.planRepo.find({ where: { isDeleted: false } as any });
@@ -312,7 +312,7 @@ export class AdminReportController {
   ) {
     try {
       const page = Math.max(0, Number(pageParam) || 0);
-      const limit = Math.min(500, Number(limitParam) || 10);
+      const limit = Math.min(50000, Number(limitParam) || 10);
 
       // 1. Find all plans for fallback naming details
       const allPlans = await this.planRepo.find({ where: { isDeleted: false } as any });

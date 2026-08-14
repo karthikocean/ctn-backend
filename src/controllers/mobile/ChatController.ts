@@ -26,6 +26,8 @@ import { ThankYouSlip } from "../../entity/ThankYouSlip";
 import { Milestone } from "../../entity/Milestone";
 import { OnlineStallProduct } from "../../entity/OnlineStallProduct";
 import { ReportedHistory } from "../../entity/ReportedHistory";
+import { Reminder, ReminderRecipientType } from "../../entity/Reminder";
+import { ReminderService } from "../../services/ReminderService";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
@@ -33,7 +35,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { getIO, isUserInConversation } from "../../utils/socket";
 import { pagination } from "../../utils";
 import { insertPushNotification } from "../../services/pushnotification.service";
-import { NotificationModule } from "../../entity/PushNotifications";
+import { NotificationModule, PushNotification } from "../../entity/PushNotifications";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
 import { validateRequirementResponseLimit } from "../../services/moduleUsage.service";
@@ -55,6 +57,8 @@ export class MobileChatController {
   private productRepo = AppDataSource.getMongoRepository(OnlineStallProduct);
   private contactRepo = AppDataSource.getMongoRepository(Contact);
   private connectionRepo = AppDataSource.getMongoRepository(Connection);
+  private pushNotificationRepo = AppDataSource.getMongoRepository(PushNotification);
+  private reminderRepo = AppDataSource.getMongoRepository(Reminder);
 
   private async isBlocked(userA: ObjectId, userB: ObjectId): Promise<boolean> {
     const blockedConnection = await this.connectionRepo.findOne({
@@ -94,7 +98,14 @@ export class MobileChatController {
       conversation.unreadCounts = {};
       conversation = await this.conversationRepo.save(conversation);
     } else {
-      if (conversation.deletedBy && conversation.deletedBy.equals(senderId)) {
+      const wasDeleted =
+        conversation.isDeleted ||
+        conversation.status === "DELETED" ||
+        !!conversation.deletedBy;
+
+      if (wasDeleted) {
+        conversation.status = "PENDING";
+        conversation.isDeleted = false;
         delete conversation.deletedBy;
         await this.conversationRepo.save(conversation);
       }
@@ -235,21 +246,27 @@ export class MobileChatController {
 
       const conversationsRaw = await this.conversationRepo.find({
         where: whereClause as any,
-        order: { updatedAt: "DESC" }
+        order: { lastMessageTime: "DESC", createdAt: "DESC", updatedAt: "DESC" }
       });
-
+      console.log(conversationsRaw.length, 'conversationsRaw')
       const groupedConversations = new Map<string, Conversation>();
       for (const conv of conversationsRaw) {
         const otherParticipantId = conv.participants.find(p => !p.equals(userId));
         if (!otherParticipantId) continue;
         const key = otherParticipantId.toString();
 
+        const getConvTime = (c: Conversation) => {
+          if (c.lastMessageTime) return new Date(c.lastMessageTime).getTime();
+          if (c.createdAt) return new Date(c.createdAt).getTime();
+          return 0;
+        };
+
         if (!groupedConversations.has(key)) {
           groupedConversations.set(key, conv);
         } else {
           const existing = groupedConversations.get(key)!;
-          const existingTime = existing.lastMessageTime ? new Date(existing.lastMessageTime).getTime() : new Date(existing.updatedAt).getTime();
-          const currTime = conv.lastMessageTime ? new Date(conv.lastMessageTime).getTime() : new Date(conv.updatedAt).getTime();
+          const existingTime = getConvTime(existing);
+          const currTime = getConvTime(conv);
           if (currTime > existingTime) {
             const unread = (existing.unreadCounts?.[userId.toString()] || 0) + (conv.unreadCounts?.[userId.toString()] || 0);
             conv.unreadCounts = { ...(conv.unreadCounts || {}), [userId.toString()]: unread };
@@ -259,6 +276,11 @@ export class MobileChatController {
       }
 
       const allUniqueConversations = Array.from(groupedConversations.values());
+      allUniqueConversations.sort((a, b) => {
+        const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+        const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        return timeB - timeA;
+      });
       const total = allUniqueConversations.length;
       const conversations = allUniqueConversations.slice(page * limit, (page + 1) * limit);
 
@@ -525,15 +547,17 @@ export class MobileChatController {
       const otoIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.ONE_TO_ONE).map(m => m.businessActionId!))];
       const refIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.REFERRAL).map(m => m.businessActionId!))];
       const tyIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.THANK_YOU_SLIP).map(m => m.businessActionId!))];
+      const reminderIds = [...new Set(messages.filter(m => (m.type as any) === MessageType.REMINDER || m.reminderId || (m.businessActionId && (m.type as any) === MessageType.REMINDER)).map(m => m.reminderId || m.businessActionId!).filter(id => !!id))];
 
-      const [posts, products, milestones, replyMsgs, otos, refs, tys] = await Promise.all([
+      const [posts, products, milestones, replyMsgs, otos, refs, tys, reminders] = await Promise.all([
         postIds.length > 0 ? this.postRepo.find({ where: { _id: { $in: postIds } } as any }) : [],
         productIds.length > 0 ? this.productRepo.find({ where: { _id: { $in: productIds } } as any }) : [],
         milestoneIds.length > 0 ? this.milestoneRepo.find({ where: { _id: { $in: milestoneIds } } as any }) : [],
         replyToIds.length > 0 ? this.messageRepo.find({ where: { _id: { $in: replyToIds } } as any }) : [],
         otoIds.length > 0 ? this.oneToOneRepo.find({ where: { _id: { $in: otoIds } } as any }) : [],
         refIds.length > 0 ? this.referralRepo.find({ where: { _id: { $in: refIds } } as any }) : [],
-        tyIds.length > 0 ? this.tySlipRepo.find({ where: { _id: { $in: tyIds } } as any }) : []
+        tyIds.length > 0 ? this.tySlipRepo.find({ where: { _id: { $in: tyIds } } as any }) : [],
+        reminderIds.length > 0 ? this.reminderRepo.find({ where: { _id: { $in: reminderIds } } as any }) : []
       ]);
 
       const postMap = new Map(posts.map(p => [p._id.toString(), p]));
@@ -543,10 +567,12 @@ export class MobileChatController {
       const otoMap = new Map(otos.map(o => [o._id.toString(), o]));
       const refMap = new Map(refs.map(r => [r._id.toString(), r]));
       const tyMap = new Map(tys.map(t => [t._id.toString(), t]));
+      const reminderMap = new Map(reminders.map(r => [r._id.toString(), r]));
 
-      const populatedMessages = messages.map((msg) => {
+      const populatedMessages: any[] = [];
+      for (const msg of messages) {
         if (msg.isDeleted) {
-          return {
+          populatedMessages.push({
             _id: msg._id,
             conversationId: msg.conversationId,
             senderId: msg.senderId,
@@ -555,7 +581,18 @@ export class MobileChatController {
             isRead: msg.isRead || false,
             isMe: msg.senderId.toString() === req.user.userId,
             createdAt: msg.createdAt
-          };
+          });
+          continue;
+        }
+
+        const reminderKey = (msg.reminderId || msg.businessActionId)?.toString();
+        const reminderObj = reminderKey ? reminderMap.get(reminderKey) : null;
+
+        // Visibility check: If reminder recipientType is 'self' and logged-in user is NOT the sender, hide this reminder message from recipient
+        if ((msg.type as any) === MessageType.REMINDER || reminderObj) {
+          if (reminderObj && reminderObj.recipientType === ReminderRecipientType.SELF && msg.senderId.toString() !== req.user.userId) {
+            continue;
+          }
         }
 
         const result: any = {
@@ -565,7 +602,8 @@ export class MobileChatController {
           post: null,
           replyTo: null,
           media: msg.media || [],
-          businessActionId: msg.businessActionId || null
+          businessActionId: msg.businessActionId || null,
+          reminder: reminderObj || null
         };
 
         if ((msg.type === MessageType.POST_RESPONSE || msg.type === MessageType.POST_SHARE) && msg.postId) {
@@ -600,11 +638,13 @@ export class MobileChatController {
             result.businessAction = refMap.get(baKey) || null;
           } else if (msg.type === MessageType.THANK_YOU_SLIP) {
             result.businessAction = tyMap.get(baKey) || null;
+          } else if ((msg.type as any) === MessageType.REMINDER) {
+            result.businessAction = reminderMap.get(baKey) || null;
           }
         }
 
-        return result;
-      });
+        populatedMessages.push(result);
+      }
 
       return res.status(200).json({
         success: true,
@@ -1121,6 +1161,13 @@ export class MobileChatController {
       const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(conversationId) });
       if (!conversation) throw new NotFoundError("Conversation not found");
 
+      if (conversation.isDeleted || conversation.status === "DELETED" || conversation.deletedBy) {
+        conversation.status = "PENDING";
+        conversation.isDeleted = false;
+        delete conversation.deletedBy;
+        await this.conversationRepo.save(conversation);
+      }
+
       const receiverId = conversation.participants.find(p => !p.equals(senderId));
       if (!receiverId) throw new BadRequestError("No receiver found in this conversation");
 
@@ -1136,6 +1183,7 @@ export class MobileChatController {
         if (type === MessageType.ONE_TO_ONE) content = "One to One Completed";
         else if (type === MessageType.REFERRAL) content = "Shared a Referral";
         else if (type === MessageType.THANK_YOU_SLIP) content = "Sent a Thank You Slip";
+        else if (type === MessageType.REMINDER) content = actionData?.title ? `Reminder: ${actionData.title}` : "Created a Reminder";
         else if (type === MessageType.IMAGE) content = "Sent an Image";
         else content = "";
       }
@@ -1179,6 +1227,7 @@ export class MobileChatController {
           oto.senderId = senderId;
           oto.receiverId = receiverId;
           oto.media = media; // Store the screenshot in the business record too
+          oto.conversationId = conversation._id;
           const savedOto = await this.oneToOneRepo.save(oto);
           newMessage.businessActionId = savedOto._id;
 
@@ -1204,6 +1253,7 @@ export class MobileChatController {
           ref.location = actionData.location;
           ref.comments = actionData.comments;
           ref.status = ReferralStatus.NOT_CONTACTED;
+          ref.conversationId = conversation._id;
           const savedRef = await this.referralRepo.save(ref);
           newMessage.businessActionId = savedRef._id;
 
@@ -1225,6 +1275,7 @@ export class MobileChatController {
           ty.receiverId = receiverId;
           ty.amount = Number(actionData.amount) || Number(actionData.businessAmount) || 0;
           ty.businessDetails = actionData.businessDetails || actionData.remarks || content;
+          ty.conversationId = conversation._id;
           const savedTy = await this.tySlipRepo.save(ty);
           newMessage.businessActionId = savedTy._id;
 
@@ -1240,6 +1291,16 @@ export class MobileChatController {
           } catch (pointError) {
             console.error("Failed to award points for Thank you Slip:", pointError);
           }
+        } else if (type === MessageType.REMINDER && actionData) {
+          const reminderService = new ReminderService();
+          const reminderData = {
+            ...actionData,
+            conversationId: conversation._id.toString(),
+            receiverId: receiverId.toString()
+          };
+          const reminder = await reminderService.createReminder(reminderData, senderId.toString());
+          newMessage.reminderId = reminder._id;
+          newMessage.businessActionId = reminder._id;
         }
       } else if (businessActionId && ObjectId.isValid(businessActionId)) {
         newMessage.businessActionId = new ObjectId(businessActionId);
@@ -1325,6 +1386,7 @@ export class MobileChatController {
           }
         }
 
+        io.to(`conversation_${conversation._id}`).emit("new_message", populatedMessage);
         io.to(receiverId.toString()).emit("new_message", populatedMessage);
 
         // Emit conversation update for the conversation list screen
@@ -1525,12 +1587,12 @@ export class MobileChatController {
   @Post("/birthday-wish")
   async birthdayWish(
     @Req() req: any,
-    @Body() data: { receiverId: string; },
+    @Body() data: { receiverId: string; notificationId: string },
     @Res() res: any
   ) {
     try {
       const senderId = new ObjectId(req.user.userId);
-      const { receiverId } = data;
+      const { receiverId, notificationId } = data;
 
       if (!receiverId || !ObjectId.isValid(receiverId)) {
         throw new BadRequestError("Invalid receiver ID");
@@ -1569,6 +1631,8 @@ export class MobileChatController {
       }
 
       const savedMessage = await this.messageRepo.save(newMessage);
+      await this.pushNotificationRepo.delete({ _id: new ObjectId(notificationId) })
+
 
       // Send Push Notification if receiver is not active in the chat room and has fcmToken
       // if (!isReceiverActive && receiver.fcmToken) {

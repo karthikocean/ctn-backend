@@ -1,13 +1,22 @@
 import { AppDataSource } from "../data-source";
-import { NotifyBy, Reminder, ReminderStatus, RepeatType } from "../entity/Reminder";
+import { NotifyBy, Reminder, ReminderRecipientType, ReminderStatus, RepeatType } from "../entity/Reminder";
+import { Message, MessageType } from "../entity/Message";
+import { Conversation } from "../entity/Conversation";
+import { Member } from "../entity/Member";
 import { CreateReminderDto } from "../dto/mobile/CreateReminderDto";
 import { UpdateReminderDto } from "../dto/mobile/UpdateReminderDto";
 import { ReminderListDto } from "../dto/mobile/ReminderListDto";
 import { ObjectId } from "mongodb";
 import { BadRequestError, NotFoundError } from "routing-controllers";
+import { getIO, isUserInConversation } from "../utils/socket";
+import { insertPushNotification } from "./pushnotification.service";
+import { NotificationModule } from "../entity/PushNotifications";
 
 export class ReminderService {
   private reminderRepo = AppDataSource.getMongoRepository(Reminder);
+  private conversationRepo = AppDataSource.getMongoRepository(Conversation);
+  private messageRepo = AppDataSource.getMongoRepository(Message);
+  private memberRepo = AppDataSource.getMongoRepository(Member);
 
   private validateObjectId(id: string, fieldName: string): ObjectId {
     if (!id || !ObjectId.isValid(id)) {
@@ -38,9 +47,164 @@ export class ReminderService {
     reminder.createdBy = creatorId;
     reminder.updatedBy = creatorId;
     reminder.notifyBy = NotifyBy.PUSH as any;
-    reminder.recipients = [creatorId];
+    reminder.recipientType = data.recipientType || ReminderRecipientType.SELF;
+    reminder.conversationId = new ObjectId(data.conversationId);
 
-    return await this.reminderRepo.save(reminder);
+    let receiverObjId: ObjectId | null = null;
+    if (data.receiverId) {
+      receiverObjId = this.validateObjectId(data.receiverId, "receiverId");
+    }
+
+    if (reminder.recipientType === ReminderRecipientType.SELF) {
+      reminder.recipients = [creatorId];
+    } else if (reminder.recipientType === ReminderRecipientType.OTHER) {
+      reminder.recipients = receiverObjId ? [receiverObjId] : [creatorId];
+    } else if (reminder.recipientType === ReminderRecipientType.BOTH) {
+      reminder.recipients = receiverObjId
+        ? Array.from(new Set([creatorId.toString(), receiverObjId.toString()])).map(id => new ObjectId(id))
+        : [creatorId];
+    } else {
+      reminder.recipients = [creatorId];
+    }
+
+    const savedReminder = await this.reminderRepo.save(reminder);
+
+    // If conversationId or receiverId is provided, also insert a chat message
+    let conversation: Conversation | null = null;
+    if (data.conversationId && ObjectId.isValid(data.conversationId)) {
+      conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(data.conversationId) });
+    } else if (receiverObjId && !creatorId.equals(receiverObjId)) {
+      conversation = await this.conversationRepo.findOne({
+        where: { participants: { $all: [creatorId, receiverObjId] } } as any,
+        order: { updatedAt: "DESC" }
+      });
+      if (!conversation) {
+        conversation = new Conversation();
+        conversation.participants = [creatorId, receiverObjId];
+        conversation.status = "PENDING";
+        conversation.unreadCounts = {};
+        conversation = await this.conversationRepo.save(conversation);
+      }
+    }
+
+    if (conversation) {
+      if (conversation.isDeleted || conversation.status === "DELETED" || conversation.deletedBy) {
+        conversation.status = "PENDING";
+        conversation.isDeleted = false;
+        delete conversation.deletedBy;
+        await this.conversationRepo.save(conversation);
+      }
+
+      const targetReceiverId = conversation.participants.find(p => !p.equals(creatorId)) || receiverObjId;
+      const messageText = data.title;
+
+      const newMessage = new Message();
+      newMessage.conversationId = conversation._id;
+      newMessage.senderId = creatorId;
+      newMessage.content = messageText;
+      newMessage.type = MessageType.REMINDER;
+      newMessage.reminderId = savedReminder._id;
+      newMessage.businessActionId = savedReminder._id;
+      newMessage.isRead = false;
+
+      let isReceiverActive = false;
+      if (targetReceiverId) {
+        isReceiverActive = isUserInConversation(targetReceiverId.toString(), conversation._id.toString());
+        if (isReceiverActive) {
+          newMessage.isRead = true;
+        }
+      }
+
+      const savedMessage = await this.messageRepo.save(newMessage);
+
+      if (targetReceiverId) {
+        // const receiverMember = await this.memberRepo.findOneBy({ _id: targetReceiverId, isDeleted: false });
+        // if (!isReceiverActive && receiverMember?.fcmToken) {
+        //   await insertPushNotification({
+        //     token: receiverMember.fcmToken,
+        //     subject: `New Reminder: ${data.title}`,
+        //     content: messageText,
+        //     moduleName: NotificationModule.MESSAGE_REQUEST,
+        //     moduleId: conversation._id.toString(),
+        //     receiverId: targetReceiverId.toString(),
+        //     senderId: creatorId.toString()
+        //   });
+        // }
+
+        const unreadCounts = conversation.unreadCounts || {};
+        if (isReceiverActive) {
+          unreadCounts[targetReceiverId.toString()] = 0;
+        } else {
+          unreadCounts[targetReceiverId.toString()] = (unreadCounts[targetReceiverId.toString()] || 0) + 1;
+        }
+        conversation.unreadCounts = { ...unreadCounts };
+      }
+
+      conversation.lastMessage = savedMessage.content;
+      conversation.lastMessageTime = new Date();
+      conversation.lastMessageSenderId = creatorId;
+      await this.conversationRepo.save(conversation);
+
+      const io = getIO();
+      const populatedMsg = {
+        ...savedMessage,
+        reminder: savedReminder
+      };
+
+      // Emit to conversation room
+      io.to(`conversation_${conversation._id}`).emit("new_message", populatedMsg);
+
+      // Emit to creator socket room
+      io.to(creatorId.toString()).emit("new_message", {
+        ...populatedMsg,
+        isMe: true
+      });
+
+      // Emit to receiver socket room if different
+      if (targetReceiverId && !targetReceiverId.equals(creatorId)) {
+        io.to(targetReceiverId.toString()).emit("new_message", {
+          ...populatedMsg,
+          isMe: false
+        });
+
+        const senderMember = await this.memberRepo.findOneBy({ _id: creatorId });
+        const unreadCount = conversation.unreadCounts?.[targetReceiverId.toString()] || 0;
+
+        io.to(targetReceiverId.toString()).emit("conversation_updated", {
+          ...conversation,
+          lastMessage: savedMessage.content,
+          lastMessageTime: savedMessage.createdAt,
+          lastMessageSenderId: savedMessage.senderId,
+          otherUser: senderMember ? {
+            _id: senderMember._id,
+            fullName: senderMember.fullName,
+            profilePhoto: senderMember.profilePhoto,
+            isOnline: senderMember.isOnline || false,
+            lastSeen: senderMember.lastSeen || null
+          } : null,
+          unreadCount
+        });
+      }
+
+      // Also emit conversation_updated to creator
+      const receiverMember = targetReceiverId ? await this.memberRepo.findOneBy({ _id: targetReceiverId }) : null;
+      io.to(creatorId.toString()).emit("conversation_updated", {
+        ...conversation,
+        lastMessage: savedMessage.content,
+        lastMessageTime: savedMessage.createdAt,
+        lastMessageSenderId: savedMessage.senderId,
+        otherUser: receiverMember ? {
+          _id: receiverMember._id,
+          fullName: receiverMember.fullName,
+          profilePhoto: receiverMember.profilePhoto,
+          isOnline: receiverMember.isOnline || false,
+          lastSeen: receiverMember.lastSeen || null
+        } : null,
+        unreadCount: conversation.unreadCounts?.[creatorId.toString()] || 0
+      });
+    }
+
+    return savedReminder;
   }
 
   async updateReminder(id: string, data: UpdateReminderDto, userId: string): Promise<Reminder> {
@@ -101,49 +265,67 @@ export class ReminderService {
     return reminder;
   }
 
-  async getReminderList(filters: ReminderListDto): Promise<{ total: number; data: Reminder[] }> {
+  async getReminderList(filters: ReminderListDto, userId?: string): Promise<{ total: number; data: Reminder[] }> {
     const page = Number(filters.page) || 0;
     const limit = Number(filters.limit) || 10;
 
-    const where: any = { isDeleted: false };
+    const conditions: any[] = [{ isDeleted: false }];
+
+    if (userId && ObjectId.isValid(userId)) {
+      const userObjId = new ObjectId(userId);
+      conditions.push({
+        $or: [
+          { createdBy: userObjId },
+          { recipients: userObjId },
+          { recipients: { $in: [userObjId] } }
+        ]
+      });
+    }
 
     if (filters.module) {
-      where.module = filters.module.toUpperCase();
+      conditions.push({ module: filters.module.toUpperCase() });
     }
 
     if (filters.status) {
-      where.status = filters.status;
+      conditions.push({ status: filters.status });
     }
 
     if (filters.isActive !== undefined) {
-      where.isActive = filters.isActive;
+      conditions.push({ isActive: filters.isActive });
     }
 
     if (filters.fromDate || filters.toDate) {
-      where.reminderDate = {};
+      const dateCond: any = {};
       if (filters.fromDate) {
         const from = new Date(filters.fromDate);
         if (!isNaN(from.getTime())) {
-          where.reminderDate.$gte = from;
+          dateCond.$gte = from;
         }
       }
       if (filters.toDate) {
         const to = new Date(filters.toDate);
         if (!isNaN(to.getTime())) {
-          where.reminderDate.$lte = to;
+          dateCond.$lte = to;
         }
+      }
+      if (Object.keys(dateCond).length > 0) {
+        conditions.push({ reminderDate: dateCond });
       }
     }
 
     if (filters.search) {
-      where.$or = [
-        { title: { $regex: filters.search, $options: "i" } },
-        { description: { $regex: filters.search, $options: "i" } }
-      ];
+      conditions.push({
+        $or: [
+          { title: { $regex: filters.search, $options: "i" } },
+          { description: { $regex: filters.search, $options: "i" } }
+        ]
+      });
     }
 
+    const where = conditions.length === 1 ? conditions[0] : { $and: conditions };
+
     const [reminders, total] = await this.reminderRepo.findAndCount({
-      where,
+      where: where as any,
       skip: page * limit,
       take: limit,
       order: { createdAt: "DESC" }

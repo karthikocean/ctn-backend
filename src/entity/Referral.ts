@@ -24,42 +24,45 @@ export enum ReferralStatus {
 @Index(["status"])
 export class Referral {
   @ObjectIdColumn()
-    _id!: ObjectId;
+  _id!: ObjectId;
 
   @Column()
-    senderId!: ObjectId; // Person who gave the referral
+  senderId!: ObjectId; // Person who gave the referral
 
   @Column()
-    receiverId!: ObjectId; // Person who received the referral
+  receiverId!: ObjectId; // Person who received the referral
 
   @Column()
-    referralName!: string;
+  referralName!: string;
 
   @Column({ nullable: true })
-    referralMobile?: string;
+  referralMobile?: string;
 
   @Column({ nullable: true })
-    referralEmail?: string;
+  referralEmail?: string;
 
   @Column({ nullable: true })
-    location?: string;
+  location?: string;
 
   @Column({ nullable: true })
-    comments?: string;
+  comments?: string;
 
   @Column({
     type: "enum",
     enum: ReferralStatus,
     default: ReferralStatus.PENDING
   })
-    status!: ReferralStatus;
+  status!: ReferralStatus;
 
   @Column({ nullable: true })
-    reason?: string;
+  reason?: string;
+
+  @Column({ nullable: true })
+  conversationId?: ObjectId;
 
   @CreateDateColumn()
-    createdAt!: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-    updatedAt!: Date;
+  updatedAt!: Date;
 }

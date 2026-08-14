@@ -1,4 +1,5 @@
-import { IsString, IsNotEmpty, IsOptional, IsNumber } from "class-validator";
+import { IsString, IsNotEmpty, IsOptional, IsNumber, IsEnum } from "class-validator";
+import { ReminderRecipientType } from "../../entity/Reminder";
 // import { RepeatType, NotifyBy } from "../../entity/Reminder";
 
 /**
@@ -33,11 +34,11 @@ import { IsString, IsNotEmpty, IsOptional, IsNumber } from "class-validator";
 export class CreateReminderDto {
   @IsString()
   @IsNotEmpty()
-    title!: string;
+  title!: string;
 
   @IsString()
   @IsOptional()
-    description?: string;
+  description?: string;
 
   // @IsString()
   // @IsNotEmpty()
@@ -49,22 +50,25 @@ export class CreateReminderDto {
 
   @IsString()
   @IsNotEmpty()
-    reminderDate!: string;
+  reminderDate!: string;
 
   @IsString()
   @IsNotEmpty()
-    reminderTime!: string;
+  reminderTime!: string;
 
-  // @IsEnum(RepeatType)
-  // @IsNotEmpty()
-  //   repeatType!: RepeatType;
+  @IsEnum(ReminderRecipientType)
+  @IsNotEmpty()
+  recipientType!: ReminderRecipientType;
 
   @IsNumber()
   @IsNotEmpty()
-    repeatInterval!: number;
+  repeatInterval!: number;
 
-  // @IsArray()
-  // @IsEnum(NotifyBy, { each: true })
-  // @IsNotEmpty()
-  //   notifyBy!: NotifyBy[];
+  @IsString()
+  @IsOptional()
+  receiverId?: string;
+
+  @IsString()
+  @IsOptional()
+  conversationId?: string;
 }

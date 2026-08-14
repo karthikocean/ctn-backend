@@ -37,7 +37,8 @@ import { SubscriptionService } from "../../services/subscription.service";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
 // import { DailyScoreService } from "../../services/dailyScore.service";
-import { notifyPostAudience, notifyGivePostAudience } from "../../services/pushnotification.service";
+import { notifyPostAudience, notifyGivePostAudience, insertPushNotification } from "../../services/pushnotification.service";
+import { NotificationModule } from "../../entity/PushNotifications";
 
 const getObjectIdStr = (val: any): string | null => {
   if (!val) return null;
@@ -188,6 +189,7 @@ export class MobilePostController {
       Object.assign(post, data);
       post.memberId = memberObjectId;
       post.isDeleted = false;
+      post.isActive = true;
 
       // Convert stateIds / regionIds string arrays/objects to ObjectId arrays
       if (Array.isArray(inputStateIds)) {
@@ -493,7 +495,6 @@ export class MobilePostController {
 
     try {
       const userId = req.user.userId;
-
       // 1. Get logged-in member's location
       const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
       if (!currentMember) {
@@ -1726,6 +1727,22 @@ export class MobilePostController {
             post: post,
             unreadCount
           });
+
+          // Send Push Notification if receiver is not active in the chat room and has fcmToken
+          const receiver = await this.memberRepo.findOneBy({ _id: otherId, isDeleted: false });
+          console.log('receiver', !isReceiverActive && receiver?.fcmToken, isReceiverActive, receiver?.fcmToken)
+          if (!isReceiverActive && receiver?.fcmToken) {
+            const senderName = sender?.fullName ? sender.fullName.trim() : "A member";
+            await insertPushNotification({
+              token: receiver.fcmToken,
+              subject: `New Shared Post from ${senderName}`,
+              content: message || `${senderName} shared a post with you.`,
+              moduleName: NotificationModule.MESSAGE,
+              moduleId: targetConversation._id.toString(),
+              receiverId: receiver._id.toString(),
+              senderId: userId.toString()
+            });
+          }
         }
       }
 
