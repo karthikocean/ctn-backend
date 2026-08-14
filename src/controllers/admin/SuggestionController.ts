@@ -71,65 +71,123 @@ export class AdminSuggestionController {
       const limit = Math.min(100, Number(limitParam) || 10);
       const skip = page * limit;
 
-      const matchFilter: any = { isDeleted: false };
+      const matchFilter: any = {
+        isDeleted: false,
+      };
 
-      if (status && Object.values(SuggestionStatus).includes(status as SuggestionStatus)) {
+      if (
+        status &&
+        Object.values(SuggestionStatus).includes(
+          status as SuggestionStatus
+        )
+      ) {
         matchFilter.status = status;
       }
 
       if (search && search.trim()) {
         const regex = new RegExp(search.trim(), "i");
+
         matchFilter.$or = [
           { title: { $regex: regex } },
-          { description: { $regex: regex } }
+          { description: { $regex: regex } },
+          { "member.fullName": { $regex: regex } },
         ];
       }
 
+      const pipeline: any[] = [
+        {
+          $lookup: {
+            from: "members",
+            localField: "memberId",
+            foreignField: "_id",
+            as: "member",
+          },
+        },
+        {
+          $unwind: {
+            path: "$member",
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+        {
+          $match: matchFilter,
+        },
+        {
+          $sort: {
+            createdAt: -1,
+          },
+        },
+        {
+          $skip: skip,
+        },
+        {
+          $limit: limit,
+        },
+        {
+          $project: {
+            title: 1,
+            description: 1,
+            image: 1,
+            status: 1,
+            adminNote: 1,
+            createdAt: 1,
+            updatedAt: 1,
+            member: {
+              _id: "$member._id",
+              fullName: "$member.fullName",
+              mobileNumber: "$member.mobileNumber",
+              email: "$member.email",
+              profile: "$member.profilePhoto",
+            },
+          },
+        },
+      ];
+
       const [suggestions, total] = await Promise.all([
-        this.suggestionRepo.aggregate([
-          { $match: matchFilter },
-          { $sort: { createdAt: -1 } },
-          { $skip: skip },
-          { $limit: limit },
-          {
-            $lookup: {
-              from: "members",
-              localField: "memberId",
-              foreignField: "_id",
-              as: "member"
-            }
-          },
-          {
-            $unwind: { path: "$member", preserveNullAndEmptyArrays: true }
-          },
-          {
-            $project: {
-              title: 1,
-              description: 1,
-              image: 1,
-              status: 1,
-              adminNote: 1,
-              createdAt: 1,
-              updatedAt: 1,
-              member: {
-                _id: "$member._id",
-                fullName: "$member.fullName",
-                mobileNumber: "$member.mobileNumber",
-                email: "$member.email",
-                profile: "$member.profilePhoto"
-              }
-            }
-          }
-        ]).toArray(),
-        this.suggestionRepo.count(matchFilter as any)
+        this.suggestionRepo.aggregate(pipeline).toArray(),
+
+        // IMPORTANT:
+        // count() cannot search member.fullName because member
+        // information comes from another collection.
+        this.suggestionRepo
+          .aggregate([
+            {
+              $lookup: {
+                from: "members",
+                localField: "memberId",
+                foreignField: "_id",
+                as: "member",
+              },
+            },
+            {
+              $unwind: {
+                path: "$member",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            {
+              $match: matchFilter,
+            },
+            {
+              $count: "total",
+            },
+          ])
+          .toArray(),
       ]);
 
-      return pagination(total, suggestions, limit, page, res);
+      const totalCount = total[0]?.total || 0;
+
+      return pagination(
+        totalCount,
+        suggestions,
+        limit,
+        page,
+        res
+      );
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
   }
-
   /**
    * @swagger
    * /api/admin/suggestions/{id}:

@@ -88,6 +88,13 @@ export class ReminderService {
     }
 
     if (conversation) {
+      if (conversation.isDeleted || conversation.status === "DELETED" || conversation.deletedBy) {
+        conversation.status = "PENDING";
+        conversation.isDeleted = false;
+        delete conversation.deletedBy;
+        await this.conversationRepo.save(conversation);
+      }
+
       const targetReceiverId = conversation.participants.find(p => !p.equals(creatorId)) || receiverObjId;
       const messageText = data.title;
 

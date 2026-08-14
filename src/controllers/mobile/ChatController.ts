@@ -98,7 +98,14 @@ export class MobileChatController {
       conversation.unreadCounts = {};
       conversation = await this.conversationRepo.save(conversation);
     } else {
-      if (conversation.deletedBy && conversation.deletedBy.equals(senderId)) {
+      const wasDeleted =
+        conversation.isDeleted ||
+        conversation.status === "DELETED" ||
+        !!conversation.deletedBy;
+
+      if (wasDeleted) {
+        conversation.status = "PENDING";
+        conversation.isDeleted = false;
         delete conversation.deletedBy;
         await this.conversationRepo.save(conversation);
       }
@@ -239,7 +246,7 @@ export class MobileChatController {
 
       const conversationsRaw = await this.conversationRepo.find({
         where: whereClause as any,
-        order: { updatedAt: "DESC" }
+        order: { lastMessageTime: "DESC", createdAt: "DESC", updatedAt: "DESC" }
       });
       console.log(conversationsRaw.length, 'conversationsRaw')
       const groupedConversations = new Map<string, Conversation>();
@@ -248,12 +255,18 @@ export class MobileChatController {
         if (!otherParticipantId) continue;
         const key = otherParticipantId.toString();
 
+        const getConvTime = (c: Conversation) => {
+          if (c.lastMessageTime) return new Date(c.lastMessageTime).getTime();
+          if (c.createdAt) return new Date(c.createdAt).getTime();
+          return 0;
+        };
+
         if (!groupedConversations.has(key)) {
           groupedConversations.set(key, conv);
         } else {
           const existing = groupedConversations.get(key)!;
-          const existingTime = existing.lastMessageTime ? new Date(existing.lastMessageTime).getTime() : new Date(existing.updatedAt).getTime();
-          const currTime = conv.lastMessageTime ? new Date(conv.lastMessageTime).getTime() : new Date(conv.updatedAt).getTime();
+          const existingTime = getConvTime(existing);
+          const currTime = getConvTime(conv);
           if (currTime > existingTime) {
             const unread = (existing.unreadCounts?.[userId.toString()] || 0) + (conv.unreadCounts?.[userId.toString()] || 0);
             conv.unreadCounts = { ...(conv.unreadCounts || {}), [userId.toString()]: unread };
@@ -263,6 +276,11 @@ export class MobileChatController {
       }
 
       const allUniqueConversations = Array.from(groupedConversations.values());
+      allUniqueConversations.sort((a, b) => {
+        const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+        const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        return timeB - timeA;
+      });
       const total = allUniqueConversations.length;
       const conversations = allUniqueConversations.slice(page * limit, (page + 1) * limit);
 
@@ -1142,6 +1160,13 @@ export class MobileChatController {
 
       const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(conversationId) });
       if (!conversation) throw new NotFoundError("Conversation not found");
+
+      if (conversation.isDeleted || conversation.status === "DELETED" || conversation.deletedBy) {
+        conversation.status = "PENDING";
+        conversation.isDeleted = false;
+        delete conversation.deletedBy;
+        await this.conversationRepo.save(conversation);
+      }
 
       const receiverId = conversation.participants.find(p => !p.equals(senderId));
       if (!receiverId) throw new BadRequestError("No receiver found in this conversation");
