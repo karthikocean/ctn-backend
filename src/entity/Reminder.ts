@@ -101,6 +101,9 @@ export class Reminder {
   recipientType!: ReminderRecipientType;
 
   @Column()
+  conversationId!: ObjectId;
+
+  @Column()
   createdBy!: ObjectId;
 
   @Column()

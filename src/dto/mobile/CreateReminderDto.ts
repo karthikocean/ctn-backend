@@ -64,8 +64,11 @@ export class CreateReminderDto {
   @IsNotEmpty()
   repeatInterval!: number;
 
-  // @IsArray()
-  // @IsEnum(NotifyBy, { each: true })
-  // @IsNotEmpty()
-  //   notifyBy!: NotifyBy[];
+  @IsString()
+  @IsOptional()
+  receiverId?: string;
+
+  @IsString()
+  @IsOptional()
+  conversationId?: string;
 }

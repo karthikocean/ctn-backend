@@ -26,6 +26,8 @@ import { ThankYouSlip } from "../../entity/ThankYouSlip";
 import { Milestone } from "../../entity/Milestone";
 import { OnlineStallProduct } from "../../entity/OnlineStallProduct";
 import { ReportedHistory } from "../../entity/ReportedHistory";
+import { Reminder, ReminderRecipientType } from "../../entity/Reminder";
+import { ReminderService } from "../../services/ReminderService";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
@@ -56,6 +58,7 @@ export class MobileChatController {
   private contactRepo = AppDataSource.getMongoRepository(Contact);
   private connectionRepo = AppDataSource.getMongoRepository(Connection);
   private pushNotificationRepo = AppDataSource.getMongoRepository(PushNotification);
+  private reminderRepo = AppDataSource.getMongoRepository(Reminder);
 
   private async isBlocked(userA: ObjectId, userB: ObjectId): Promise<boolean> {
     const blockedConnection = await this.connectionRepo.findOne({
@@ -526,15 +529,17 @@ export class MobileChatController {
       const otoIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.ONE_TO_ONE).map(m => m.businessActionId!))];
       const refIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.REFERRAL).map(m => m.businessActionId!))];
       const tyIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.THANK_YOU_SLIP).map(m => m.businessActionId!))];
+      const reminderIds = [...new Set(messages.filter(m => (m.type as any) === MessageType.REMINDER || m.reminderId || (m.businessActionId && (m.type as any) === MessageType.REMINDER)).map(m => m.reminderId || m.businessActionId!).filter(id => !!id))];
 
-      const [posts, products, milestones, replyMsgs, otos, refs, tys] = await Promise.all([
+      const [posts, products, milestones, replyMsgs, otos, refs, tys, reminders] = await Promise.all([
         postIds.length > 0 ? this.postRepo.find({ where: { _id: { $in: postIds } } as any }) : [],
         productIds.length > 0 ? this.productRepo.find({ where: { _id: { $in: productIds } } as any }) : [],
         milestoneIds.length > 0 ? this.milestoneRepo.find({ where: { _id: { $in: milestoneIds } } as any }) : [],
         replyToIds.length > 0 ? this.messageRepo.find({ where: { _id: { $in: replyToIds } } as any }) : [],
         otoIds.length > 0 ? this.oneToOneRepo.find({ where: { _id: { $in: otoIds } } as any }) : [],
         refIds.length > 0 ? this.referralRepo.find({ where: { _id: { $in: refIds } } as any }) : [],
-        tyIds.length > 0 ? this.tySlipRepo.find({ where: { _id: { $in: tyIds } } as any }) : []
+        tyIds.length > 0 ? this.tySlipRepo.find({ where: { _id: { $in: tyIds } } as any }) : [],
+        reminderIds.length > 0 ? this.reminderRepo.find({ where: { _id: { $in: reminderIds } } as any }) : []
       ]);
 
       const postMap = new Map(posts.map(p => [p._id.toString(), p]));
@@ -544,10 +549,12 @@ export class MobileChatController {
       const otoMap = new Map(otos.map(o => [o._id.toString(), o]));
       const refMap = new Map(refs.map(r => [r._id.toString(), r]));
       const tyMap = new Map(tys.map(t => [t._id.toString(), t]));
+      const reminderMap = new Map(reminders.map(r => [r._id.toString(), r]));
 
-      const populatedMessages = messages.map((msg) => {
+      const populatedMessages: any[] = [];
+      for (const msg of messages) {
         if (msg.isDeleted) {
-          return {
+          populatedMessages.push({
             _id: msg._id,
             conversationId: msg.conversationId,
             senderId: msg.senderId,
@@ -556,7 +563,18 @@ export class MobileChatController {
             isRead: msg.isRead || false,
             isMe: msg.senderId.toString() === req.user.userId,
             createdAt: msg.createdAt
-          };
+          });
+          continue;
+        }
+
+        const reminderKey = (msg.reminderId || msg.businessActionId)?.toString();
+        const reminderObj = reminderKey ? reminderMap.get(reminderKey) : null;
+
+        // Visibility check: If reminder recipientType is 'self' and logged-in user is NOT the sender, hide this reminder message from recipient
+        if ((msg.type as any) === MessageType.REMINDER || reminderObj) {
+          if (reminderObj && reminderObj.recipientType === ReminderRecipientType.SELF && msg.senderId.toString() !== req.user.userId) {
+            continue;
+          }
         }
 
         const result: any = {
@@ -566,7 +584,8 @@ export class MobileChatController {
           post: null,
           replyTo: null,
           media: msg.media || [],
-          businessActionId: msg.businessActionId || null
+          businessActionId: msg.businessActionId || null,
+          reminder: reminderObj || null
         };
 
         if ((msg.type === MessageType.POST_RESPONSE || msg.type === MessageType.POST_SHARE) && msg.postId) {
@@ -601,11 +620,13 @@ export class MobileChatController {
             result.businessAction = refMap.get(baKey) || null;
           } else if (msg.type === MessageType.THANK_YOU_SLIP) {
             result.businessAction = tyMap.get(baKey) || null;
+          } else if ((msg.type as any) === MessageType.REMINDER) {
+            result.businessAction = reminderMap.get(baKey) || null;
           }
         }
 
-        return result;
-      });
+        populatedMessages.push(result);
+      }
 
       return res.status(200).json({
         success: true,
@@ -1137,6 +1158,7 @@ export class MobileChatController {
         if (type === MessageType.ONE_TO_ONE) content = "One to One Completed";
         else if (type === MessageType.REFERRAL) content = "Shared a Referral";
         else if (type === MessageType.THANK_YOU_SLIP) content = "Sent a Thank You Slip";
+        else if (type === MessageType.REMINDER) content = actionData?.title ? `Reminder: ${actionData.title}` : "Created a Reminder";
         else if (type === MessageType.IMAGE) content = "Sent an Image";
         else content = "";
       }
@@ -1244,6 +1266,16 @@ export class MobileChatController {
           } catch (pointError) {
             console.error("Failed to award points for Thank you Slip:", pointError);
           }
+        } else if (type === MessageType.REMINDER && actionData) {
+          const reminderService = new ReminderService();
+          const reminderData = {
+            ...actionData,
+            conversationId: conversation._id.toString(),
+            receiverId: receiverId.toString()
+          };
+          const reminder = await reminderService.createReminder(reminderData, senderId.toString());
+          newMessage.reminderId = reminder._id;
+          newMessage.businessActionId = reminder._id;
         }
       } else if (businessActionId && ObjectId.isValid(businessActionId)) {
         newMessage.businessActionId = new ObjectId(businessActionId);

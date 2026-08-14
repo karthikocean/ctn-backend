@@ -223,9 +223,10 @@ export class ReminderController {
    *         description: List of reminders retrieved successfully
    */
   @Get("/")
-  async getAll(@QueryParams() filters: ReminderListDto, @Res() res: any) {
+  async getAll(@Req() req: any, @QueryParams() filters: ReminderListDto, @Res() res: any) {
     try {
-      const { total, data } = await this.reminderService.getReminderList(filters);
+      const userId = req.user.userId;
+      const { total, data } = await this.reminderService.getReminderList(filters, userId);
       const page = Number(filters.page) || 0;
       const limit = Number(filters.limit) || 10;
       return pagination(total, data, limit, page, res);
