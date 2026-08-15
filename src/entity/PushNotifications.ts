@@ -23,10 +23,10 @@ export enum NotificationModule {
   TRIAL = "TRIAL",
 
   // New modules requested by user
-  ONE_TO_ONE = "ONE_TO_ONE",
-  THANK_YOU_SLIP = "THANK_YOU_SLIP",
+  DIRECT_MEET = "DIRECT_MEET",
+  BUSINESS_DONE = "BUSINESS_DONE",
   FOLLOW_REQUEST = "FOLLOW_REQUEST",
-  REFERRAL = "REFERRAL",
+  RECOMMENDATIONS = "RECOMMENDATIONS",
   SPOTLIGHT = "SPOTLIGHT",
   MESSAGE = "MESSAGE",
   MESSAGE_REQUEST = "MESSAGE_REQUEST",
@@ -45,39 +45,39 @@ export enum NotificationModule {
 @Index(["receiverId", "createdAt"])
 export class PushNotification {
   @ObjectIdColumn()
-    _id!: ObjectId;
+  _id!: ObjectId;
 
   @Column()
-    sub!: string;
+  sub!: string;
 
   @Column()
-    msg!: string;
+  msg!: string;
 
   @Column({
     type: "enum",
     enum: NotificationModule,
     default: NotificationModule.GENERAL,
   })
-    moduleName!: NotificationModule;
+  moduleName!: NotificationModule;
 
   @Column({ nullable: true })
-    moduleId?: ObjectId;
+  moduleId?: ObjectId;
 
   @Column({ nullable: true })
-    senderId?: ObjectId;
+  senderId?: ObjectId;
 
   @Column()
-    receiverId!: ObjectId;
+  receiverId!: ObjectId;
 
   @Column({ default: false })
-    isRead!: boolean;
+  isRead!: boolean;
 
   @Column({ default: false })
-    isDeleted!: boolean;
+  isDeleted!: boolean;
 
   @CreateDateColumn()
-    createdAt!: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-    updatedAt!: Date;
+  updatedAt!: Date;
 }

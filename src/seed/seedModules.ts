@@ -58,11 +58,16 @@ export async function seedModules() {
     { name: "Referral" },
     { name: "Billings" },
     { name: "Coupons" },
-    { name: "Marketplace Category" },
     { name: "Help Center" },
 
     { name: "Modules" },
   ];
+
+  // Remove deprecated modules from database
+  await moduleRepo.updateMany(
+    { slugName: "marketplace_category" } as any,
+    { $set: { isDelete: 1, isActive: 0 } } as any
+  );
 
   let sortOrder = 0;
 

@@ -335,6 +335,30 @@ export class MobileChatController {
 
       const productMap = new Map(products.map(p => [p._id.toString(), p]));
 
+      // Ensure lastMessage visible to current user (hide opposite member's private self-reminders)
+      const convIds = conversations.map(c => c._id);
+      const latestMsgs = convIds.length > 0 ? await this.messageRepo.find({
+        where: { conversationId: { $in: convIds }, isDeleted: false } as any,
+        order: { createdAt: "DESC" }
+      }) : [];
+
+      const latestMsgMap = new Map<string, Message[]>();
+      for (const m of latestMsgs) {
+        const cId = m.conversationId.toString();
+        if (!latestMsgMap.has(cId)) latestMsgMap.set(cId, []);
+        latestMsgMap.get(cId)!.push(m);
+      }
+
+      const reminderIdsToCheck = latestMsgs
+        .filter(m => (m.type as any) === MessageType.REMINDER || m.reminderId || m.businessActionId)
+        .map(m => m.reminderId || m.businessActionId!)
+        .filter(id => !!id);
+
+      const remindersList = reminderIdsToCheck.length > 0
+        ? await this.reminderRepo.find({ where: { _id: { $in: reminderIdsToCheck } } as any })
+        : [];
+      const reminderMap = new Map(remindersList.map(r => [r._id.toString(), r]));
+
       const results = conversations.map(conv => {
         const otherParticipantId = conv.participants.find(p => !p.equals(userId));
         const otherUser = otherParticipantId ? memberMap.get(otherParticipantId.toString()) : null;
@@ -348,8 +372,39 @@ export class MobileChatController {
 
         const unreadCount = conv.unreadCounts?.[userId.toString()] || 0;
 
+        // Find the latest message visible to current userId
+        const msgsInConv = latestMsgMap.get(conv._id.toString()) || [];
+        let visibleLastMessage = conv.lastMessage;
+        let visibleLastMessageTime = conv.lastMessageTime;
+        let visibleLastMessageSenderId = conv.lastMessageSenderId;
+
+        if (msgsInConv.length > 0) {
+          let foundVisible = false;
+          for (const m of msgsInConv) {
+            const rKey = (m.reminderId || m.businessActionId)?.toString();
+            const rObj = rKey ? reminderMap.get(rKey) : null;
+            const isHiddenSelfReminder = (m.type === MessageType.REMINDER || !!rObj) &&
+              rObj?.recipientType === ReminderRecipientType.SELF &&
+              m.senderId.toString() !== userId.toString();
+
+            if (!isHiddenSelfReminder) {
+              visibleLastMessage = m.content;
+              visibleLastMessageTime = m.createdAt;
+              visibleLastMessageSenderId = m.senderId;
+              foundVisible = true;
+              break;
+            }
+          }
+          if (!foundVisible) {
+            visibleLastMessage = null as any;
+          }
+        }
+
         return {
           ...conv,
+          lastMessage: visibleLastMessage,
+          lastMessageTime: visibleLastMessageTime,
+          lastMessageSenderId: visibleLastMessageSenderId,
           otherUser: otherUser ? {
             _id: otherUser._id,
             fullName: otherUser.fullName,
@@ -544,9 +599,9 @@ export class MobileChatController {
       const productIds = [...new Set(messages.filter(m => m.type === MessageType.PRODUCT_RESPONSE && (m as any).productId).map(m => (m as any).productId!))];
       const milestoneIds = [...new Set(messages.filter(m => m.type === MessageType.MILESTONE_REPLY && m.milestoneId).map(m => m.milestoneId!))];
       const replyToIds = [...new Set(messages.filter(m => m.replyToMessageId).map(m => m.replyToMessageId!))];
-      const otoIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.ONE_TO_ONE).map(m => m.businessActionId!))];
-      const refIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.REFERRAL).map(m => m.businessActionId!))];
-      const tyIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.THANK_YOU_SLIP).map(m => m.businessActionId!))];
+      const otoIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.DIRECT_MEET).map(m => m.businessActionId!))];
+      const refIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.RECOMMENDATIONS).map(m => m.businessActionId!))];
+      const tyIds = [...new Set(messages.filter(m => m.businessActionId && m.type === MessageType.BUSINESS_DONE).map(m => m.businessActionId!))];
       const reminderIds = [...new Set(messages.filter(m => (m.type as any) === MessageType.REMINDER || m.reminderId || (m.businessActionId && (m.type as any) === MessageType.REMINDER)).map(m => m.reminderId || m.businessActionId!).filter(id => !!id))];
 
       const [posts, products, milestones, replyMsgs, otos, refs, tys, reminders] = await Promise.all([
@@ -632,11 +687,11 @@ export class MobileChatController {
 
         if (msg.businessActionId) {
           const baKey = msg.businessActionId.toString();
-          if (msg.type === MessageType.ONE_TO_ONE) {
+          if (msg.type === MessageType.DIRECT_MEET) {
             result.businessAction = otoMap.get(baKey) || null;
-          } else if (msg.type === MessageType.REFERRAL) {
+          } else if (msg.type === MessageType.RECOMMENDATIONS) {
             result.businessAction = refMap.get(baKey) || null;
-          } else if (msg.type === MessageType.THANK_YOU_SLIP) {
+          } else if (msg.type === MessageType.BUSINESS_DONE) {
             result.businessAction = tyMap.get(baKey) || null;
           } else if ((msg.type as any) === MessageType.REMINDER) {
             result.businessAction = reminderMap.get(baKey) || null;
@@ -1118,7 +1173,7 @@ export class MobileChatController {
    *                 type: string
    *               type:
    *                 type: string
-   *                 enum: [TEXT, IMAGE, ONE_TO_ONE, REFERRAL, THANK_YOU_SLIP]
+   *                 enum: [TEXT, IMAGE, DIRECT_MEET, RECOMMENDATIONS, BUSINESS_DONE]
    *               replyToMessageId:
    *                 type: string
    *               media:
@@ -1146,6 +1201,7 @@ export class MobileChatController {
     @Res() res: any
   ) {
     try {
+      console.log(JSON.stringify(data), 'datadata')
       const senderId = new ObjectId(req.user.userId);
       let pointsResult = { awarded: 0, balance: 0 };
       let { conversationId, content, type = MessageType.TEXT, replyToMessageId, media, businessActionId, actionData } = data;
@@ -1180,14 +1236,14 @@ export class MobileChatController {
 
       // Auto-generate content for Business Actions if missing
       if (!content) {
-        if (type === MessageType.ONE_TO_ONE) content = "One to One Completed";
-        else if (type === MessageType.REFERRAL) content = "Shared a Referral";
-        else if (type === MessageType.THANK_YOU_SLIP) content = "Sent a Thank You Slip";
+        if (type === MessageType.DIRECT_MEET) content = "Direct Meet Completed";
+        else if (type === MessageType.RECOMMENDATIONS) content = "Shared a Recommendation";
+        else if (type === MessageType.BUSINESS_DONE) content = "Business Done";
         else if (type === MessageType.REMINDER) content = actionData?.title ? `Reminder: ${actionData.title}` : "Created a Reminder";
         else if (type === MessageType.IMAGE) content = "Sent an Image";
         else content = "";
       }
-      if (type === MessageType.REFERRAL) {
+      if (type === MessageType.RECOMMENDATIONS) {
         const contact = new Contact();
         contact.name = actionData.name;
         contact.phoneNumber = actionData.phone;
@@ -1215,14 +1271,14 @@ export class MobileChatController {
       }
 
       // Handle Automatic Business Action Creation
-      if ([MessageType.ONE_TO_ONE, MessageType.REFERRAL, MessageType.THANK_YOU_SLIP].includes(type)) {
+      if ([MessageType.DIRECT_MEET, MessageType.RECOMMENDATIONS, MessageType.BUSINESS_DONE].includes(type)) {
         let _moduleName = "";
-        if (type === MessageType.ONE_TO_ONE) _moduleName = "One to One";
-        else if (type === MessageType.REFERRAL) _moduleName = "Referral";
-        else if (type === MessageType.THANK_YOU_SLIP) _moduleName = "Thank you Slip";
+        if (type === MessageType.DIRECT_MEET) _moduleName = "Direct Meet";
+        else if (type === MessageType.RECOMMENDATIONS) _moduleName = "Recommendations";
+        else if (type === MessageType.BUSINESS_DONE) _moduleName = "Business Done";
 
         // await validateModuleUsage(senderId, moduleName);
-        if (type === MessageType.ONE_TO_ONE) {
+        if (type === MessageType.DIRECT_MEET) {
           const oto = new OneToOne();
           oto.senderId = senderId;
           oto.receiverId = receiverId;
@@ -1231,19 +1287,19 @@ export class MobileChatController {
           const savedOto = await this.oneToOneRepo.save(oto);
           newMessage.businessActionId = savedOto._id;
 
-          // Award Points (Response type for One to One)
+          // Award Points (Response type for Direct Meet)
           try {
             const pointService = new PointService();
             pointsResult = await pointService.awardPoints({
               memberId: senderId,
-              moduleName: "One to One",
+              moduleName: "Direct Meet",
               type: PointConfigType.CREATION,
               referenceId: savedOto._id
             });
           } catch (pointError) {
-            console.error("Failed to award points for One to One:", pointError);
+            console.error("Failed to award points for Direct Meet:", pointError);
           }
-        } else if (type === MessageType.REFERRAL) {
+        } else if (type === MessageType.RECOMMENDATIONS) {
           const ref = new Referral();
           ref.senderId = senderId;
           ref.receiverId = receiverId;
@@ -1257,19 +1313,19 @@ export class MobileChatController {
           const savedRef = await this.referralRepo.save(ref);
           newMessage.businessActionId = savedRef._id;
 
-          // Award Points (Creation type for Referral)
+          // Award Points (Creation type for Recommendations)
           try {
             const pointService = new PointService();
             pointsResult = await pointService.awardPoints({
               memberId: senderId,
-              moduleName: "Referral",
+              moduleName: "Recommendations",
               type: PointConfigType.CREATION,
               referenceId: savedRef._id
             });
           } catch (pointError) {
-            console.error("Failed to award points for Referral:", pointError);
+            console.error("Failed to award points for Recommendations:", pointError);
           }
-        } else if (type === MessageType.THANK_YOU_SLIP) {
+        } else if (type === MessageType.BUSINESS_DONE) {
           const ty = new ThankYouSlip();
           ty.senderId = senderId;
           ty.receiverId = receiverId;
@@ -1279,17 +1335,17 @@ export class MobileChatController {
           const savedTy = await this.tySlipRepo.save(ty);
           newMessage.businessActionId = savedTy._id;
 
-          // Award Points (Creation type for Thank you Slip)
+          // Award Points (Creation type for Business Done)
           try {
             const pointService = new PointService();
             pointsResult = await pointService.awardPoints({
               memberId: senderId,
-              moduleName: "Thank you Slip",
+              moduleName: "Business Done",
               type: PointConfigType.CREATION,
               referenceId: savedTy._id
             });
           } catch (pointError) {
-            console.error("Failed to award points for Thank you Slip:", pointError);
+            console.error("Failed to award points for Business Done:", pointError);
           }
         } else if (type === MessageType.REMINDER && actionData) {
           const reminderService = new ReminderService();
@@ -1316,9 +1372,15 @@ export class MobileChatController {
 
       const savedMessage = await this.messageRepo.save(newMessage);
 
-      // Send Push Notification if receiver is not active in the chat room and has fcmToken
+      const isSelfReminder = type === MessageType.REMINDER && (
+        actionData?.recipientType === ReminderRecipientType.SELF ||
+        actionData?.recipientType === "self" ||
+        !actionData?.recipientType
+      );
+
+      // Send Push Notification if receiver is not active in the chat room and has fcmToken (skip if self reminder)
       const receiver = await this.memberRepo.findOneBy({ _id: receiverId, isDeleted: false });
-      if (!isReceiverActive && receiver?.fcmToken) {
+      if (!isSelfReminder && !isReceiverActive && receiver?.fcmToken) {
         const sender = await this.memberRepo.findOneBy({ _id: senderId, isDeleted: false });
         const senderName = sender?.fullName ? sender.fullName.trim() : "A member";
 
@@ -1326,16 +1388,16 @@ export class MobileChatController {
         let subject = `New Message from ${senderName}`;
         let notificationContent = newMessage.content;
 
-        if (type === MessageType.ONE_TO_ONE) {
-          notificationModule = NotificationModule.ONE_TO_ONE;
+        if (type === MessageType.DIRECT_MEET) {
+          notificationModule = NotificationModule.DIRECT_MEET;
           subject = "Direct Meet Update";
           notificationContent = `${senderName} has registered a direct meeting with you.  we made valuable conversation!`;
-        } else if (type === MessageType.REFERRAL) {
-          notificationModule = NotificationModule.REFERRAL;
+        } else if (type === MessageType.RECOMMENDATIONS) {
+          notificationModule = NotificationModule.RECOMMENDATIONS;
           subject = "New Referral Received";
           notificationContent = `${senderName} shared a business referral with you. Check the referral details and connect.`;
-        } else if (type === MessageType.THANK_YOU_SLIP) {
-          notificationModule = NotificationModule.THANK_YOU_SLIP;
+        } else if (type === MessageType.BUSINESS_DONE) {
+          notificationModule = NotificationModule.BUSINESS_DONE;
           subject = "Business Closed";
           notificationContent = `${senderName} marked the business as successfully completed. Congratulations on the new business connection! 🎉`;
         }
@@ -1351,42 +1413,53 @@ export class MobileChatController {
         });
       }
 
-      conversation.lastMessage = content;
-      conversation.lastMessageTime = new Date();
-      conversation.lastMessageSenderId = senderId;
+      if (!isSelfReminder) {
+        conversation.lastMessage = content;
+        conversation.lastMessageTime = new Date();
+        conversation.lastMessageSenderId = senderId;
 
-      // Update unread count for receiver
-      const unreadCounts = conversation.unreadCounts || {};
-      if (isReceiverActive) {
-        unreadCounts[receiverId.toString()] = 0;
-      } else {
-        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
+        // Update unread count for receiver
+        const unreadCounts = conversation.unreadCounts || {};
+        if (isReceiverActive) {
+          unreadCounts[receiverId.toString()] = 0;
+        } else {
+          unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
+        }
+        conversation.unreadCounts = { ...unreadCounts };
       }
-      conversation.unreadCounts = { ...unreadCounts };
 
       await this.conversationRepo.save(conversation);
 
-      if (receiverId) {
-        const io = getIO();
+      const io = getIO();
 
-        // Prepare fully populated message for the socket
-        const populatedMessage: any = {
-          ...savedMessage,
-          isMe: false,
-          businessAction: null
-        };
+      // Prepare fully populated message for the socket
+      const populatedMessage: any = {
+        ...savedMessage,
+        isMe: false,
+        businessAction: null
+      };
 
-        if (savedMessage.businessActionId) {
-          if (savedMessage.type === MessageType.ONE_TO_ONE) {
-            populatedMessage.businessAction = await this.oneToOneRepo.findOneBy({ _id: savedMessage.businessActionId });
-          } else if (savedMessage.type === MessageType.REFERRAL) {
-            populatedMessage.businessAction = await this.referralRepo.findOneBy({ _id: savedMessage.businessActionId });
-          } else if (savedMessage.type === MessageType.THANK_YOU_SLIP) {
-            populatedMessage.businessAction = await this.tySlipRepo.findOneBy({ _id: savedMessage.businessActionId });
-          }
+      if (savedMessage.businessActionId) {
+        if (savedMessage.type === MessageType.DIRECT_MEET) {
+          populatedMessage.businessAction = await this.oneToOneRepo.findOneBy({ _id: savedMessage.businessActionId });
+        } else if (savedMessage.type === MessageType.RECOMMENDATIONS) {
+          populatedMessage.businessAction = await this.referralRepo.findOneBy({ _id: savedMessage.businessActionId });
+        } else if (savedMessage.type === MessageType.BUSINESS_DONE) {
+          populatedMessage.businessAction = await this.tySlipRepo.findOneBy({ _id: savedMessage.businessActionId });
         }
+      }
 
+      if (!isSelfReminder) {
         io.to(`conversation_${conversation._id}`).emit("new_message", populatedMessage);
+      }
+
+      // Always emit to sender
+      io.to(senderId.toString()).emit("new_message", {
+        ...populatedMessage,
+        isMe: true
+      });
+
+      if (receiverId && !isSelfReminder) {
         io.to(receiverId.toString()).emit("new_message", populatedMessage);
 
         // Emit conversation update for the conversation list screen
@@ -1415,6 +1488,29 @@ export class MobileChatController {
           unreadCount
         });
       }
+
+      // Emit conversation_updated to sender
+      const receiverMember = await this.memberRepo.findOneBy({ _id: receiverId });
+      let receiverCategoryName = null;
+      if (receiverMember && receiverMember.businessCategory) {
+        const cat = await this.categoryRepo.findOneBy({ _id: receiverMember.businessCategory });
+        receiverCategoryName = cat ? cat.name : null;
+      }
+      io.to(senderId.toString()).emit("conversation_updated", {
+        ...conversation,
+        lastMessage: savedMessage.content,
+        lastMessageTime: savedMessage.createdAt,
+        lastMessageSenderId: savedMessage.senderId,
+        otherUser: receiverMember ? {
+          _id: receiverMember._id,
+          fullName: receiverMember.fullName,
+          profilePhoto: receiverMember.profilePhoto,
+          categoryName: receiverCategoryName,
+          isOnline: receiverMember.isOnline || false,
+          lastSeen: receiverMember.lastSeen || null
+        } : null,
+        unreadCount: conversation.unreadCounts?.[senderId.toString()] || 0
+      });
 
       return res.status(StatusCodes.OK).json({
         success: true,

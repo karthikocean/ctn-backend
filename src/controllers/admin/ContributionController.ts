@@ -235,7 +235,7 @@ export class AdminContributionController {
           type: "one_to_one",
           senderId: item.senderId,
           receiverId: item.receiverId,
-          description: "One to One Completed",
+          description: "Direct Meet Completed",
           date: item.createdAt,
           status: "completed",
           original: item
@@ -257,7 +257,7 @@ export class AdminContributionController {
           type: "referral",
           senderId: item.senderId,
           receiverId: item.receiverId,
-          description: `Referral for ${item.referralName}`,
+          description: `Recommendation for ${item.referralName}`,
           referralDetails: {
             referralName: item.referralName,
             referralMobile: item.referralMobile,
@@ -405,10 +405,10 @@ export class AdminContributionController {
         sender: senderId ? memberMap.get(senderId.toString()) || null : null,
         receiver: receiverId ? memberMap.get(receiverId.toString()) || null : null,
         description: type === "one_to_one"
-          ? "One to One Completed"
+          ? "Direct Meet Completed"
           : type === "thank_you_slip"
             ? `Business of ₹${contribution.amount?.toLocaleString() || 0} done`
-            : `Referral for ${contribution.referralName}`,
+            : `Recommendation for ${contribution.referralName}`,
         amount: contribution.amount,
         businessDetails: contribution.businessDetails,
         referralDetails: type === "referral" ? {

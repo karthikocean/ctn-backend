@@ -17,25 +17,15 @@ export interface UpdateStatusOptions {
   currentUserId?: string; // Optional: If initiated by a authenticated mobile member
 }
 
-type SlipType = "ONE_TO_ONE" | "REFERRAL" | "THANK_YOU_SLIP";
+type SlipType = "DIRECT_MEET" | "RECOMMENDATIONS" | "BUSINESS_DONE";
 
 const TYPE_ALIAS_MAP: Record<string, SlipType> = {
-  ONE_TO_ONE: "ONE_TO_ONE",
-  "121": "ONE_TO_ONE",
-  "1_2_1": "ONE_TO_ONE",
-  REFERRAL: "REFERRAL",
-  THANK_YOU_SLIP: "THANK_YOU_SLIP",
-  THANKYOUSLIP: "THANK_YOU_SLIP",
-  TY_SLIP: "THANK_YOU_SLIP"
+  "DIRECT_MEET": "DIRECT_MEET",
+  "RECOMMENDATIONS": "RECOMMENDATIONS",
+  "BUSINESS_DONE": "BUSINESS_DONE",
 };
 
-const ALL_SLIP_TYPES: SlipType[] = ["ONE_TO_ONE", "REFERRAL", "THANK_YOU_SLIP"];
-
-const NOTIFICATION_CONFIG: Record<SlipType, { module: NotificationModule; label: string }> = {
-  ONE_TO_ONE: { module: NotificationModule.ONE_TO_ONE, label: "1-to-1 Slip" },
-  REFERRAL: { module: NotificationModule.REFERRAL, label: "Referral" },
-  THANK_YOU_SLIP: { module: NotificationModule.THANK_YOU_SLIP, label: "Thank You Slip" }
-};
+const ALL_SLIP_TYPES: SlipType[] = ["DIRECT_MEET", "RECOMMENDATIONS", "BUSINESS_DONE"];
 
 export class SlipService {
   private oneToOneRepo = AppDataSource.getMongoRepository(OneToOne);
@@ -83,7 +73,7 @@ export class SlipService {
     }
 
     if (!updatedResult) {
-      throw new NotFoundError("Slip record (121, Referral, or Thank You Slip) not found");
+      throw new NotFoundError("Slip record (Direct Meet, Recommendations, or Business Done) not found");
     }
 
     const { type: detectedType, record: updatedRecord, senderId, receiverId } = updatedResult;
@@ -113,7 +103,7 @@ export class SlipService {
     status: string,
     reason?: string
   ) {
-    if (slipType === "ONE_TO_ONE") {
+    if (slipType === "DIRECT_MEET") {
       const record = await this.oneToOneRepo.findOneBy({ _id: objId });
       if (!record) return null;
       record.status = status;
@@ -122,7 +112,7 @@ export class SlipService {
       return { type: slipType, record: updatedRecord, senderId: record.senderId, receiverId: record.receiverId };
     }
 
-    if (slipType === "REFERRAL") {
+    if (slipType === "RECOMMENDATIONS") {
       const record = await this.referralRepo.findOneBy({ _id: objId });
       if (!record) return null;
       record.status = status as any;
@@ -142,7 +132,7 @@ export class SlipService {
       return { type: slipType, record: updatedRecord, senderId: record.senderId, receiverId: record.receiverId };
     }
 
-    if (slipType === "THANK_YOU_SLIP") {
+    if (slipType === "BUSINESS_DONE") {
       const record = await this.tySlipRepo.findOneBy({ _id: objId });
       if (!record) return null;
       record.status = status;
@@ -191,18 +181,18 @@ export class SlipService {
         let content = `${senderName} updated status to "${formattedStatus}"${reasonSuffix}.`;
         let moduleName = NotificationModule.GENERAL;
 
-        if (detectedType === "REFERRAL") {
-          moduleName = NotificationModule.REFERRAL;
-          subject = "Referral Status Updated";
-          content = `${senderName} updated the referral status to "${formattedStatus}"${reasonSuffix}.`;
-        } else if (detectedType === "ONE_TO_ONE") {
-          moduleName = NotificationModule.ONE_TO_ONE;
+        if (detectedType === "RECOMMENDATIONS") {
+          moduleName = NotificationModule.RECOMMENDATIONS;
+          subject = "Recommendations Status Updated";
+          content = `${senderName} updated the recommendations status to "${formattedStatus}"${reasonSuffix}.`;
+        } else if (detectedType === "DIRECT_MEET") {
+          moduleName = NotificationModule.DIRECT_MEET;
           subject = "Direct Meet Status Updated";
           content = `${senderName} updated the direct meet status to "${formattedStatus}"${reasonSuffix}.`;
-        } else if (detectedType === "THANK_YOU_SLIP") {
-          moduleName = NotificationModule.THANK_YOU_SLIP;
-          subject = "Thank You Slip Status Updated";
-          content = `${senderName} updated the thank you slip status to "${formattedStatus}"${reasonSuffix}.`;
+        } else if (detectedType === "BUSINESS_DONE") {
+          moduleName = NotificationModule.BUSINESS_DONE;
+          subject = "Business Done Status Updated";
+          content = `${senderName} updated the business done status to "${formattedStatus}"${reasonSuffix}.`;
         }
 
         await insertPushNotification({

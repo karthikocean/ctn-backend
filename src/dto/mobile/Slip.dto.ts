@@ -12,12 +12,12 @@ import { IsString, IsNotEmpty, IsOptional } from "class-validator";
  *       properties:
  *         id:
  *           type: string
- *           description: ID of the slip (121, Referral, or ThankYouSlip)
+ *           description: ID of the slip (Direct Meet, Recommendations, or Business Done)
  *           example: "60d5ecb8b392d7001f8e8e3a"
  *         type:
  *           type: string
- *           description: "Optional slip type: ONE_TO_ONE, REFERRAL, THANK_YOU_SLIP. Auto-detected if omitted."
- *           example: "REFERRAL"
+ *           description: "Optional slip type: DIRECT_MEET, RECOMMENDATIONS, BUSINESS_DONE. Auto-detected if omitted."
+ *           example: "RECOMMENDATIONS"
  *         status:
  *           type: string
  *           description: "New status value (e.g., PENDING, CONVERTED, CLOSED, ACCEPTED, REJECTED, COMPLETED)"
@@ -30,17 +30,17 @@ import { IsString, IsNotEmpty, IsOptional } from "class-validator";
 export class UpdateSlipStatusDto {
   @IsNotEmpty()
   @IsString()
-    id!: string;
+  id!: string;
 
   @IsOptional()
   @IsString()
-    type?: string;
+  type?: string;
 
   @IsNotEmpty()
   @IsString()
-    status!: string;
+  status!: string;
 
   @IsOptional()
   @IsString()
-    reason?: string;
+  reason?: string;
 }
