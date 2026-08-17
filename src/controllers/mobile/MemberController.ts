@@ -1200,7 +1200,7 @@ export class MobileMemberController {
         const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1, 0, 0, 0, 0);
         const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999);
 
-        // a) Top 3 Thank You Slips
+        // a) Top 3 Business Done
         const tySlipStats = await this.tySlipRepo.aggregate([
           {
             $match: {
@@ -1224,7 +1224,7 @@ export class MobileMemberController {
           }
         ]).toArray();
 
-        // b) Top 3 Referrals
+        // b) Top 3 Recommendations
         const referralStats = await this.referralRepo.aggregate([
           {
             $match: {
@@ -1274,7 +1274,7 @@ export class MobileMemberController {
           }
         ]).toArray();
 
-        // d) Top 3 One-to-Ones
+        // d) Top 3 Direct Meets
         const oneToOneStats = await this.oneToOneRepo.aggregate([
           {
             $match: {
@@ -1350,10 +1350,10 @@ export class MobileMemberController {
       const mergedList = [
         ...todayRegisteredFormatted.map(item => ({ ...item, type: "REGISTRATION" })),
         ...todayBirthdaysFormatted.map(item => ({ ...item, type: "BIRTHDAY" })),
-        ...topThankYouSlips.map(item => ({ ...item, type: "THANK_YOU_SLIP" })),
-        ...topReferrals.map(item => ({ ...item, type: "REFERRAL" })),
+        ...topThankYouSlips.map(item => ({ ...item, type: "BUSINESS_DONE" })),
+        ...topReferrals.map(item => ({ ...item, type: "RECOMMENDATIONS" })),
         ...topRequirementPosts.map(item => ({ ...item, type: "REQUIREMENT" })),
-        ...topOneToOnes.map(item => ({ ...item, type: "ONE_TO_ONE" })),
+        ...topOneToOnes.map(item => ({ ...item, type: "DIRECT_MEET" })),
         ...topPoints.map(item => ({ ...item, type: "POINTS" }))
       ];
 

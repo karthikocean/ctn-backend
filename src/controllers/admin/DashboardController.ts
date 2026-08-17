@@ -242,21 +242,21 @@ export class AdminDashboardController {
         interactionDateQuery.createdAt = { $lte: endDate };
       }
 
-      // One To One
+      // Direct Meet
       const allOneToOnes = await this.oneToOneRepo.find({ where: interactionDateQuery });
       const filteredOneToOnes = (regionId || categoryId || req.isFranchise)
         ? allOneToOnes.filter(o => memberOidSet.has(o.senderId?.toString()) || memberOidSet.has(o.receiverId?.toString()))
         : allOneToOnes;
       const oneToOneCount = filteredOneToOnes.length;
 
-      // Referral
+      // Recommendations
       const allReferrals = await this.referralRepo.find({ where: interactionDateQuery });
       const filteredReferrals = (regionId || categoryId || req.isFranchise)
         ? allReferrals.filter(r => memberOidSet.has(r.senderId?.toString()) || memberOidSet.has(r.receiverId?.toString()))
         : allReferrals;
       const referralCount = filteredReferrals.length;
 
-      // Thank You Slips
+      // Business Done
       const allThankYouSlips = await this.thankYouSlipRepo.find({ where: interactionDateQuery });
       const filteredThankYouSlips = (regionId || categoryId || req.isFranchise)
         ? allThankYouSlips.filter(t => memberOidSet.has(t.senderId?.toString()) || memberOidSet.has(t.receiverId?.toString()))

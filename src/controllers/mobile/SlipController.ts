@@ -16,7 +16,7 @@ import { StatusCodes } from "http-status-codes";
  * @swagger
  * tags:
  *   name: Slips
- *   description: Unified status update API for 121, Referral, and Thank You Slip
+ *   description: Unified status update API for Direct Meet, Recommendations, and Business Done
  */
 
 @JsonController("/slips")
@@ -28,7 +28,7 @@ export class SlipController {
    * @swagger
    * /mobile-api/slips/status:
    *   put:
-   *     summary: Update status for 121, Referral, or Thank You Slip in a single API
+   *     summary: Update status for Direct Meet, Recommendations, or Business Done in a single API
    *     tags: [Slips]
    *     security:
    *       - bearerAuth: []

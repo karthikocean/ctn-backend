@@ -117,20 +117,9 @@ export class ReminderService {
 
       const savedMessage = await this.messageRepo.save(newMessage);
 
-      if (targetReceiverId) {
-        // const receiverMember = await this.memberRepo.findOneBy({ _id: targetReceiverId, isDeleted: false });
-        // if (!isReceiverActive && receiverMember?.fcmToken) {
-        //   await insertPushNotification({
-        //     token: receiverMember.fcmToken,
-        //     subject: `New Reminder: ${data.title}`,
-        //     content: messageText,
-        //     moduleName: NotificationModule.MESSAGE_REQUEST,
-        //     moduleId: conversation._id.toString(),
-        //     receiverId: targetReceiverId.toString(),
-        //     senderId: creatorId.toString()
-        //   });
-        // }
+      const isSelfReminder = reminder.recipientType === ReminderRecipientType.SELF;
 
+      if (targetReceiverId && !isSelfReminder) {
         const unreadCounts = conversation.unreadCounts || {};
         if (isReceiverActive) {
           unreadCounts[targetReceiverId.toString()] = 0;
@@ -140,9 +129,11 @@ export class ReminderService {
         conversation.unreadCounts = { ...unreadCounts };
       }
 
-      conversation.lastMessage = savedMessage.content;
-      conversation.lastMessageTime = new Date();
-      conversation.lastMessageSenderId = creatorId;
+      if (!isSelfReminder) {
+        conversation.lastMessage = savedMessage.content;
+        conversation.lastMessageTime = new Date();
+        conversation.lastMessageSenderId = creatorId;
+      }
       await this.conversationRepo.save(conversation);
 
       const io = getIO();
@@ -151,8 +142,10 @@ export class ReminderService {
         reminder: savedReminder
       };
 
-      // Emit to conversation room
-      io.to(`conversation_${conversation._id}`).emit("new_message", populatedMsg);
+      if (!isSelfReminder) {
+        // Emit to conversation room only if not a private self-reminder
+        io.to(`conversation_${conversation._id}`).emit("new_message", populatedMsg);
+      }
 
       // Emit to creator socket room
       io.to(creatorId.toString()).emit("new_message", {
@@ -160,8 +153,8 @@ export class ReminderService {
         isMe: true
       });
 
-      // Emit to receiver socket room if different
-      if (targetReceiverId && !targetReceiverId.equals(creatorId)) {
+      // Emit to receiver socket room if different and reminder is shared
+      if (targetReceiverId && !targetReceiverId.equals(creatorId) && !isSelfReminder) {
         io.to(targetReceiverId.toString()).emit("new_message", {
           ...populatedMsg,
           isMe: false

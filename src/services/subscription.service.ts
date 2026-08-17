@@ -831,7 +831,7 @@ export class SubscriptionService {
 
       // Check module usage validation matching old features
       if (featureType === "maxConnections") {
-        // Map to connections/one-to-one validation
+        // Map to connections/direct-meet validation
         await this.validateModuleUsage(memberId, "one to one");
         return true;
       }

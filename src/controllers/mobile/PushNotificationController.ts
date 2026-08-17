@@ -157,18 +157,18 @@ export class PushNotificationController {
       const result = {
         Networking: {
           totalUnread: getCount([
-            NotificationModule.ONE_TO_ONE,
-            NotificationModule.THANK_YOU_SLIP,
+            NotificationModule.DIRECT_MEET,
+            NotificationModule.BUSINESS_DONE,
             NotificationModule.FOLLOW_REQUEST,
             NotificationModule.CONNECTION, // mapped to follow request
-            NotificationModule.REFERRAL,
+            NotificationModule.RECOMMENDATIONS,
             NotificationModule.SPOTLIGHT
           ]),
           items: [
-            { module: NotificationModule.ONE_TO_ONE, label: "One-to-One", unreadCount: getCount([NotificationModule.ONE_TO_ONE]) },
-            { module: NotificationModule.THANK_YOU_SLIP, label: "Thank You Slips", unreadCount: getCount([NotificationModule.THANK_YOU_SLIP]) },
+            { module: NotificationModule.DIRECT_MEET, label: "Direct Meet", unreadCount: getCount([NotificationModule.DIRECT_MEET]) },
+            { module: NotificationModule.BUSINESS_DONE, label: "Business Done", unreadCount: getCount([NotificationModule.BUSINESS_DONE]) },
             { module: NotificationModule.FOLLOW_REQUEST, label: "Follow Requests", unreadCount: getCount([NotificationModule.FOLLOW_REQUEST, NotificationModule.CONNECTION]) },
-            { module: NotificationModule.REFERRAL, label: "Referrals", unreadCount: getCount([NotificationModule.REFERRAL]) },
+            { module: NotificationModule.RECOMMENDATIONS, label: "Recommendations", unreadCount: getCount([NotificationModule.RECOMMENDATIONS]) },
             { module: NotificationModule.SPOTLIGHT, label: "Spotlight", unreadCount: getCount([NotificationModule.SPOTLIGHT]) },
           ]
         },

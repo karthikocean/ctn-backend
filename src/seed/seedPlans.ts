@@ -7,6 +7,7 @@ export async function seedPlans() {
   const plans = [
     {
       title: "Basic",
+      isDeleted: false,
       description: "Basic Trusted Network Plan",
       amount: 4999,
       status: "active",
@@ -38,6 +39,8 @@ export async function seedPlans() {
 
     {
       title: "Advance",
+      isDeleted: false,
+
       description: "Advance Trusted Network Plan",
       amount: 9999,
       status: "active",
@@ -70,6 +73,8 @@ export async function seedPlans() {
     {
       title: "Ultimate",
       description: "Ultimate Trusted Network Plan",
+      isDeleted: false,
+
       amount: 19999,
       status: "active",
       billingType: "ultimate",
