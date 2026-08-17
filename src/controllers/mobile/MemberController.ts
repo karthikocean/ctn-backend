@@ -358,7 +358,8 @@ export class MobileMemberController {
             type: subscription.type,
             status: subscription.status,
             endDate: subscription.endDate,
-            daysRemaining: subscription.daysRemaining
+            daysRemaining: subscription.daysRemaining,
+            isPaidUser: subscription.status === "ACTIVE" && !subscription.isTrial
           }
         }
       });
