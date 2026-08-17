@@ -172,7 +172,7 @@ export class RazorpayUpgradeService {
       const currentPlan = await this.planRepo.findOneBy({ _id: activeSub.planId || new ObjectId("000000000000000000000000") });
       const currentPrice = currentPlan ? currentPlan.amount : 0;
       if (plan.amount < currentPrice) {
-        throw new BadRequestError("You have an active plan of higher value. Please use the downgrade API to downgrade and transfer your unused credits.");
+        throw new BadRequestError("Active plan has higher value. Use the downgrade option to switch and transfer unused credits.");
       }
     }
 
