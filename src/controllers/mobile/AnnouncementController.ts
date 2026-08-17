@@ -423,9 +423,9 @@ export class MobileAnnouncementController {
 
       if (balance < totalPointsRequired) {
         if (eventPointsCost > 0) {
-          throw new BadRequestError(`Insufficient points. You have ${balance} points, but booking this stall requires ${stall.points} points and registering for the event requires ${eventPointsCost} points (total: ${totalPointsRequired}).`);
+          throw new BadRequestError(`Insufficient points. Need ${totalPointsRequired} pts (stall: ${stall.points} + event: ${eventPointsCost}), you have ${balance}.`);
         } else {
-          throw new BadRequestError(`Insufficient points. You have ${balance} points, but this stall requires ${stall.points} points.`);
+          throw new BadRequestError(`Insufficient points. Need ${stall.points} pts, you have ${balance}.`);
         }
       }
 
@@ -570,7 +570,7 @@ export class MobileAnnouncementController {
       console.log(balance, "balance", cost, "cost");
       if (cost > 0) {
         if (balance < cost) {
-          throw new BadRequestError(`Insufficient points. You have ${balance} points, but booking this event requires ${cost} points.`);
+          throw new BadRequestError(`Insufficient points. Need ${cost} pts, you have ${balance}.`);
         }
       }
 

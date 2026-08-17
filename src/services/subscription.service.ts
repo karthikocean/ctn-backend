@@ -304,7 +304,7 @@ export class SubscriptionService {
 
     if (used >= limit) {
       throw new BadRequestError(
-        `You've reached your ${frequency.toLowerCase()} limit of ${limit} requirement post response(s). Please try again after your limit resets or upgrade your plan.`
+        `${frequency} limit of ${limit} response(s) reached. Upgrade your plan to continue.`
       );
     }
   }
@@ -505,7 +505,7 @@ export class SubscriptionService {
    */
   buildLimitExceededError(moduleName: string, used: number, limit: number, frequency: string): BadRequestError {
     return new BadRequestError(
-      `You've used your ${frequency.toLowerCase()} upload allowance. Please try again after your limit resets or upgrade your plan for additional uploads.`
+      `${frequency} upload limit reached. Try again later or upgrade your plan.`
     );
   }
 

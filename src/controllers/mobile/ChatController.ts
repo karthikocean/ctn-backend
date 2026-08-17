@@ -338,7 +338,7 @@ export class MobileChatController {
       // Ensure lastMessage visible to current user (hide opposite member's private self-reminders)
       const convIds = conversations.map(c => c._id);
       const latestMsgs = convIds.length > 0 ? await this.messageRepo.find({
-        where: { conversationId: { $in: convIds }, isDeleted: false } as any,
+        where: { conversationId: { $in: convIds }, isDeleted: { $ne: true } } as any,
         order: { createdAt: "DESC" }
       }) : [];
 
@@ -347,6 +347,10 @@ export class MobileChatController {
         const cId = m.conversationId.toString();
         if (!latestMsgMap.has(cId)) latestMsgMap.set(cId, []);
         latestMsgMap.get(cId)!.push(m);
+      }
+      // Ensure each conversation's messages are sorted newest-first
+      for (const [cId, msgs] of latestMsgMap) {
+        msgs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       }
 
       const reminderIdsToCheck = latestMsgs
@@ -1339,7 +1343,7 @@ export class MobileChatController {
           try {
             const pointService = new PointService();
             pointsResult = await pointService.awardPoints({
-              memberId: senderId,
+              memberId: receiverId,
               moduleName: "Business Done",
               type: PointConfigType.RESPONSE,
               referenceId: savedTy._id

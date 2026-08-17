@@ -816,7 +816,7 @@ export class MobilePostController {
       if (!currentMember) throw new BadRequestError("Member not found");
 
       this.applyCategoryVisibilityFilter(where, currentMember);
-
+      // console.log("where", JSON.stringify(where));s
       const allPosts = await this.postRepo.find({ where });
       const total = allPosts.length;
 
@@ -997,7 +997,7 @@ export class MobilePostController {
         const ninMemberCondition = { memberId: { $nin: reportedMemberIds } };
         where.$and = [...(where.$and || []), ninMemberCondition];
       }
-
+      // console.log('aaaaaaaa', JSON.stringify(where))
       const allPosts = await this.postRepo.find({ where });
       const total = allPosts.length;
 
@@ -1483,6 +1483,14 @@ export class MobilePostController {
           throw new BadRequestError(`Invalid requirementVisibility. Must be one of: ${validValues.join(", ")}`);
         }
         data.requirementVisibility = normalized as RequirementVisibility;
+      }
+
+      // If visibility is OVERALL, clear all scoping ID fields
+      if (data.requirementVisibility === RequirementVisibility.OVERALL) {
+        data.stateIds = [];
+        data.regionIds = [];
+        data.categoryIds = [];
+        data.subCategoryIds = [];
       }
 
       Object.assign(post, data);

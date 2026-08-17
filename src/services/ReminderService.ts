@@ -227,7 +227,8 @@ export class ReminderService {
     if (data.isActive !== undefined) reminder.isActive = data.isActive;
 
     if (data.notifyBy !== undefined) reminder.notifyBy = data.notifyBy;
-    reminder.recipients = [updaterId];
+    // Do NOT reset recipients here — they are set at creation time based on recipientType.
+    // Overwriting with [updaterId] would break BOTH/OTHER recipient types.
     reminder.updatedBy = updaterId;
 
     return await this.reminderRepo.save(reminder);
