@@ -63,11 +63,11 @@ export async function seedModules() {
     { name: "Modules" },
   ];
 
-  // Remove deprecated modules from database
-  await moduleRepo.updateMany(
-    { slugName: "marketplace_category" } as any,
-    { $set: { isDelete: 1, isActive: 0 } } as any
-  );
+  // // Remove deprecated modules from database
+  // await moduleRepo.updateMany(
+  //   { slugName: "marketplace_category" } as any,
+  //   { $set: { isDelete: 1, isActive: 0 } } as any
+  // );
 
   let sortOrder = 0;
 

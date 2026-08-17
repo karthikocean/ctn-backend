@@ -1341,7 +1341,7 @@ export class MobileChatController {
             pointsResult = await pointService.awardPoints({
               memberId: senderId,
               moduleName: "Business Done",
-              type: PointConfigType.CREATION,
+              type: PointConfigType.RESPONSE,
               referenceId: savedTy._id
             });
           } catch (pointError) {
