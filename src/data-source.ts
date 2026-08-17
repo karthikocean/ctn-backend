@@ -8,7 +8,7 @@ const ext = __filename.endsWith(".ts") ? "ts" : "js";
 export const AppDataSource = new DataSource({
   type: "mongodb",
   url: process.env.MONGO_URI || "",
-  synchronize: true,
+  synchronize: false,
   logging: process.env.NODE_ENV !== "production",
   entities: [`${__dirname}/entity/**/*.${ext}`],
 });

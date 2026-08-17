@@ -28,7 +28,7 @@ export interface ServiceLocation {
 }
 
 @Entity("members")
-@Index(["mobileNumber"], { unique: true })
+// @Index(["mobileNumber"], { unique: true })
 @Index(["email"], { unique: true, sparse: true })
 @Index(["status"])
 @Index(["isDeleted"])
