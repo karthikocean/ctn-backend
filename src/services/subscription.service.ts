@@ -571,7 +571,7 @@ export class SubscriptionService {
     const features = plan && plan.features ? plan.features : this.getDefaultGuestFeatures();
 
     const diffTime = activeSub.endDate.getTime() - now.getTime();
-    const daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    const daysRemaining = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
     return {
       subscriptionId: activeSub._id || null,
       planId: activeSub.planId || null,
