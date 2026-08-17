@@ -176,9 +176,9 @@ export class MobileAuthController {
     try {
       const { identifier, type, otp, fcmToken } = body;
       console.log(body, "body")
-      if (!fcmToken) {
-        throw new BadRequestError("FCM token is required");
-      }
+      // if (!fcmToken) {
+      //   throw new BadRequestError("FCM token is required");
+      // }
       if (otp !== "1234") {
 
         const verification = await this.verificationRepo.findOne({
