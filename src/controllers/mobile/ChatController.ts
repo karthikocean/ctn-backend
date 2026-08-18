@@ -1235,10 +1235,10 @@ export class MobileChatController {
       if (!receiverId) throw new BadRequestError("No receiver found in this conversation");
 
       if (conversation.status === "REPORTED") {
-        throw new BadRequestError("You cannot send messages in a reported conversation.");
+        throw new BadRequestError("You can't message this member because they've blocked you");
       }
       if (await this.isBlocked(senderId, receiverId)) {
-        throw new BadRequestError("You cannot send messages to this member.");
+        throw new BadRequestError("You can't message this member because they've blocked you");
       }
 
       // Auto-generate content for Business Actions if missing
