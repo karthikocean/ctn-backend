@@ -1446,11 +1446,13 @@ export class MobileMemberController {
     const formattedMap = new Map(formattedMembers.map(m => [m._id.toString(), m]));
 
     return stats
-      .map(s => {
+      .map((s, index) => {
         const formatted = formattedMap.get(s._id.toString());
         if (!formatted) return null;
         return {
           ...formatted,
+          order: index + 1,
+          rank: index + 1,
           [valueKey]: s[valueKey]
         };
       })

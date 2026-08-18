@@ -800,6 +800,9 @@ export class MobileChatController {
           const existingReport = await reportedHistoryRepo.findOne({
             where: { reporterUserId: userId, targetUserId: otherId } as any
           });
+          if (existingReport) {
+            throw new BadRequestError("You have already reported this user");
+          }
           if (!existingReport) {
             const report = new ReportedHistory();
             report.reporterUserId = userId;
@@ -878,7 +881,7 @@ export class MobileChatController {
       if (senderId.equals(receiverId)) throw new BadRequestError("You cannot respond to your own post");
 
       if (await this.isBlocked(senderId, receiverId)) {
-        throw new BadRequestError("You cannot send messages to this member.");
+        throw new BadRequestError("You can't message this member because they've blocked you");
       }
 
       let conversation = await this.getOrCreateConversation(senderId, receiverId);
