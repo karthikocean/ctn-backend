@@ -36,7 +36,7 @@ import { validateModuleUsage } from "../../services/moduleUsage.service";
 import { SubscriptionService } from "../../services/subscription.service";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
-// import { DailyScoreService } from "../../services/dailyScore.service";
+import { DailyScoreService } from "../../services/dailyScore.service";
 import { notifyPostAudience, notifyGivePostAudience, insertPushNotification } from "../../services/pushnotification.service";
 import { NotificationModule } from "../../entity/PushNotifications";
 
@@ -266,17 +266,17 @@ export class MobilePostController {
         console.error("Failed to award points for post creation:", pointError);
       }
 
-      // // 2.5 Award Daily Score Checklist Points
-      // try {
-      //   const dailyScoreService = new DailyScoreService();
-      //   await dailyScoreService.awardDailyScore(
-      //     memberObjectId,
-      //     moduleName,
-      //     savedPost._id
-      //   );
-      // } catch (dailyScoreError) {
-      //   console.error("Failed to award daily score for post creation:", dailyScoreError);
-      // }
+      // 2.5 Award Daily Score Checklist Points
+      try {
+        const dailyScoreService = new DailyScoreService();
+        await dailyScoreService.awardDailyScore(
+          memberObjectId,
+          moduleName,
+          savedPost._id
+        );
+      } catch (dailyScoreError) {
+        console.error("Failed to award daily score for post creation:", dailyScoreError);
+      }
 
       return res.status(StatusCodes.CREATED).json({
         success: true,
