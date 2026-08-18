@@ -8,7 +8,7 @@ import {
   BadRequestError
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
-import { Announcement, AnnouncementStatus, AnnouncementType } from "../../entity/Announcement";
+import { Announcement, AnnouncementStatus } from "../../entity/Announcement";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";

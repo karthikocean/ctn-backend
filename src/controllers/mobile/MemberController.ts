@@ -392,7 +392,7 @@ export class MobileMemberController {
       if (!member) throw new NotFoundError("Profile not found");
 
       Object.assign(member, data);
-      console.log(JSON.stringify(data), 'data')
+      console.log(JSON.stringify(data), "data");
       if (data.businessCategory) member.businessCategory = new ObjectId(data.businessCategory);
       if (data.subCategory) member.subCategory = new ObjectId(data.subCategory);
       if (data.businessRegion) {

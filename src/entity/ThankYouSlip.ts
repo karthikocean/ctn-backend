@@ -13,32 +13,32 @@ import { ObjectId } from "mongodb";
 @Index(["receiverId"])
 export class ThankYouSlip {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   @Column()
-  senderId!: ObjectId; // Person who gave the TY Slip
+    senderId!: ObjectId; // Person who gave the TY Slip
 
   @Column()
-  receiverId!: ObjectId; // Person who received the TY Slip
+    receiverId!: ObjectId; // Person who received the TY Slip
 
   @Column()
-  amount!: number;
+    amount!: number;
 
   @Column({ nullable: true })
-  businessDetails?: string;
+    businessDetails?: string;
 
   @Column({ nullable: true })
-  status?: string;
+    status?: string;
 
   @Column({ nullable: true })
-  reason?: string;
+    reason?: string;
 
   @Column({ nullable: true })
-  conversationId?: ObjectId;
+    conversationId?: ObjectId;
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }

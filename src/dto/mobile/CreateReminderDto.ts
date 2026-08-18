@@ -34,11 +34,11 @@ import { ReminderRecipientType } from "../../entity/Reminder";
 export class CreateReminderDto {
   @IsString()
   @IsNotEmpty()
-  title!: string;
+    title!: string;
 
   @IsString()
   @IsOptional()
-  description?: string;
+    description?: string;
 
   // @IsString()
   // @IsNotEmpty()
@@ -50,25 +50,25 @@ export class CreateReminderDto {
 
   @IsString()
   @IsNotEmpty()
-  reminderDate!: string;
+    reminderDate!: string;
 
   @IsString()
   @IsNotEmpty()
-  reminderTime!: string;
+    reminderTime!: string;
 
   @IsEnum(ReminderRecipientType)
   @IsNotEmpty()
-  recipientType!: ReminderRecipientType;
+    recipientType!: ReminderRecipientType;
 
   @IsNumber()
   @IsNotEmpty()
-  repeatInterval!: number;
+    repeatInterval!: number;
 
   @IsString()
   @IsOptional()
-  receiverId?: string;
+    receiverId?: string;
 
   @IsString()
   @IsOptional()
-  conversationId?: string;
+    conversationId?: string;
 }

@@ -657,7 +657,9 @@ export class MobileOnlineStallProductController {
       if (body.price !== undefined) {
         product.price = Number(body.price);
       }
-
+      if (body.marketplaceCategory !== undefined) {
+        product.marketplaceCategory = new ObjectId(body.marketplaceCategory);
+      }
       const saved = await this.productRepo.save(product);
 
       return res.status(StatusCodes.OK).json({

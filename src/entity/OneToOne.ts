@@ -13,29 +13,29 @@ import { ObjectId } from "mongodb";
 @Index(["receiverId"])
 export class OneToOne {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   @Column()
-  senderId!: ObjectId;
+    senderId!: ObjectId;
 
   @Column()
-  receiverId!: ObjectId;
+    receiverId!: ObjectId;
 
   @Column({ nullable: true })
-  media?: string[];
+    media?: string[];
 
   @Column({ nullable: true })
-  status?: string;
+    status?: string;
 
   @Column({ nullable: true })
-  reason?: string;
+    reason?: string;
 
   @Column({ nullable: true })
-  conversationId?: ObjectId;
+    conversationId?: ObjectId;
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }

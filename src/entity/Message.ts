@@ -27,57 +27,57 @@ export enum MessageType {
 @Index(["createdAt"])
 export class Message {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   @Column()
-  conversationId!: ObjectId;
+    conversationId!: ObjectId;
 
   @Column()
-  senderId!: ObjectId;
+    senderId!: ObjectId;
 
   @Column()
-  content!: string;
+    content!: string;
 
   @Column({
     type: "enum",
     enum: MessageType,
     default: MessageType.TEXT
   })
-  type!: MessageType;
+    type!: MessageType;
 
   @Column({ nullable: true })
-  postId?: ObjectId; // Reference to post if it's a POST_RESPONSE
+    postId?: ObjectId; // Reference to post if it's a POST_RESPONSE
 
   @Column({ nullable: true })
-  productId?: ObjectId; // Reference to product if it's a PRODUCT_RESPONSE
+    productId?: ObjectId; // Reference to product if it's a PRODUCT_RESPONSE
 
   @Column({ nullable: true })
-  milestoneId?: ObjectId; // Reference to milestone if it's a MILESTONE_REPLY
+    milestoneId?: ObjectId; // Reference to milestone if it's a MILESTONE_REPLY
 
   @Column({ nullable: true })
-  reminderId?: ObjectId; // Reference to reminder if it's a REMINDER
+    reminderId?: ObjectId; // Reference to reminder if it's a REMINDER
 
   @Column({ default: false })
-  isRead!: boolean;
+    isRead!: boolean;
 
   @Column({ default: false })
-  isEdited!: boolean;
+    isEdited!: boolean;
 
   @Column({ default: false })
-  isDeleted!: boolean;
+    isDeleted!: boolean;
 
   @Column({ nullable: true })
-  replyToMessageId?: ObjectId; // Reference to the message being replied to
+    replyToMessageId?: ObjectId; // Reference to the message being replied to
 
   @Column({ nullable: true })
-  media?: string[]; // For IMAGE or DIRECT_MEET types
+    media?: string[]; // For IMAGE or DIRECT_MEET types
 
   @Column({ nullable: true })
-  businessActionId?: ObjectId; // Link to DirectMeet, Recommendations, BusinessDone, or Reminder record
+    businessActionId?: ObjectId; // Link to DirectMeet, Recommendations, BusinessDone, or Reminder record
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }

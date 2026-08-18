@@ -122,302 +122,302 @@ import { LocationVisibility } from "../../entity/Member";
 export class ServiceLocationDto {
   @IsString()
   @IsNotEmpty()
-  country!: string;
+    country!: string;
 
   @IsArray()
   @IsString({ each: true })
-  states!: string[];
+    states!: string[];
 
   @IsArray()
   @IsString({ each: true })
-  cities!: string[];
+    cities!: string[];
 }
 
 export class CreateMemberDto {
   @IsString()
   @IsOptional()
-  dob?: string;
+    dob?: string;
 
   @IsString()
-  fullName!: string;
+    fullName!: string;
 
   @IsString()
-  mobileNumber!: string;
+    mobileNumber!: string;
 
   @IsEmail()
   @IsOptional()
-  email?: string;
+    email?: string;
 
   @IsString()
   @IsOptional()
-  gstNumber?: string;
+    gstNumber?: string;
 
   @IsString()
   @IsOptional()
-  businessName?: string;
+    businessName?: string;
 
   @IsString()
   @IsOptional()
-  businessType?: string;
+    businessType?: string;
 
   @IsString()
   @IsOptional()
-  legalName?: string;
+    legalName?: string;
 
   @IsString()
   @IsOptional()
-  businessCategory?: string;
+    businessCategory?: string;
 
   @IsString()
   @IsOptional()
-  subCategory?: string;
+    subCategory?: string;
 
   @IsNumber()
   @IsOptional()
-  yearsOfExperience?: number;
+    yearsOfExperience?: number;
 
   @IsString()
   @IsOptional()
-  companySize?: string;
+    companySize?: string;
 
   @IsString()
   @IsOptional()
-  state?: string;
+    state?: string;
 
   @IsString()
   @IsOptional()
-  city?: string;
+    city?: string;
 
   @IsString()
   @IsOptional()
-  businessAddress?: string;
+    businessAddress?: string;
 
   @IsString()
   @IsOptional()
-  businessRegion?: string;
+    businessRegion?: string;
 
   @IsOptional()
   @ValidateNested()
   @Type(() => ServiceLocationDto)
-  serviceLocations?: ServiceLocationDto;
+    serviceLocations?: ServiceLocationDto;
 
   @IsString()
   @IsOptional()
-  productsServicesDescription?: string;
-
-  @IsArray()
-  @IsOptional()
-  productsServices?: { title: string; image: string; description: string }[];
-
-  @IsString()
-  @IsOptional()
-  targetAudience?: string;
-
-  @IsString()
-  @IsOptional()
-  websiteUrl?: string;
-
-  @IsString()
-  @IsOptional()
-  linkedinProfile?: string;
-
-  @IsString()
-  @IsOptional()
-  instagram?: string;
-  @IsString()
-  @IsOptional()
-  facebook?: string;
-  @IsString()
-  @IsOptional()
-  youtubeLink?: string;
-
-  @IsString()
-  @IsOptional()
-  profilePhoto?: string;
-
-  @IsString()
-  @IsOptional()
-  profileBanner?: string;
+    productsServicesDescription?: string;
 
   @IsArray()
-  @IsString({ each: true })
   @IsOptional()
-  workImages?: string[];
+    productsServices?: { title: string; image: string; description: string }[];
+
+  @IsString()
+  @IsOptional()
+    targetAudience?: string;
+
+  @IsString()
+  @IsOptional()
+    websiteUrl?: string;
+
+  @IsString()
+  @IsOptional()
+    linkedinProfile?: string;
+
+  @IsString()
+  @IsOptional()
+    instagram?: string;
+  @IsString()
+  @IsOptional()
+    facebook?: string;
+  @IsString()
+  @IsOptional()
+    youtubeLink?: string;
+
+  @IsString()
+  @IsOptional()
+    profilePhoto?: string;
+
+  @IsString()
+  @IsOptional()
+    profileBanner?: string;
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  certifications?: string[];
+    workImages?: string[];
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  businessDocuments?: string[];
+    certifications?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+    businessDocuments?: string[];
 }
 
 export class UpdateProfileDto {
   @IsString()
   @IsOptional()
-  fullName?: string;
+    fullName?: string;
 
   @IsEmail()
   @IsOptional()
-  email?: string;
+    email?: string;
 
   @IsString()
   @IsOptional()
   @Length(4, 4)
-  pin?: string;
+    pin?: string;
 
   @IsString()
   @IsOptional()
-  businessName?: string;
+    businessName?: string;
 
   @IsString()
   @IsOptional()
-  businessType?: string;
+    businessType?: string;
 
   @IsString()
   @IsOptional()
-  legalName?: string;
+    legalName?: string;
 
   @IsNumber()
   @IsOptional()
-  yearsOfExperience?: number;
+    yearsOfExperience?: number;
 
   @IsString()
   @IsOptional()
-  companySize?: string;
+    companySize?: string;
 
   @IsString()
   @IsOptional()
-  state?: string;
+    state?: string;
 
   @IsString()
   @IsOptional()
-  city?: string;
+    city?: string;
   @IsString()
   @IsOptional()
-  businessCategory?: string;
+    businessCategory?: string;
 
   @IsString()
   @IsOptional()
-  subCategory?: string;
+    subCategory?: string;
 
   @IsString()
   @IsOptional()
-  businessAddress?: string;
+    businessAddress?: string;
 
   @IsString()
   @IsOptional()
-  businessRegion?: string;
+    businessRegion?: string;
 
   @IsOptional()
   @ValidateNested()
   @Type(() => ServiceLocationDto)
-  serviceLocations?: ServiceLocationDto;
+    serviceLocations?: ServiceLocationDto;
 
   @IsString()
   @IsOptional()
-  productsServicesDescription?: string;
+    productsServicesDescription?: string;
 
   @IsArray()
   @IsOptional()
-  productsServices?: { title: string; image: string; description: string }[];
+    productsServices?: { title: string; image: string; description: string }[];
 
   @IsString()
   @IsOptional()
-  targetAudience?: string;
+    targetAudience?: string;
 
   @IsString()
   @IsOptional()
-  websiteUrl?: string;
+    websiteUrl?: string;
 
   @IsString()
   @IsOptional()
-  linkedinProfile?: string;
+    linkedinProfile?: string;
 
   @IsString()
   @IsOptional()
-  instagram?: string;
+    instagram?: string;
 
   @IsString()
   @IsOptional()
-  facebook?: string;
+    facebook?: string;
 
   @IsString()
   @IsOptional()
-  youtubeLink?: string;
+    youtubeLink?: string;
 
   @IsString()
   @IsOptional()
-  profilePhoto?: string;
+    profilePhoto?: string;
 
   @IsString()
   @IsOptional()
-  profileBanner?: string;
-
-  @IsArray()
-  @IsString({ each: true })
-  @IsOptional()
-  workImages?: string[];
+    profileBanner?: string;
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  certifications?: string[];
+    workImages?: string[];
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  businessDocuments?: string[];
+    certifications?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+    businessDocuments?: string[];
 
   @IsString()
   @IsOptional()
-  fcmToken?: string;
+    fcmToken?: string;
   @IsString()
   @IsOptional()
-  dob?: string;
+    dob?: string;
 }
 
 export class SetPinDto {
   @IsString()
   @IsNotEmpty()
-  userId!: string;
+    userId!: string;
 
   @IsString()
   @IsNotEmpty()
   @Length(4, 4)
-  pin!: string;
+    pin!: string;
 }
 
 export class UpdateLocationDto {
   @IsNumber()
   @IsNotEmpty()
-  latitude!: number;
+    latitude!: number;
 
   @IsNumber()
   @IsNotEmpty()
-  longitude!: number;
+    longitude!: number;
 
   @IsEnum(LocationVisibility)
   @IsNotEmpty()
-  locationVisibility!: LocationVisibility;
+    locationVisibility!: LocationVisibility;
 }
 
 export class CheckLocationDto {
   @IsNumber()
   @IsNotEmpty()
-  latitude!: number;
+    latitude!: number;
 
   @IsNumber()
   @IsNotEmpty()
-  longitude!: number;
+    longitude!: number;
 }
 
 export class UpdateFcmTokenDto {
   @IsString()
   @IsNotEmpty()
-  fcmToken!: string;
+    fcmToken!: string;
 }
 
