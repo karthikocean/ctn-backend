@@ -9,8 +9,6 @@ import { ReminderListDto } from "../dto/mobile/ReminderListDto";
 import { ObjectId } from "mongodb";
 import { BadRequestError, NotFoundError } from "routing-controllers";
 import { getIO, isUserInConversation } from "../utils/socket";
-import { insertPushNotification } from "./pushnotification.service";
-import { NotificationModule } from "../entity/PushNotifications";
 
 export class ReminderService {
   private reminderRepo = AppDataSource.getMongoRepository(Reminder);
@@ -27,7 +25,7 @@ export class ReminderService {
 
   async createReminder(data: CreateReminderDto, userId: string): Promise<Reminder> {
     const creatorId = this.validateObjectId(userId, "userId");
-
+    console.log(data, 'aaaaaaaaaaaa')
     const reminder = new Reminder();
     reminder.title = data.title;
     reminder.description = data.description;
@@ -47,32 +45,29 @@ export class ReminderService {
     reminder.createdBy = creatorId;
     reminder.updatedBy = creatorId;
     reminder.notifyBy = NotifyBy.PUSH as any;
-    reminder.recipientType = data.recipientType || ReminderRecipientType.SELF;
-    reminder.conversationId = new ObjectId(data.conversationId);
+    const rawType = (data.recipientType || "").toString().toLowerCase();
+    const recipientType = rawType === "other"
+      ? ReminderRecipientType.OTHER
+      : rawType === "both"
+        ? ReminderRecipientType.BOTH
+        : ReminderRecipientType.SELF;
+    reminder.recipientType = recipientType;
 
     let receiverObjId: ObjectId | null = null;
     if (data.receiverId) {
       receiverObjId = this.validateObjectId(data.receiverId, "receiverId");
     }
 
-    if (reminder.recipientType === ReminderRecipientType.SELF) {
-      reminder.recipients = [creatorId];
-    } else if (reminder.recipientType === ReminderRecipientType.OTHER) {
-      reminder.recipients = receiverObjId ? [receiverObjId] : [creatorId];
-    } else if (reminder.recipientType === ReminderRecipientType.BOTH) {
-      reminder.recipients = receiverObjId
-        ? Array.from(new Set([creatorId.toString(), receiverObjId.toString()])).map(id => new ObjectId(id))
-        : [creatorId];
-    } else {
-      reminder.recipients = [creatorId];
-    }
-
-    const savedReminder = await this.reminderRepo.save(reminder);
-
-    // If conversationId or receiverId is provided, also insert a chat message
     let conversation: Conversation | null = null;
     if (data.conversationId && ObjectId.isValid(data.conversationId)) {
-      conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(data.conversationId) });
+      reminder.conversationId = new ObjectId(data.conversationId);
+      conversation = await this.conversationRepo.findOneBy({ _id: reminder.conversationId });
+      if (conversation && !receiverObjId) {
+        const otherParticipant = conversation.participants.find(p => !p.equals(creatorId));
+        if (otherParticipant) {
+          receiverObjId = otherParticipant;
+        }
+      }
     } else if (receiverObjId && !creatorId.equals(receiverObjId)) {
       conversation = await this.conversationRepo.findOne({
         where: { participants: { $all: [creatorId, receiverObjId] } } as any,
@@ -85,7 +80,22 @@ export class ReminderService {
         conversation.unreadCounts = {};
         conversation = await this.conversationRepo.save(conversation);
       }
+      reminder.conversationId = conversation._id;
     }
+
+    if (recipientType === ReminderRecipientType.SELF) {
+      reminder.recipients = [creatorId];
+    } else if (recipientType === ReminderRecipientType.OTHER) {
+      reminder.recipients = receiverObjId ? [receiverObjId] : [creatorId];
+    } else if (recipientType === ReminderRecipientType.BOTH) {
+      reminder.recipients = receiverObjId
+        ? Array.from(new Set([creatorId.toString(), receiverObjId.toString()])).map(id => new ObjectId(id))
+        : [creatorId];
+    } else {
+      reminder.recipients = [creatorId];
+    }
+
+    const savedReminder = await this.reminderRepo.save(reminder);
 
     if (conversation) {
       if (conversation.isDeleted || conversation.status === "DELETED" || conversation.deletedBy) {

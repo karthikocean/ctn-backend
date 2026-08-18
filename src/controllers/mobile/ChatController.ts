@@ -1280,7 +1280,6 @@ export class MobileChatController {
         if (type === MessageType.DIRECT_MEET) _moduleName = "Direct Meet";
         else if (type === MessageType.RECOMMENDATIONS) _moduleName = "Recommendations";
         else if (type === MessageType.BUSINESS_DONE) _moduleName = "Business Done";
-
         // await validateModuleUsage(senderId, moduleName);
         if (type === MessageType.DIRECT_MEET) {
           const oto = new OneToOne();
