@@ -175,7 +175,7 @@ export class MobileAuthController {
   async verifyOtpLogin(@Body() body: MobileVerifyOtpLoginDto, @Res() res: any) {
     try {
       const { identifier, type, otp, fcmToken } = body;
-      console.log(body, "body")
+      console.log(body, "body");
       // if (!fcmToken) {
       //   throw new BadRequestError("FCM token is required");
       // }

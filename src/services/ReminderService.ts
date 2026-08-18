@@ -25,7 +25,7 @@ export class ReminderService {
 
   async createReminder(data: CreateReminderDto, userId: string): Promise<Reminder> {
     const creatorId = this.validateObjectId(userId, "userId");
-    console.log(data, 'aaaaaaaaaaaa')
+    console.log(data, "aaaaaaaaaaaa");
     const reminder = new Reminder();
     reminder.title = data.title;
     reminder.description = data.description;

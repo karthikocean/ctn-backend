@@ -247,7 +247,6 @@ export class AdminCommonController {
     }
   }
 
-
   /**
    * @swagger
    * /api/admin/common/send-test-email:

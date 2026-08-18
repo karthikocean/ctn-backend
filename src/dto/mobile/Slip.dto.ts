@@ -30,17 +30,17 @@ import { IsString, IsNotEmpty, IsOptional } from "class-validator";
 export class UpdateSlipStatusDto {
   @IsNotEmpty()
   @IsString()
-  id!: string;
+    id!: string;
 
   @IsOptional()
   @IsString()
-  type?: string;
+    type?: string;
 
   @IsNotEmpty()
   @IsString()
-  status!: string;
+    status!: string;
 
   @IsOptional()
   @IsString()
-  reason?: string;
+    reason?: string;
 }

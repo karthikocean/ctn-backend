@@ -2,7 +2,7 @@ import cron from "node-cron";
 import { AppDataSource } from "../data-source";
 import { Member } from "../entity/Member";
 import { Connection, ConnectionStatus } from "../entity/Connection";
-import { insertPushNotification } from "./pushnotification.service";
+import { sendPushNotification, insertPushNotification } from "./pushnotification.service";
 import { ObjectId } from "mongodb";
 import { NotificationModule } from "../entity/PushNotifications";
 
@@ -86,14 +86,10 @@ export class BirthdayCronService {
     const subject = "Birthday Wishes";
     const content = `Wishing you a very Happy Birthday, ${birthdayMember.fullName}! Have a wonderful year ahead. 🎉`;
 
-    await insertPushNotification({
-      token: birthdayMember.fcmToken,
-      subject,
+    await sendPushNotification(birthdayMember.fcmToken, subject, {
       content,
       moduleName: NotificationModule.BIRTHDAY,
-      moduleId: birthdayMember._id.toString(),
-      receiverId: birthdayMember._id.toString(),
-      senderId: birthdayMember._id.toString()
+      moduleId: birthdayMember._id.toString()
     });
 
     console.log(

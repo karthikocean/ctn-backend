@@ -248,7 +248,7 @@ export class MobileChatController {
         where: whereClause as any,
         order: { lastMessageTime: "DESC", createdAt: "DESC", updatedAt: "DESC" }
       });
-      console.log(conversationsRaw.length, 'conversationsRaw')
+      console.log(conversationsRaw.length, "conversationsRaw");
       const groupedConversations = new Map<string, Conversation>();
       for (const conv of conversationsRaw) {
         const otherParticipantId = conv.participants.find(p => !p.equals(userId));
@@ -800,6 +800,9 @@ export class MobileChatController {
           const existingReport = await reportedHistoryRepo.findOne({
             where: { reporterUserId: userId, targetUserId: otherId } as any
           });
+          if (existingReport) {
+            throw new BadRequestError("You have already reported this user");
+          }
           if (!existingReport) {
             const report = new ReportedHistory();
             report.reporterUserId = userId;
@@ -878,7 +881,7 @@ export class MobileChatController {
       if (senderId.equals(receiverId)) throw new BadRequestError("You cannot respond to your own post");
 
       if (await this.isBlocked(senderId, receiverId)) {
-        throw new BadRequestError("You cannot send messages to this member.");
+        throw new BadRequestError("You can't message this member because they've blocked you");
       }
 
       let conversation = await this.getOrCreateConversation(senderId, receiverId);
@@ -1205,7 +1208,7 @@ export class MobileChatController {
     @Res() res: any
   ) {
     try {
-      console.log(JSON.stringify(data), 'datadata')
+      console.log(JSON.stringify(data), "datadata");
       const senderId = new ObjectId(req.user.userId);
       let pointsResult = { awarded: 0, balance: 0 };
       let { conversationId, content, type = MessageType.TEXT, replyToMessageId, media, businessActionId, actionData } = data;
@@ -1333,7 +1336,7 @@ export class MobileChatController {
           ty.senderId = senderId;
           ty.receiverId = receiverId;
           ty.amount = Number(actionData.amount) || Number(actionData.businessAmount) || 0;
-          ty.businessDetails = actionData.businessDetails || actionData.remarks || content;
+          ty.businessDetails = actionData.businessDetails || actionData.remarks || "";
           ty.conversationId = conversation._id;
           const savedTy = await this.tySlipRepo.save(ty);
           newMessage.businessActionId = savedTy._id;
@@ -1730,8 +1733,7 @@ export class MobileChatController {
       }
 
       const savedMessage = await this.messageRepo.save(newMessage);
-      await this.pushNotificationRepo.delete({ _id: new ObjectId(notificationId) })
-
+      await this.pushNotificationRepo.delete({ _id: new ObjectId(notificationId) });
 
       // Send Push Notification if receiver is not active in the chat room and has fcmToken
       // if (!isReceiverActive && receiver.fcmToken) {

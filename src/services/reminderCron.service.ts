@@ -150,20 +150,20 @@ export class ReminderCronService {
   private static calculateNextReminderDate(currentNext: Date, repeatType: RepeatType, interval: number): Date {
     const next = new Date(currentNext);
     switch (repeatType) {
-      case RepeatType.DAILY:
-        next.setDate(next.getDate() + interval);
-        break;
-      case RepeatType.WEEKLY:
-        next.setDate(next.getDate() + 7 * interval);
-        break;
-      case RepeatType.MONTHLY:
-        next.setMonth(next.getMonth() + interval);
-        break;
-      case RepeatType.YEARLY:
-        next.setFullYear(next.getFullYear() + interval);
-        break;
-      default:
-        break;
+    case RepeatType.DAILY:
+      next.setDate(next.getDate() + interval);
+      break;
+    case RepeatType.WEEKLY:
+      next.setDate(next.getDate() + 7 * interval);
+      break;
+    case RepeatType.MONTHLY:
+      next.setMonth(next.getMonth() + interval);
+      break;
+    case RepeatType.YEARLY:
+      next.setFullYear(next.getFullYear() + interval);
+      break;
+    default:
+      break;
     }
     return next;
   }

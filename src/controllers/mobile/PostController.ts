@@ -1738,7 +1738,7 @@ export class MobilePostController {
 
           // Send Push Notification if receiver is not active in the chat room and has fcmToken
           const receiver = await this.memberRepo.findOneBy({ _id: otherId, isDeleted: false });
-          console.log('receiver', !isReceiverActive && receiver?.fcmToken, isReceiverActive, receiver?.fcmToken)
+          console.log("receiver", !isReceiverActive && receiver?.fcmToken, isReceiverActive, receiver?.fcmToken);
           if (!isReceiverActive && receiver?.fcmToken) {
             const senderName = sender?.fullName ? sender.fullName.trim() : "A member";
             await insertPushNotification({

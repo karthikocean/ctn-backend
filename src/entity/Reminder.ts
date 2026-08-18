@@ -31,87 +31,87 @@ export enum NotifyBy {
 }
 
 export enum ReminderRecipientType {
-  SELF = 'self',
-  OTHER = 'other',
-  BOTH = 'both',
+  SELF = "self",
+  OTHER = "other",
+  BOTH = "both",
 }
 
 @Entity("reminders")
 @Index(["status", "isDeleted", "nextReminderDate"])
 export class Reminder {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   @Column()
-  title!: string;
+    title!: string;
 
   @Column({ nullable: true })
-  description?: string;
+    description?: string;
 
   @Column()
-  reminderDate!: Date;
+    reminderDate!: Date;
 
   @Column()
-  reminderTime!: string;
+    reminderTime!: string;
 
   @Column({
     type: "enum",
     enum: RepeatType,
     default: RepeatType.ONCE
   })
-  repeatType!: RepeatType;
+    repeatType!: RepeatType;
 
   @Column({ default: 1 })
-  repeatInterval!: number;
+    repeatInterval!: number;
 
   @Column({ nullable: true })
-  recipients!: ObjectId[];
+    recipients!: ObjectId[];
 
   @Column({
     type: "enum",
     enum: NotifyBy,
     array: true
   })
-  notifyBy!: NotifyBy[];
+    notifyBy!: NotifyBy[];
 
   @Column({
     type: "enum",
     enum: ReminderStatus,
     default: ReminderStatus.PENDING
   })
-  status!: ReminderStatus;
+    status!: ReminderStatus;
 
   @Column({ nullable: true })
-  lastTriggeredAt?: Date;
+    lastTriggeredAt?: Date;
 
   @Column()
-  nextReminderDate!: Date;
+    nextReminderDate!: Date;
 
   @Column({ default: true })
-  isActive!: boolean;
+    isActive!: boolean;
 
   @Column({ default: false })
-  isDeleted!: boolean;
+    isDeleted!: boolean;
 
   @Column({
     type: "enum",
     enum: ReminderRecipientType,
     default: ReminderRecipientType.SELF
   })
-  recipientType!: ReminderRecipientType;
+    recipientType!: ReminderRecipientType;
 
   @Column()
-  conversationId!: ObjectId;
+    conversationId!: ObjectId;
 
   @Column()
-  createdBy!: ObjectId;
+    createdBy!: ObjectId;
 
   @Column()
-  updatedBy!: ObjectId;
+    updatedBy!: ObjectId;
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }

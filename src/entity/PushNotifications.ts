@@ -45,39 +45,39 @@ export enum NotificationModule {
 @Index(["receiverId", "createdAt"])
 export class PushNotification {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   @Column()
-  sub!: string;
+    sub!: string;
 
   @Column()
-  msg!: string;
+    msg!: string;
 
   @Column({
     type: "enum",
     enum: NotificationModule,
     default: NotificationModule.GENERAL,
   })
-  moduleName!: NotificationModule;
+    moduleName!: NotificationModule;
 
   @Column({ nullable: true })
-  moduleId?: ObjectId;
+    moduleId?: ObjectId;
 
   @Column({ nullable: true })
-  senderId?: ObjectId;
+    senderId?: ObjectId;
 
   @Column()
-  receiverId!: ObjectId;
+    receiverId!: ObjectId;
 
   @Column({ default: false })
-  isRead!: boolean;
+    isRead!: boolean;
 
   @Column({ default: false })
-  isDeleted!: boolean;
+    isDeleted!: boolean;
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }

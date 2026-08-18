@@ -398,8 +398,8 @@ export class MobileTrainingController {
         });
       }
 
-      // ✅ Apply trainingDiscountPercentage from subscription plan benefits
-      let basePoints = inputPoints !== undefined ? inputPoints : training.overallPoints;
+      // ✅ Apply trainingDiscountPercentage from subscription plan benefits using database overallPoints
+      const basePoints = training.overallPoints || 0;
       let discountPercentage = 0;
       try {
         const subscriptionService = new SubscriptionService();
