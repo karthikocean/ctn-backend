@@ -874,13 +874,19 @@ export class MobileMemberController {
             isFollower: theirRequest?.status === ConnectionStatus.ACCEPTED,
             isMutual: myRequest?.status === ConnectionStatus.ACCEPTED && theirRequest?.status === ConnectionStatus.ACCEPTED
           },
-          status: myRequest?.status === ConnectionStatus.ACCEPTED
+          status: myRequest?.status === ConnectionStatus.ACCEPTED && theirRequest?.status === ConnectionStatus.ACCEPTED
             ? "Following"
-            : myRequest?.status === ConnectionStatus.PENDING
-              ? "Requested"
-              : theirRequest?.status === ConnectionStatus.ACCEPTED
+            : myRequest?.status === ConnectionStatus.ACCEPTED
+              ? "Following"
+              : theirRequest?.status === ConnectionStatus.ACCEPTED && myRequest?.status === ConnectionStatus.PENDING
                 ? "Follow back"
-                : "Connect"
+                : theirRequest?.status === ConnectionStatus.PENDING
+                  ? "Received"
+                  : myRequest?.status === ConnectionStatus.PENDING
+                    ? "Requested"
+                    : theirRequest?.status === ConnectionStatus.ACCEPTED
+                      ? "Follow back"
+                      : "Connect"
         };
       });
 
@@ -1076,13 +1082,19 @@ export class MobileMemberController {
             isFollower: m.isFollower,
             isMutual: m.isMutual
           },
-          status: m.myRequest?.status === ConnectionStatus.ACCEPTED
+          status: m.myRequest?.status === ConnectionStatus.ACCEPTED && m.theirRequest?.status === ConnectionStatus.ACCEPTED
             ? "Following"
-            : m.myRequest?.status === ConnectionStatus.PENDING
-              ? "Requested"
-              : m.theirRequest?.status === ConnectionStatus.ACCEPTED
+            : m.myRequest?.status === ConnectionStatus.ACCEPTED
+              ? "Following"
+              : m.theirRequest?.status === ConnectionStatus.ACCEPTED && m.myRequest?.status === ConnectionStatus.PENDING
                 ? "Follow back"
-                : "Connect"
+                : m.theirRequest?.status === ConnectionStatus.PENDING
+                  ? "Received"
+                  : m.myRequest?.status === ConnectionStatus.PENDING
+                    ? "Requested"
+                    : m.theirRequest?.status === ConnectionStatus.ACCEPTED
+                      ? "Follow back"
+                      : "Connect"
         };
       });
 
