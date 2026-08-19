@@ -53,6 +53,10 @@ import { LocationVisibility } from "../../entity/Member";
  *         dob:
  *           type: string
  *           example: "28-06-2000"
+ *         referralCode:
+ *           type: string
+ *           example: "ANBU8F42"
+ *           description: "Optional referral code from an existing member"
  *     UpdateProfileDto:
  *       type: object
  *       properties:
@@ -147,6 +151,10 @@ export class CreateMemberDto {
   @IsEmail()
   @IsOptional()
     email?: string;
+
+  @IsString()
+  @IsOptional()
+    referralCode?: string;
 
   @IsString()
   @IsOptional()

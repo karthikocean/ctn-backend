@@ -20,7 +20,8 @@
     "lint:fix": "eslint src --ext .ts,.js --fix",
     "format": "prettier --write \"src/**/*.{ts,js,json}\"",
     "db:clean": "ts-node src/scripts/cleanup.ts",
-    "db:migrate-marketplace": "ts-node src/scripts/migrateMarketplaceCategories.ts"
+    "db:migrate-marketplace": "ts-node src/scripts/migrateMarketplaceCategories.ts",
+    "db:migrate-referrals": "ts-node src/scripts/migrateUserReferralCodes.ts"
   },
   "dependencies": {
     "@bull-board/api": "^5.23.0",

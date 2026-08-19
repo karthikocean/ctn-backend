@@ -30,11 +30,19 @@ export interface ServiceLocation {
 @Entity("members")
 // @Index(["mobileNumber"], { unique: true })
 @Index(["email"], { unique: true, sparse: true })
+@Index(["referralCode"], { unique: true, sparse: true })
+@Index(["referredBy"])
 @Index(["status"])
 @Index(["isDeleted"])
 export class Member {
   @ObjectIdColumn()
     _id!: ObjectId;
+
+  @Column({ nullable: true })
+    referralCode?: string;
+
+  @Column({ nullable: true })
+    referredBy?: ObjectId | null;
 
   // =========================================
   // BASIC INFORMATION
