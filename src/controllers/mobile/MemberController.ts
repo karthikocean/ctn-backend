@@ -3,6 +3,7 @@ import {
   Get,
   Put,
   Post,
+  Delete,
   Body,
   Param,
   QueryParam,
@@ -39,6 +40,7 @@ import { PointHistory } from "../../entity/PointHistory";
 import { PostReport } from "../../entity/PostReport";
 import { Conversation } from "../../entity/Conversation";
 import { ReportedHistory } from "../../entity/ReportedHistory";
+import { ReferralService } from "../../services/referral.service";
 
 @JsonController("/members")
 export class MobileMemberController {
@@ -54,6 +56,7 @@ export class MobileMemberController {
   private historyRepo = AppDataSource.getMongoRepository(PointHistory);
   private postReportRepo = AppDataSource.getMongoRepository(PostReport);
   private conversationRepo = AppDataSource.getMongoRepository(Conversation);
+  private referralService = new ReferralService();
   /**
    * @swagger
    * /mobile-api/members/register:
@@ -87,6 +90,17 @@ export class MobileMemberController {
         if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
       }
 
+      // Validate referral code if provided
+      let referrerMember: Member | null = null;
+      if (data.referralCode && data.referralCode.trim()) {
+        referrerMember = await this.referralService.validateReferralCode(
+          data.referralCode,
+          undefined,
+          data.email,
+          data.mobileNumber
+        );
+      }
+
       const member = new Member();
       Object.assign(member, data);
 
@@ -101,8 +115,25 @@ export class MobileMemberController {
       member.isDeleted = false;
       member.dob = data.dob ? parseDob(data.dob) : undefined;
       member.status = MemberStatus.ACTIVE; // Or PENDING if you have an approval flow
+      member.referralCode = await this.referralService.generateUniqueReferralCode(data.fullName);
+      if (referrerMember) {
+        member.referredBy = referrerMember._id;
+      }
 
       const saved = await this.memberRepo.save(member);
+
+      // Process referral rewards if a valid referral code was supplied
+      if (referrerMember && data.referralCode) {
+        try {
+          await this.referralService.processReferral({
+            referredMember: saved,
+            referralCode: data.referralCode
+          });
+        } catch (referralErr: any) {
+          console.error(`[MemberRegistration] Referral processing notice for member ${saved._id}:`, referralErr.message);
+        }
+      }
+
       return res.status(StatusCodes.CREATED).json({
         success: true,
         message: "Registration successful",
@@ -410,6 +441,50 @@ export class MobileMemberController {
         success: true,
         message: "Profile updated successfully",
         data: saved
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/members/profile:
+   *   delete:
+   *     summary: Soft delete own member account / profile
+   *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Member deleted successfully
+   */
+  @Delete("/profile")
+  @UseBefore(MobileAuthMiddleware)
+  async deleteProfile(@Req() req: any, @Res() res: any) {
+    try {
+      const userId = req.user.userId;
+      const member = await this.memberRepo.findOneBy({
+        _id: new ObjectId(userId),
+        isDeleted: false
+      });
+
+      if (!member) {
+        throw new NotFoundError("Profile not found");
+      }
+
+      member.isDeleted = true;
+      member.status = MemberStatus.INACTIVE;
+      member.fcmToken = undefined;
+      await this.memberRepo.save(member);
+
+      // Invalidate active user tokens / sessions
+      const tokenRepo = AppDataSource.getMongoRepository(UserToken);
+      await tokenRepo.deleteMany({ userId: new ObjectId(userId) } as any);
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Profile deleted successfully"
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
