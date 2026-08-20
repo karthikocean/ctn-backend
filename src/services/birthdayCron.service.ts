@@ -17,16 +17,23 @@ export class BirthdayCronService {
     console.log("🎂 Initializing Birthday Cron Job...");
 
     // Runs every day at 8:00 AM
-    cron.schedule("0 8 * * *", async () => {
-      try {
-        console.log("🎂 Running Birthday Cron...");
-        await this.processBirthdays();
-      } catch (error: any) {
-        console.error("❌ Birthday Cron Failed:", error.message);
+    console.log("🎂 Initializing Birthday Cron Job...");
+
+    // Runs every day at 5:45 PM IST
+    cron.schedule(
+      "45 17 * * *",
+      async () => {
+        try {
+          console.log("🎂 Running Birthday Cron...");
+          await this.processBirthdays();
+        } catch (error: any) {
+          console.error("❌ Birthday Cron Failed:", error.message);
+        }
+      },
+      {
+        timezone: "Asia/Kolkata"
       }
-    }, {
-      timezone: "Asia/Kolkata"
-    });
+    );
   }
 
   /**
