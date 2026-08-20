@@ -22,6 +22,8 @@ export class ReminderCronService {
       } catch (error: any) {
         console.error("❌ Reminder Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
   }
 

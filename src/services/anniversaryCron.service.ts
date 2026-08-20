@@ -21,6 +21,9 @@ export class AnniversaryCronService {
       } catch (error: any) {
         console.error("❌ Registration Anniversary Cron Failed:", error.message);
       }
+    },
+    {
+      timezone: "Asia/Kolkata"
     });
   }
 

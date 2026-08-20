@@ -129,4 +129,47 @@ export class MailService {
     `;
     return this.sendEmail(email, subject, html);
   }
+
+  /**
+   * Send Welcome Email to New Registered Member
+   */
+  static async sendWelcomeMemberEmail(memberData: {
+    fullName: string;
+    email: string;
+    mobileNumber: string;
+    pin?: string;
+  }) {
+    const subject = "Welcome to Trusted Network!";
+    const html = `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; padding: 20px; border-radius: 10px; border: 1px solid #e0e0e0;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="color: #14532D; margin: 0;">Trusted Network</h1>
+        </div>
+        <div style="background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+          <h2 style="color: #333; margin-top: 0;">Welcome, ${memberData.fullName}! 🎉</h2>
+          <p style="color: #666; font-size: 16px; line-height: 1.5;">
+            Your account has been successfully created on <strong>Trusted Network</strong>. We're excited to have you as part of our business community!
+          </p>
+          
+          <div style="background-color: #f0fdf4; border-left: 4px solid #14532D; padding: 15px 20px; margin: 25px 0; border-radius: 4px;">
+            <h3 style="color: #14532D; margin-top: 0; margin-bottom: 10px; font-size: 16px;">Your Login Credentials:</h3>
+            <p style="margin: 5px 0; color: #333; font-size: 15px;"><strong>Mobile Number:</strong> ${memberData.mobileNumber}</p>
+            <p style="margin: 5px 0; color: #333; font-size: 15px;"><strong>Email:</strong> ${memberData.email}</p>
+            ${memberData.pin ? `<p style="margin: 5px 0; color: #333; font-size: 15px;"><strong>Default PIN:</strong> <span style="font-weight: bold; background: #e2e8f0; padding: 2px 8px; border-radius: 4px; letter-spacing: 1px;">${memberData.pin}</span></p>` : ""}
+          </div>
+
+          <p style="color: #666; font-size: 14px; line-height: 1.5;">
+            You can now log in to the <strong>Trusted Network</strong> mobile app using your registered mobile number and the default PIN provided above.
+          </p>
+          <p style="color: #e11d48; font-size: 13px; line-height: 1.5;">
+            🔒 <em>For your security, please update your PIN immediately upon your first login.</em>
+          </p>
+        </div>
+        <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
+          <p>&copy; 2026 Trusted Network. All rights reserved.</p>
+        </div>
+      </div>
+    `;
+    return this.sendEmail(memberData.email, subject, html);
+  }
 }

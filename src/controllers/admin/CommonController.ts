@@ -4,7 +4,8 @@ import {
   Post,
   Body,
   QueryParam,
-  Res
+  Res,
+  BadRequestError
 } from "routing-controllers";
 import { SendTestEmailDto } from "../../dto/admin/Common.dto";
 import { MailService } from "../../services/mail.service";
@@ -15,9 +16,11 @@ import { BusinessRegion } from "../../entity/BusinessRegion";
 import { State } from "../../entity/State";
 import { City } from "../../entity/City";
 import { ObjectId } from "mongodb";
+import { Member } from "../../entity/Member";
 
 @JsonController("/common")
 export class AdminCommonController {
+  private memberRepo = AppDataSource.getMongoRepository(Member);
 
   /**
    * @swagger
@@ -46,6 +49,10 @@ export class AdminCommonController {
     const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
     if (!gstRegex.test(gstin)) {
       return res.status(400).json({ status: false, message: "Invalid GSTIN format" });
+    }
+    if (gstin) {
+      const gstCount = await this.memberRepo.count({ gstNumber: gstin, isDeleted: false });
+      if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
     }
 
     try {

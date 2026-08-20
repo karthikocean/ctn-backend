@@ -29,6 +29,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import bcrypt from "bcryptjs";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
+import { MailService } from "../../services/mail.service";
 
 @JsonController("/members")
 @UseBefore(AuthMiddleware, franchiseFilter)
@@ -80,6 +81,21 @@ export class AdminMemberController {
       member.pin = await bcrypt.hash(defaultPin, 10); // Default PIN hashed for members registered by Admin
 
       const saved = await this.memberRepo.save(member);
+
+      // Send welcome email if email is provided
+      if (saved.email) {
+        try {
+          await MailService.sendWelcomeMemberEmail({
+            fullName: saved.fullName,
+            email: saved.email,
+            mobileNumber: saved.mobileNumber,
+            pin: defaultPin
+          });
+        } catch (mailError: any) {
+          console.error(`[AdminRegister] Failed to send welcome email to ${saved.email}:`, mailError.message);
+        }
+      }
+
       return res.status(StatusCodes.CREATED).json({
         success: true,
         message: "Registration successful",

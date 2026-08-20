@@ -51,7 +51,7 @@ export async function migrateUserReferralCodes() {
   }
 
   console.log("────────────────────────────────────────");
-  console.log(`✅ Migration Complete:`);
+  console.log("✅ Migration Complete:");
   console.log(`   - Total Processed: ${membersWithoutCode.length}`);
   console.log(`   - Successfully Updated: ${updatedCount}`);
   console.log(`   - Skipped (already had code): ${skippedCount}`);

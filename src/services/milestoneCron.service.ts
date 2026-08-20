@@ -21,6 +21,8 @@ export class MilestoneCronService {
       } catch (error: any) {
         console.error("❌ Milestone Cleanup Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
   }
 

@@ -20,6 +20,8 @@ export class SpotlightCronService {
       } catch (error: any) {
         console.error("❌ Spotlight Activation Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
 
     // ✅ Spotlight Deactivation Cron - Runs every minute
@@ -29,6 +31,8 @@ export class SpotlightCronService {
       } catch (error: any) {
         console.error("❌ Spotlight Deactivation Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
   }
 

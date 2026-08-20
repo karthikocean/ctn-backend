@@ -25,6 +25,8 @@ export class SubscriptionCronService {
       } catch (error: any) {
         console.error("❌ Subscription Expiration Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
 
     // 2. Run daily at 10:00 AM for Trial plan remaining days notification: "0 10 * * *"
@@ -35,6 +37,8 @@ export class SubscriptionCronService {
       } catch (error: any) {
         console.error("❌ Trial Plan Daily Notification Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
   }
 

@@ -20,6 +20,8 @@ export class PostDeactivationCronService {
       } catch (error: any) {
         console.error("❌ Post Deactivation Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
   }
 

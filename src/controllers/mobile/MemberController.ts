@@ -1685,9 +1685,6 @@ export class MobileMemberController {
   ) {
     try {
       const myId = new ObjectId(req.user.userId);
-      const page = Math.max(0, Number(pageParam) || 0);
-      const limit = Math.min(50, Number(limitParam) || 10);
-      const skip = page * limit;
 
       // --- 1. Post reports: reporterId = me, join post to get memberId ---
       const postReportAgg = await this.postReportRepo.aggregate([
@@ -1773,7 +1770,12 @@ export class MobileMemberController {
       allEntries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       const total = allEntries.length;
-      const paginated = allEntries.slice(skip, skip + limit);
+      const hasLimit = limitParam !== undefined && limitParam !== null && Number(limitParam) > 0;
+      const limit = hasLimit ? Number(limitParam) : (total > 0 ? total : 1);
+      const page = hasLimit ? Math.max(0, Number(pageParam) || 0) : 0;
+      const skip = page * limit;
+
+      const paginated = hasLimit ? allEntries.slice(skip, skip + limit) : allEntries;
 
       if (paginated.length === 0) {
         return pagination(total, [], limit, page, res);
