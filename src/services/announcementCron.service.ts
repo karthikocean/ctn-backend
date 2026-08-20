@@ -19,6 +19,8 @@ export class AnnouncementCronService {
       } catch (error: any) {
         console.error("❌ Announcement Activation Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
 
     // ✅ Announcement Deactivation Cron - Runs every minute
@@ -28,6 +30,8 @@ export class AnnouncementCronService {
       } catch (error: any) {
         console.error("❌ Announcement Deactivation Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
   }
 

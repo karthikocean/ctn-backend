@@ -987,7 +987,6 @@ export class MobilePostController {
       }
 
       this.applyCategoryVisibilityFilter(where, currentMember);
-
       const { reportedPostIds, reportedMemberIds } = await this.getReportedDataForUser(userId);
       if (reportedPostIds.length > 0) {
         const ninPostCondition = { _id: { $nin: reportedPostIds } };

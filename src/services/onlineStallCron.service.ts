@@ -19,6 +19,8 @@ export class OnlineStallCronService {
       } catch (error: any) {
         console.error("❌ Online Stall Product Expiration Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
   }
 

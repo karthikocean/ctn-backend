@@ -27,6 +27,8 @@ export class SpotlightRequestCronService {
       } catch (error: any) {
         console.error("❌ Daily Spotlight Creation Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
 
     // ✅ Hourly Cron - Soft Delete Expired Pending Requests (>48 hrs)
@@ -37,6 +39,8 @@ export class SpotlightRequestCronService {
       } catch (error: any) {
         console.error("❌ Spotlight Request Cleanup Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
   }
 

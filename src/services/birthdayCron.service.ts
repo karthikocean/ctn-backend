@@ -24,6 +24,8 @@ export class BirthdayCronService {
       } catch (error: any) {
         console.error("❌ Birthday Cron Failed:", error.message);
       }
+    }, {
+      timezone: "Asia/Kolkata"
     });
   }
 
@@ -131,7 +133,7 @@ export class BirthdayCronService {
     );
 
     const subject = `${birthdayMember.fullName}'s Birthday`;
-    const content = `It's ${birthdayMember.fullName}'s birthday! Send your wishes and make her day special. 🎉`;
+    const content = `It's ${birthdayMember.fullName}'s birthday! Send your wishes and make their day special. 🎉`;
 
     for (const mutualId of mutualIds) {
       try {
