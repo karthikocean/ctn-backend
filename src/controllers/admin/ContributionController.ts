@@ -237,7 +237,7 @@ export class AdminContributionController {
           receiverId: item.receiverId,
           description: "Direct Meet Completed",
           date: item.createdAt,
-          status: "completed",
+          status: item.status,
           original: item
         })),
         ...thankYouSlips.map(item => ({
@@ -249,7 +249,7 @@ export class AdminContributionController {
           amount: item.amount,
           businessDetails: item.businessDetails,
           date: item.createdAt,
-          status: "completed",
+          status: item.status,
           original: item
         })),
         ...referrals.map(item => ({
@@ -420,7 +420,7 @@ export class AdminContributionController {
         } : undefined,
         media: contribution.media,
         date: contribution.createdAt,
-        status: type === "referral" ? (contribution.status?.toLowerCase() || "pending") : "completed"
+        status: contribution.status.toLowerCase()
       };
 
       return res.status(200).json({
