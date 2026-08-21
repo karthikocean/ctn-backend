@@ -367,6 +367,7 @@ export class PostController {
   async updateStatus(
     @Param("id") id: string,
     @Body() body: { status: string; reason?: string },
+    @Req() req: any,
     @Res() res: any
   ) {
     try {
@@ -385,7 +386,7 @@ export class PostController {
       await this.postRepo.save(post);
       const history = new PostReport();
       history.postId = post._id;
-      history.reporterId = post.memberId;
+      history.reporterId = new ObjectId(req.user.userId);
       history.reason = body.reason ?? "";
       await this.postReportRepo.save(history);
       return res.status(StatusCodes.OK).json({ message: "Post status updated successfully", post });

@@ -466,31 +466,32 @@ export class MobileConnectionController {
     limit = Number(limit) || 10;
 
     try {
-      userId = userId || req.user.userId;
+      const loggedInUserId = req.user.userId;
+      const targetUserId = userId || loggedInUserId;
       let targetMemberIds: ObjectId[] = [];
       let total = 0;
 
       if (type === "FOLLOWING") {
         const followings = await this.connectionRepo.find({
-          where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED }
         });
         targetMemberIds = followings.map(f => f.receiverId);
       }
       else if (type === "FOLLOWERS") {
         const followers = await this.connectionRepo.find({
-          where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED }
         });
         targetMemberIds = followers.map(f => f.senderId);
       }
       else if (type === "MUTUAL") {
         // Mutual: Both followings and followers exist
         const followings = await this.connectionRepo.find({
-          where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED }
         });
         const followingIds = new Set(followings.map(f => f.receiverId.toString()));
 
         const followers = await this.connectionRepo.find({
-          where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED }
         });
 
         targetMemberIds = followers
@@ -500,12 +501,12 @@ export class MobileConnectionController {
       else if (type === "ALL") {
         // All: combined, unique list of both followings and followers
         const followings = await this.connectionRepo.find({
-          where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED }
         });
         const followingIds = followings.map(f => f.receiverId.toString());
 
         const followers = await this.connectionRepo.find({
-          where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED }
         });
         const followerIds = followers.map(f => f.senderId.toString());
 
@@ -555,16 +556,26 @@ export class MobileConnectionController {
 
       const paginatedMemberIds = members.map(m => m._id);
 
-      // Fetch only outgoing connections to these specific members to determine follow-back status
-      const myOutgoingConnections = paginatedMemberIds.length > 0
-        ? await this.connectionRepo.find({
-          where: {
-            senderId: new ObjectId(userId),
-            receiverId: { $in: paginatedMemberIds }
-          } as any
-        })
-        : [];
-      const outgoingMap = new Map(myOutgoingConnections.map(c => [c.receiverId.toString(), c.status]));
+      // Fetch connections between the logged-in user and the paginated members to determine status
+      const [myOutgoingConnections, myIncomingConnections] = paginatedMemberIds.length > 0 && loggedInUserId
+        ? await Promise.all([
+          this.connectionRepo.find({
+            where: {
+              senderId: new ObjectId(loggedInUserId),
+              receiverId: { $in: paginatedMemberIds }
+            } as any
+          }),
+          this.connectionRepo.find({
+            where: {
+              senderId: { $in: paginatedMemberIds },
+              receiverId: new ObjectId(loggedInUserId)
+            } as any
+          })
+        ])
+        : [[], []];
+
+      const outgoingMap = new Map(myOutgoingConnections.map(c => [c.receiverId.toString(), c]));
+      const incomingMap = new Map(myIncomingConnections.map(c => [c.senderId.toString(), c]));
 
       // Fetch Category details for Members
       const categoryIds = [...new Set(
@@ -581,7 +592,30 @@ export class MobileConnectionController {
 
       // Map data
       const data = members.map(m => {
+        const memberIdStr = m._id.toString();
         const catName = m.businessCategory ? (categoryMap.get(m.businessCategory.toString()) || null) : null;
+        const myRequest = outgoingMap.get(memberIdStr);
+        const theirRequest = incomingMap.get(memberIdStr);
+
+        const isFollowing = myRequest?.status === ConnectionStatus.ACCEPTED;
+        const isFollower = theirRequest?.status === ConnectionStatus.ACCEPTED;
+        const isMutual = isFollowing && isFollower;
+
+        let status = "Connect";
+        if (memberIdStr === loggedInUserId) {
+          status = "Self";
+        } else if (isFollowing) {
+          status = "Following";
+        } else if (isFollower && myRequest?.status === ConnectionStatus.PENDING) {
+          status = "Follow back";
+        } else if (theirRequest?.status === ConnectionStatus.PENDING) {
+          status = "Received";
+        } else if (myRequest?.status === ConnectionStatus.PENDING) {
+          status = "Requested";
+        } else if (isFollower) {
+          status = "Follow back";
+        }
+
         return {
           _id: m._id,
           fullName: m.fullName,
@@ -594,11 +628,14 @@ export class MobileConnectionController {
           businessCategoryName: catName,
           categoryName: catName,
           category: catName,
-          status: outgoingMap.get(m._id.toString()) === "ACCEPTED"
-            ? "Following"
-            : outgoingMap.get(m._id.toString()) === "PENDING"
-              ? "Requested"
-              : "Follow back"
+          connection: {
+            myRequestStatus: myRequest?.status || null,
+            theirRequestStatus: theirRequest?.status || null,
+            isFollowing,
+            isFollower,
+            isMutual
+          },
+          status
         };
       });
 
