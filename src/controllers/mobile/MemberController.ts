@@ -1193,24 +1193,6 @@ export class MobileMemberController {
 
   /**
    * @swagger
-   * /mobile-api/members/{id}:
-   *   get:
-   *     summary: Get comprehensive profile details of another member
-   *     tags: [Mobile Member]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: id
-   *         required: true
-   *         schema:
-   *           type: string
-   *     responses:
-   *       200:
-   *         description: Member profile details retrieved successfully
-   */
-  /**
-   * @swagger
    * /mobile-api/members/recap-lists:
    *   get:
    *     summary: Get today's registrations and birthdays in user's region, and monthly top performance rankings (if 1st of month)
@@ -1544,11 +1526,11 @@ export class MobileMemberController {
       tySlipsReceived,
       responsedData
     ] = await Promise.all([
-      this.oneToOneRepo.count({ $or: [{ senderId: id }, { receiverId: id }] } as any),
-      this.referralRepo.count({ senderId: id }),
-      this.referralRepo.count({ receiverId: id }),
-      this.tySlipRepo.find({ where: { senderId: id } }),
-      this.tySlipRepo.find({ where: { receiverId: id } }),
+      this.oneToOneRepo.count({ $or: [{ senderId: id }, { receiverId: id }], status: { $ne: 'REPORTED' } } as any),
+      this.referralRepo.count({ senderId: id, status: { $ne: 'REPORTED' } }),
+      this.referralRepo.count({ receiverId: id, status: { $ne: 'REPORTED' } }),
+      this.tySlipRepo.find({ where: { senderId: id, status: { $ne: 'REPORTED' } } }),
+      this.tySlipRepo.find({ where: { receiverId: id, status: { $ne: 'REPORTED' } } }),
       this.postRepo.find({ memberId: id, isDeleted: false })
     ]);
 

@@ -76,8 +76,11 @@ export class WebsiteCommonController {
    *                       type: integer
    *                       example: 150
    *                     businessDoneAmount:
-   *                       type: number
-   *                       example: 5000000
+   *                       type: string
+   *                       example: "5M"
+   *                     businessAmount:
+   *                       type: string
+   *                       example: "5M"
    */
   @Get("/stats")
   async getWebsiteStats(@Res() res: any) {
@@ -122,10 +125,12 @@ export class WebsiteCommonController {
       // 7. Business Done (Thank You Slip count and total amount)
       const thankYouSlips = await this.tySlipRepo.find();
       const businessDoneCount = thankYouSlips.length;
-      const businessDoneAmount = thankYouSlips.reduce(
+      const rawBusinessDoneAmount = thankYouSlips.reduce(
         (sum, slip) => sum + (Number(slip.amount) || 0),
         0
       );
+
+      const businessDoneAmount = formatCompactNumber(rawBusinessDoneAmount);
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -138,11 +143,36 @@ export class WebsiteCommonController {
           recommendationCount,
           requirementsCount,
           businessDoneCount,
-          businessDoneAmount
+          businessDoneAmount: businessDoneAmount,
+          businessAmount: businessDoneAmount,
+          businessDoneAmountRaw: rawBusinessDoneAmount
         }
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
   }
+}
+
+function formatCompactNumber(num: number): string {
+  if (!num || isNaN(num)) return "0";
+  const abs = Math.abs(num);
+  const sign = num < 0 ? "-" : "";
+
+  const tiers = [
+    { threshold: 1e15, suffix: "Q" },
+    { threshold: 1e12, suffix: "T" },
+    { threshold: 1e9, suffix: "B" },
+    { threshold: 1e6, suffix: "M" },
+    { threshold: 1e3, suffix: "K" },
+  ];
+
+  for (const tier of tiers) {
+    if (abs >= tier.threshold) {
+      const formatted = (abs / tier.threshold).toFixed(1).replace(/\.0$/, "");
+      return `${sign}${formatted}${tier.suffix}`;
+    }
+  }
+
+  return `${sign}${abs}`;
 }
