@@ -16,6 +16,7 @@ import {
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Member, MemberStatus } from "../../entity/Member";
+import { Connection } from "../../entity/Connection";
 import { Category } from "../../entity/Category";
 import { BusinessRegion, Area } from "../../entity/BusinessRegion";
 import { State } from "../../entity/State";
@@ -74,6 +75,7 @@ export class AdminMemberController {
       }
 
       member.isDeleted = false;
+      member.points = 0;
       member.status = MemberStatus.ACTIVE;
       // Default PIN sourced from env — MEMBER_DEFAULT_PIN must be set and communicated to the member securely
       const defaultPin = process.env.MEMBER_DEFAULT_PIN ||
@@ -503,6 +505,15 @@ export class AdminMemberController {
 
       member.isDeleted = true;
       await this.memberRepo.save(member);
+
+      // Permanently delete all connections for this member
+      const connectionRepo = AppDataSource.getMongoRepository(Connection);
+      await connectionRepo.deleteMany({
+        $or: [
+          { senderId: new ObjectId(id) },
+          { receiverId: new ObjectId(id) }
+        ]
+      } as any);
 
       return res.status(StatusCodes.OK).json({
         success: true,

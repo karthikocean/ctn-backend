@@ -19,6 +19,7 @@ import {
 import { useExpressServer } from "routing-controllers";
 import { AppDataSource } from "./data-source";
 import { Member } from "./entity/Member";
+import { Connection } from "./entity/Connection";
 import fileUpload from "express-fileupload";
 
 // ✅ Swagger
@@ -286,8 +287,15 @@ AppDataSource.initialize()
         const memberRepo = AppDataSource.getMongoRepository(Member);
         await memberRepo.updateMany({}, { $set: { isOnline: false } });
         console.log("🔄 Reset all members to offline status on startup");
+
+        const connectionRepo = AppDataSource.getMongoRepository(Connection);
+        await connectionRepo.updateMany(
+          { isDeleted: { $exists: false } } as any,
+          { $set: { isDeleted: false } } as any
+        );
+        console.log("🔄 Updated all existing connections to isDeleted: false");
       } catch (err) {
-        console.error("❌ Failed to reset members' online status on startup:", err);
+        console.error("❌ Failed to reset members' online status or update connections on startup:", err);
       }
 
       try {

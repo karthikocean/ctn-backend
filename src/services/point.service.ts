@@ -102,7 +102,14 @@ export class PointService {
       multiplier = 1;
     }
 
-    const calculatedPoints = Math.round(config.points * multiplier);
+    const baseConfigPoints = Number(config.points) || 0;
+    const numMultiplier = Number(multiplier) || 1;
+    const calculatedPoints = Math.round(baseConfigPoints * numMultiplier);
+
+    if (isNaN(calculatedPoints) || calculatedPoints <= 0) {
+      const balance = await this.getMemberBalance(memberOid);
+      return { awarded: 0, balance };
+    }
 
     // 4. Attempt dynamic transaction if MongoDB Replica Set/Session is supported
     const mongoClient = (AppDataSource.mongoManager.queryRunner?.connection?.driver as any)?.mongoClient;
@@ -226,9 +233,10 @@ export class PointService {
   }): Promise<{ balance: number }> {
     const memberOid = new ObjectId(params.memberId);
     const referenceOid = new ObjectId(params.referenceId);
-    const { moduleName, points, actionType = "spent" } = params;
+    const { moduleName, actionType = "spent" } = params;
+    const points = Number(params.points) || 0;
 
-    if (points <= 0) {
+    if (isNaN(points) || points <= 0) {
       const balance = await this.getMemberBalance(memberOid);
       return { balance };
     }

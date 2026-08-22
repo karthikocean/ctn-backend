@@ -102,13 +102,13 @@ export async function notifyGivePostAudience(dto: {
 
     // 1. Fetch people that the sender follows (ACCEPTED)
     const following = await connectionRepo.find({
-      where: { senderId: senderObjectId, status: ConnectionStatus.ACCEPTED } as any
+      where: { senderId: senderObjectId, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
     });
     const followingIds = new Set(following.map(c => c.receiverId.toString()));
 
     // 2. Fetch people that follow the sender (ACCEPTED)
     const followers = await connectionRepo.find({
-      where: { receiverId: senderObjectId, status: ConnectionStatus.ACCEPTED } as any
+      where: { receiverId: senderObjectId, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
     });
     const followerIds = new Set(followers.map(c => c.senderId.toString()));
 
@@ -193,11 +193,11 @@ export async function notifyPostAudience(dto: {
       let mutualIds: Set<string> | null = null;
       if (isMutualFriend) {
         const following = await connectionRepo.find({
-          where: { senderId: senderObjectId, status: ConnectionStatus.ACCEPTED } as any
+          where: { senderId: senderObjectId, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
         });
         const followingIds = new Set(following.map(c => c.receiverId.toString()));
         const followers = await connectionRepo.find({
-          where: { receiverId: senderObjectId, status: ConnectionStatus.ACCEPTED } as any
+          where: { receiverId: senderObjectId, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
         });
         const followerIds = new Set(followers.map(c => c.senderId.toString()));
         mutualIds = new Set([...followingIds].filter(id => followerIds.has(id)));

@@ -21,6 +21,7 @@ export enum ConnectionStatus {
 @Index(["senderId"])
 @Index(["receiverId"])
 @Index(["status"])
+@Index(["isDeleted"])
 export class Connection {
   @ObjectIdColumn()
     _id!: ObjectId;
@@ -37,6 +38,9 @@ export class Connection {
     default: ConnectionStatus.PENDING
   })
     status!: ConnectionStatus;
+
+  @Column({ default: false })
+    isDeleted: boolean = false;
 
   @CreateDateColumn()
     createdAt!: Date;

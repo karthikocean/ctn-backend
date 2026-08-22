@@ -801,10 +801,10 @@ export class MobileMilestoneController {
   private async getMutualFriendIds(userId: ObjectId): Promise<ObjectId[]> {
     const [followings, followers] = await Promise.all([
       this.connectionRepo.find({
-        where: { senderId: userId, status: ConnectionStatus.ACCEPTED }
+        where: { senderId: userId, status: ConnectionStatus.ACCEPTED, isDeleted: false }
       }),
       this.connectionRepo.find({
-        where: { receiverId: userId, status: ConnectionStatus.ACCEPTED }
+        where: { receiverId: userId, status: ConnectionStatus.ACCEPTED, isDeleted: false }
       })
     ]);
 
@@ -821,10 +821,10 @@ export class MobileMilestoneController {
 
     const [conn1, conn2] = await Promise.all([
       this.connectionRepo.findOne({
-        where: { senderId: userId1, receiverId: userId2, status: ConnectionStatus.ACCEPTED }
+        where: { senderId: userId1, receiverId: userId2, status: ConnectionStatus.ACCEPTED, isDeleted: false }
       }),
       this.connectionRepo.findOne({
-        where: { senderId: userId2, receiverId: userId1, status: ConnectionStatus.ACCEPTED }
+        where: { senderId: userId2, receiverId: userId1, status: ConnectionStatus.ACCEPTED, isDeleted: false }
       })
     ]);
 
