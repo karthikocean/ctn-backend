@@ -420,7 +420,7 @@ export class AdminContributionController {
         } : undefined,
         media: contribution.media,
         date: contribution.createdAt,
-        status: contribution.status.toLowerCase()
+        status: contribution?.status?.toLowerCase() ?? ''
       };
 
       return res.status(200).json({

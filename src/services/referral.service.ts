@@ -8,12 +8,16 @@ import { MemberPoints } from "../entity/MemberPoints";
 import { PointHistory } from "../entity/PointHistory";
 import { REFERRAL_CONFIG } from "../config/referral.config";
 import { DeepLinkFactory } from "./deep-link/deep-link.factory";
+import { Plan } from "../entity/Plan";
+import { MemberSubscription } from "../entity/MemberSubscription";
 
 export class ReferralService {
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private userReferralRepo = AppDataSource.getMongoRepository(UserReferral);
   private memberPointsRepo = AppDataSource.getMongoRepository(MemberPoints);
   private historyRepo = AppDataSource.getMongoRepository(PointHistory);
+  private planRepo = AppDataSource.getMongoRepository(Plan);
+  private subRepo = AppDataSource.getMongoRepository(MemberSubscription);
 
   /**
    * Normalizes referral codes (trims, uppercase, removes disallowed characters)
@@ -120,8 +124,9 @@ export class ReferralService {
   }
 
   /**
-   * Processes a referral for a newly registered member or manual apply
-   * Atomically records referral relationship, UserReferral record, and credits reward points.
+   * Processes a referral for a newly registered member or manual apply:
+   * 1. Free Referrer: earns 500 reward points when referred friend registers.
+   * 2. Active Subscribed Referrer: status set to PENDING, receives 1 extra month validity when friend subscribes.
    */
   async processReferral(params: {
     referredMember: Member;
@@ -151,149 +156,157 @@ export class ReferralService {
       throw new BadRequestError("Referral reward has already been applied for this user.");
     }
 
-    const referrerReward = REFERRAL_CONFIG.referrerReward;
-    const referredUserReward = REFERRAL_CONFIG.referredUserReward;
+    // Check if referrer currently has an active paid subscription
+    const now = new Date();
+    const activeSub = await this.subRepo.findOne({
+      where: {
+        memberId: referrer._id,
+        status: "ACTIVE",
+        isDeleted: false
+      } as any,
+      order: { endDate: "DESC" }
+    });
+    const isReferrerSubscribed = Boolean(
+      activeSub && activeSub.endDate && new Date(activeSub.endDate) > now && !activeSub.isTrial
+    );
+
+    // Free referrer gets 500 points immediately upon registration
+    // Subscribed referrer status is PENDING until referred friend subscribes
+    const pointsToAward = !isReferrerSubscribed ? 500 : 0;
+    const initialStatus = !isReferrerSubscribed ? UserReferralStatus.COMPLETED : UserReferralStatus.PENDING;
 
     const userReferral = new UserReferral();
     userReferral.referrerId = referrer._id;
     userReferral.referredUserId = referredMember._id;
     userReferral.referralCode = normalizedCode;
-    userReferral.referrerReward = referrerReward;
-    userReferral.referredUserReward = referredUserReward;
-    userReferral.status = UserReferralStatus.COMPLETED;
-    userReferral.rewardedAt = new Date();
+    userReferral.referrerReward = pointsToAward;
+    userReferral.referredUserReward = 0;
+    userReferral.status = initialStatus;
+    userReferral.rewardedAt = !isReferrerSubscribed ? new Date() : (null as any);
 
-    // 4. Execute atomic / transactional reward disbursement
-    const mongoClient = (AppDataSource.mongoManager.queryRunner?.connection?.driver as any)?.mongoClient;
-    if (mongoClient && typeof mongoClient.startSession === "function") {
-      const session = mongoClient.startSession();
-      try {
-        let savedReferral: UserReferral | null = null;
-        await session.withTransaction(async () => {
-          // Double check within transaction context
-          const checkTx = await this.userReferralRepo.findOne({
-            where: { referredUserId: referredMember._id } as any
-          });
-          if (checkTx) {
-            throw new BadRequestError("Referral already applied.");
-          }
+    const savedReferral = await this.userReferralRepo.save(userReferral);
 
-          // Save UserReferral
-          savedReferral = await this.userReferralRepo.save(userReferral);
+    // Update referred user's referredBy field
+    await this.memberRepo.updateOne(
+      { _id: referredMember._id },
+      { $set: { referredBy: referrer._id } }
+    );
+    referredMember.referredBy = referrer._id;
 
-          // Update referred user's referredBy field
-          await this.memberRepo.updateOne(
-            { _id: referredMember._id },
-            { $set: { referredBy: referrer._id } }
-          );
-
-          // Award referrer reward
-          if (referrerReward > 0) {
-            await this.creditRewardPoints(referrer._id, referrerReward, "REFERRAL_REFERRER", savedReferral._id);
-          }
-
-          // Award referred user reward
-          if (referredUserReward > 0) {
-            await this.creditRewardPoints(referredMember._id, referredUserReward, "REFERRAL_SIGNUP", savedReferral._id);
-          }
-        });
-
-        if (savedReferral) {
-          referredMember.referredBy = referrer._id;
-          console.log(`[ReferralService] Successfully processed referral: Referrer ${referrer._id} -> Referred ${referredMember._id}`);
-          return {
-            userReferral: savedReferral,
-            referrerReward,
-            referredReward: referredUserReward
-          };
-        }
-      } catch (txErr: any) {
-        if (
-          txErr.message?.includes("Transaction") ||
-          txErr.message?.includes("session") ||
-          txErr.codeName === "IllegalOperation"
-        ) {
-          // Fall through to non-session fallback below
-        } else {
-          console.error("[ReferralService] Transaction error:", txErr.message);
-          throw txErr;
-        }
-      } finally {
-        await session.endSession();
-      }
-    }
-
-    // 5. Non-session fallback with strict unique constraint and rollback on collision
-    try {
-      const savedReferral = await this.userReferralRepo.save(userReferral);
-
-      // Update referred user's referredBy
-      await this.memberRepo.updateOne(
-        { _id: referredMember._id },
-        { $set: { referredBy: referrer._id } }
+    // Award 500 points to free referrer
+    if (pointsToAward > 0) {
+      await this.creditRewardPoints(
+        referrer._id,
+        pointsToAward,
+        "REFERRAL_REFERRER",
+        savedReferral._id
       );
-      referredMember.referredBy = referrer._id;
-
-      // Credit rewards
-      if (referrerReward > 0) {
-        await this.creditRewardPoints(referrer._id, referrerReward, "REFERRAL_REFERRER", savedReferral._id);
-      }
-      if (referredUserReward > 0) {
-        await this.creditRewardPoints(referredMember._id, referredUserReward, "REFERRAL_SIGNUP", savedReferral._id);
-      }
-
-      console.log(`[ReferralService] Successfully processed referral (non-session): Referrer ${referrer._id} -> Referred ${referredMember._id}`);
-      return {
-        userReferral: savedReferral,
-        referrerReward,
-        referredReward: referredUserReward
-      };
-    } catch (err: any) {
-      if (err.code === 11000) {
-        throw new BadRequestError("Referral reward has already been applied for this user.");
-      }
-      throw err;
     }
+
+    console.log(
+      `[ReferralService] Processed referral: Referrer ${referrer._id} (Subscribed: ${isReferrerSubscribed}) -> Referred ${referredMember._id}. Points awarded: ${pointsToAward}`
+    );
+
+    return {
+      userReferral: savedReferral,
+      referrerReward: pointsToAward,
+      referredReward: 0
+    };
   }
 
   /**
    * Helper to credit reward points to a member and write PointHistory & MemberPoints
    */
   private async creditRewardPoints(
-    memberId: ObjectId,
+    memberId: string | ObjectId,
     points: number,
     actionType: "REFERRAL_REFERRER" | "REFERRAL_SIGNUP",
-    referenceId: ObjectId
+    referenceId: string | ObjectId
   ): Promise<void> {
+    const memberOid = new ObjectId(memberId);
+    const refOid = new ObjectId(referenceId);
     if (points <= 0) return;
 
-    await this.memberPointsRepo.updateOne(
-      { memberId },
-      { $inc: { totalPoints: points } },
-      { upsert: true }
-    );
-    await this.memberRepo.updateOne(
-      { _id: memberId },
-      { $inc: { points: points } }
-    );
+    try {
+      await this.memberPointsRepo.updateOne(
+        { memberId: memberOid },
+        { $inc: { totalPoints: points } },
+        { upsert: true }
+      );
+      await this.memberRepo.updateOne(
+        { _id: memberOid },
+        { $inc: { points: points } }
+      );
 
-    const memberPoints = await this.memberPointsRepo.findOneBy({ memberId });
+      const memberPoints = await this.memberPointsRepo.findOneBy({ memberId });
 
-    const history = new PointHistory();
-    history.memberId = memberId;
-    history.moduleName = "referral";
-    history.referenceId = referenceId;
-    history.actionType = actionType;
-    history.type = "earned";
-    history.points = points;
-    history.balanceAfter = memberPoints ? memberPoints.totalPoints : points;
-    await this.historyRepo.save(history);
+      const history = new PointHistory();
+      history.memberId = memberOid;
+      history.moduleName = "referral";
+      history.referenceId = refOid;
+      history.actionType = actionType;
+      history.type = "earned";
+      history.points = points;
+      history.balanceAfter = memberPoints ? memberPoints.totalPoints : points;
+      await this.historyRepo.save(history);
+    } catch (err: any) {
+      console.error(`[ReferralService] Error crediting reward points to member ${memberId}:`, err.message);
+    }
+  }
+
+  /**
+   * Handles rewarding the referrer when the referred friend subscribes to a plan:
+   * If referrer has an active subscription, extends subscription validity by 1 extra month.
+   */
+  async handleReferredUserSubscribed(referredMemberId: string | ObjectId): Promise<void> {
+    const referredMemberOid = new ObjectId(referredMemberId);
+    try {
+      const userReferral = await this.userReferralRepo.findOne({
+        where: {
+          referredUserId: referredMemberOid,
+          status: UserReferralStatus.PENDING
+        } as any
+      });
+
+      if (!userReferral) return;
+
+      const referrer = await this.memberRepo.findOneBy({ _id: userReferral.referrerId, isDeleted: false });
+      if (!referrer) return;
+
+      // Check if referrer currently has an active subscription
+      const now = new Date();
+      const activeSub = await this.subRepo.findOne({
+        where: {
+          memberId: referrer._id,
+          status: "ACTIVE",
+          isDeleted: false
+        } as any,
+        order: { endDate: "DESC" }
+      });
+
+      const isReferrerSubscribed = Boolean(
+        activeSub && activeSub.endDate && new Date(activeSub.endDate) > now && !activeSub.isTrial
+      );
+
+      if (isReferrerSubscribed) {
+        // Award 1 extra month of subscription validity
+        await this.awardSubscriptionReward(referrer._id, 1);
+        userReferral.status = UserReferralStatus.COMPLETED;
+        userReferral.rewardedAt = new Date();
+        await this.userReferralRepo.save(userReferral);
+        console.log(
+          `[ReferralService] Awarded 1 extra month subscription validity to referrer ${referrer._id} on referred friend ${referredMemberId} subscribing to plan`
+        );
+      }
+    } catch (err: any) {
+      console.error(`[ReferralService] Error in handleReferredUserSubscribed for user ${referredMemberId}:`, err.message);
+    }
   }
 
   /**
    * Retrieves or auto-generates referral code and stats for the logged-in member
    */
-  async getMyReferralInfo(memberId: ObjectId): Promise<{
+  async getMyReferralInfo(memberId: string | ObjectId): Promise<{
     referralCode: string;
     referralLink: string;
     totalReferrals: number;
@@ -301,7 +314,8 @@ export class ReferralService {
     pendingReferrals: number;
     totalRewards: number;
   }> {
-    const member = await this.memberRepo.findOneBy({ _id: memberId, isDeleted: false });
+    const memberOid = new ObjectId(memberId);
+    const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
     if (!member) {
       throw new NotFoundError("Member not found");
     }
@@ -330,14 +344,14 @@ export class ReferralService {
   /**
    * Aggregates referral statistics efficiently using MongoDB aggregation
    */
-  async getReferralStats(referrerId: ObjectId): Promise<{
+  async getReferralStats(referrerId: string | ObjectId): Promise<{
     totalReferrals: number;
     successfulReferrals: number;
     pendingReferrals: number;
     totalRewards: number;
   }> {
     const statsResult = await this.userReferralRepo.aggregate([
-      { $match: { referrerId } },
+      { $match: { referrerId: new ObjectId(referrerId) } },
       {
         $group: {
           _id: null,
@@ -383,7 +397,7 @@ export class ReferralService {
    * Fetches paginated referral history for a referrer, populating safe referred user info
    */
   async getReferralHistory(
-    referrerId: ObjectId,
+    referrerId: string | ObjectId,
     options: { page?: number; limit?: number; status?: string; sort?: string }
   ): Promise<{
     referrals: any[];
@@ -398,7 +412,7 @@ export class ReferralService {
     const limit = Math.min(100, Math.max(1, Number(options.limit) || 20));
     const skip = (page - 1) * limit;
 
-    const matchQuery: any = { referrerId };
+    const matchQuery: any = { referrerId: new ObjectId(referrerId) };
     if (options.status && Object.values(UserReferralStatus).includes(options.status.toUpperCase() as any)) {
       matchQuery.status = options.status.toUpperCase();
     }
@@ -456,5 +470,108 @@ export class ReferralService {
         totalPages: Math.ceil(totalCount / limit) || 1
       }
     };
+  }
+
+  /**
+   * Awards subscription plan to a member:
+   * - If member already has an active subscription: extends subscriptionEndDate by X months.
+   * - If member has no active subscription: activates an X-month Basic plan.
+   */
+  async awardSubscriptionReward(memberId: string | ObjectId, months: number = 1): Promise<void> {
+    const memberOid = new ObjectId(memberId);
+    try {
+      const memberOid = new ObjectId(memberId);
+      const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
+      if (!member) return;
+
+      const now = new Date();
+
+      // Check if member already has an active subscription
+      const activeSub = await this.subRepo.findOne({
+        where: {
+          memberId: member._id,
+          status: "ACTIVE",
+          isDeleted: false
+        } as any,
+        order: { endDate: "DESC" }
+      });
+
+      if (activeSub && activeSub.endDate && new Date(activeSub.endDate) > now) {
+        // Extend existing active subscription
+        const currentEnd = new Date(activeSub.endDate);
+        const newEnd = new Date(currentEnd);
+        newEnd.setMonth(newEnd.getMonth() + months);
+
+        activeSub.endDate = newEnd;
+        await this.subRepo.save(activeSub);
+
+        await this.memberRepo.updateOne(
+          { _id: member._id },
+          {
+            $set: {
+              subscriptionEndDate: newEnd,
+              subscriptionId: activeSub._id,
+              planId: activeSub.planId
+            }
+          }
+        );
+        console.log(`[ReferralService] Extended subscription for member ${member._id} by ${months} month(s) until ${newEnd.toISOString()}`);
+      } else {
+        // Find default or basic active plan
+        let defaultPlan = await this.planRepo.findOne({
+          where: { billingType: "basic", status: "active", isDeleted: false } as any,
+          order: { amount: "ASC" }
+        });
+
+        if (!defaultPlan) {
+          defaultPlan = await this.planRepo.findOne({
+            where: { status: "active", isDeleted: false } as any,
+            order: { amount: "ASC" }
+          });
+        }
+
+        if (!defaultPlan) {
+          console.warn("[ReferralService] No active subscription plan found to award.");
+          return;
+        }
+
+        // Expire previous active subscriptions
+        await this.subRepo.updateMany(
+          { memberId: member._id, status: "ACTIVE" },
+          { $set: { status: "EXPIRED" } }
+        );
+
+        const startDate = now;
+        const endDate = new Date(now);
+        endDate.setMonth(endDate.getMonth() + months);
+
+        const newSub = new MemberSubscription();
+        newSub.memberId = member._id;
+        newSub.planId = new ObjectId(defaultPlan._id);
+        newSub.type = defaultPlan.billingType || "BASIC";
+        newSub.status = "ACTIVE";
+        newSub.startDate = startDate;
+        newSub.endDate = endDate;
+        newSub.isTrial = false;
+        newSub.isDeleted = false;
+
+        const savedSub = await this.subRepo.save(newSub);
+
+        await this.memberRepo.updateOne(
+          { _id: member._id },
+          {
+            $set: {
+              planId: new ObjectId(defaultPlan._id),
+              subscriptionId: new ObjectId(savedSub._id),
+              subscriptionStartDate: startDate,
+              subscriptionEndDate: endDate
+            }
+          }
+        );
+        console.log(`[ReferralService] Activated ${months} month(s) subscription (${defaultPlan.title}) for member ${member._id} until ${endDate.toISOString()}`);
+      }
+    } catch (err: any) {
+      console.error(`[ReferralService] Failed to award subscription reward for member ${memberId}:`, err.message);
+    }
   }
 }
