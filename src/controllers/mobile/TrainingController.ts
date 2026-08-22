@@ -215,8 +215,9 @@ export class MobileTrainingController {
       const categoryName = t.categoryId ? categoryMap.get(t.categoryId.toString()) || null : null;
 
       // Compute discounted unlock cost based on plan
-      const discountAmount = Math.floor(t.overallPoints * (trainingDiscountPercentage / 100));
-      const discountedPoints = Math.max(0, t.overallPoints - discountAmount);
+      const overallPoints = Number(t.overallPoints) || 0;
+      const discountAmount = Math.floor(overallPoints * ((trainingDiscountPercentage || 0) / 100));
+      const discountedPoints = Math.max(0, overallPoints - discountAmount);
 
       return {
         ...t,
@@ -412,29 +413,35 @@ export class MobileTrainingController {
 
       const discount = Math.floor(basePoints * (discountPercentage / 100));
       const pointsToDeduct = Math.max(0, basePoints - discount);
+      const currentPoints = member.points || 0;
 
-      if (member.points < pointsToDeduct) {
+      if (pointsToDeduct > 0 && currentPoints < pointsToDeduct) {
         throw new BadRequestError(`Insufficient points. You need ${pointsToDeduct} points.`);
       }
 
       // Deduct points using PointService to keep member_points and history in sync
-      let remainingPoints = member.points;
-      try {
-        const pointService = new PointService();
-        const deductResult = await pointService.deductPoints({
-          memberId: memberOid,
-          moduleName: "Trainings",
-          points: pointsToDeduct,
-          referenceId: training._id,
-          actionType: "unlock"
-        });
-        remainingPoints = deductResult.balance;
-      } catch (pointError) {
-        console.error("Failed to record points deduction in history:", pointError);
-        // Fallback to manual deduction if PointService fails
-        member.points = Math.max(0, member.points - pointsToDeduct);
-        await this.memberRepo.save(member);
-        remainingPoints = member.points;
+      let remainingPoints = currentPoints;
+      if (pointsToDeduct > 0) {
+        try {
+          const pointService = new PointService();
+          const deductResult = await pointService.deductPoints({
+            memberId: memberOid,
+            moduleName: "Trainings",
+            points: pointsToDeduct,
+            referenceId: training._id,
+            actionType: "unlock"
+          });
+          remainingPoints = deductResult.balance;
+        } catch (pointError: any) {
+          if (pointError instanceof BadRequestError || pointError.httpCode === 400 || pointError.message?.includes("Insufficient points")) {
+            throw pointError;
+          }
+          console.error("Failed to record points deduction in history:", pointError);
+          // Fallback to manual deduction if PointService fails
+          member.points = Math.max(0, currentPoints - pointsToDeduct);
+          await this.memberRepo.save(member);
+          remainingPoints = member.points;
+        }
       }
 
       // Create new enrollment record

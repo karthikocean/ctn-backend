@@ -41,6 +41,12 @@ export class Conversation {
     status!: string; // PENDING, USEFUL, MAY_BE_LATER, REJECTED, REPORTED
 
   @Column({ nullable: true })
+    statusUpdatedBy?: ObjectId;
+
+  @Column({ default: {} })
+    userStatuses?: any;
+
+  @Column({ nullable: true })
     reportedBy?: ObjectId;
 
   @Column({ nullable: true })

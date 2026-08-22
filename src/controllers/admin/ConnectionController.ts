@@ -58,7 +58,7 @@ export class ConnectionController {
     limit = Number(limit) || 10;
 
     try {
-      const where: any = {};
+      const where: any = { isDeleted: false };
 
       if (status) {
         where.status = status;

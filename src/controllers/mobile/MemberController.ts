@@ -113,6 +113,8 @@ export class MobileMemberController {
       }
 
       member.isDeleted = false;
+      member.points = 0;
+      member.dailyScore = 0;
       member.dob = data.dob ? parseDob(data.dob) : undefined;
       member.status = MemberStatus.ACTIVE; // Or PENDING if you have an approval flow
       member.referralCode = await this.referralService.generateUniqueReferralCode(data.fullName);
@@ -482,6 +484,14 @@ export class MobileMemberController {
       const tokenRepo = AppDataSource.getMongoRepository(UserToken);
       await tokenRepo.deleteMany({ userId: new ObjectId(userId) } as any);
 
+      // Permanently delete all connections for this member
+      await this.connectionRepo.deleteMany({
+        $or: [
+          { senderId: new ObjectId(userId) },
+          { receiverId: new ObjectId(userId) }
+        ]
+      } as any);
+
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Profile deleted successfully"
@@ -680,7 +690,8 @@ export class MobileMemberController {
           $or: [
             { senderId: new ObjectId(userId) },
             { receiverId: new ObjectId(userId) }
-          ]
+          ],
+          isDeleted: false
         } as any
       });
 
@@ -747,7 +758,7 @@ export class MobileMemberController {
 
       // 1. Find all people who follow me
       const myFollowers = await this.connectionRepo.find({
-        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
       });
 
       if (myFollowers.length === 0) {
@@ -760,7 +771,8 @@ export class MobileMemberController {
       const myOutgoingRequests = await this.connectionRepo.find({
         where: {
           senderId: new ObjectId(userId),
-          status: { $in: [ConnectionStatus.ACCEPTED, ConnectionStatus.PENDING] }
+          status: { $in: [ConnectionStatus.ACCEPTED, ConnectionStatus.PENDING] },
+          isDeleted: false
         } as any
       });
 
@@ -906,12 +918,18 @@ export class MobileMemberController {
 
       // Fetch outgoing and incoming connections to map relationship status
       const memberIds = members.map(m => m._id);
+      const userOids = [new ObjectId(userId), userId.toString()];
+      const memberTargetIds = [
+        ...memberIds.map(id => new ObjectId(id)),
+        ...memberIds.map(id => id.toString())
+      ];
 
       const outgoingConnections = memberIds.length > 0
         ? await this.connectionRepo.find({
           where: {
-            senderId: new ObjectId(userId),
-            receiverId: { $in: memberIds }
+            senderId: { $in: userOids },
+            receiverId: { $in: memberTargetIds },
+            isDeleted: { $ne: true }
           } as any
         })
         : [];
@@ -920,12 +938,17 @@ export class MobileMemberController {
       const incomingConnections = memberIds.length > 0
         ? await this.connectionRepo.find({
           where: {
-            receiverId: new ObjectId(userId),
-            senderId: { $in: memberIds }
+            receiverId: { $in: userOids },
+            senderId: { $in: memberTargetIds },
+            isDeleted: { $ne: true }
           } as any
         })
         : [];
       const incomingMap = new Map(incomingConnections.map(c => [c.senderId.toString(), c]));
+
+      console.log(`[getDirectory] Logged-in User: ${userId} | Search: "${search || ""}" | Found Members: ${members.length}`);
+      console.log(`[getDirectory] Outgoing Connections (${outgoingConnections.length}):`, outgoingConnections.map(c => ({ senderId: c.senderId?.toString(), receiverId: c.receiverId?.toString(), status: c.status })));
+      console.log(`[getDirectory] Incoming Connections (${incomingConnections.length}):`, incomingConnections.map(c => ({ senderId: c.senderId?.toString(), receiverId: c.receiverId?.toString(), status: c.status })));
 
       const data = members.map(m => {
         const myRequest = outgoingMap.get(m._id.toString());
@@ -1055,12 +1078,18 @@ export class MobileMemberController {
 
       // Gather boxMemberIds to fetch connections in bulk
       const boxMemberIds = membersInBox.map(m => m._id);
+      const userOids = [new ObjectId(userId), userId.toString()];
+      const boxTargetIds = [
+        ...boxMemberIds.map(id => new ObjectId(id)),
+        ...boxMemberIds.map(id => id.toString())
+      ];
 
       const outgoingConnections = boxMemberIds.length > 0
         ? await this.connectionRepo.find({
           where: {
-            senderId: new ObjectId(userId),
-            receiverId: { $in: boxMemberIds }
+            senderId: { $in: userOids },
+            receiverId: { $in: boxTargetIds },
+            isDeleted: { $ne: true }
           } as any
         })
         : [];
@@ -1069,8 +1098,9 @@ export class MobileMemberController {
       const incomingConnections = boxMemberIds.length > 0
         ? await this.connectionRepo.find({
           where: {
-            receiverId: new ObjectId(userId),
-            senderId: { $in: boxMemberIds }
+            receiverId: { $in: userOids },
+            senderId: { $in: boxTargetIds },
+            isDeleted: { $ne: true }
           } as any
         })
         : [];
@@ -1554,15 +1584,24 @@ export class MobileMemberController {
   private async getMemberCounts(memberId: string) {
     const id = new ObjectId(memberId);
 
-    const [followersCount, followingsCount, postsCount] = await Promise.all([
-      this.connectionRepo.count({ receiverId: id, status: ConnectionStatus.ACCEPTED }),
-      this.connectionRepo.count({ senderId: id, status: ConnectionStatus.ACCEPTED }),
+    const [followers, followings, postsCount] = await Promise.all([
+      this.connectionRepo.find({ where: { receiverId: id, status: ConnectionStatus.ACCEPTED, isDeleted: false } }),
+      this.connectionRepo.find({ where: { senderId: id, status: ConnectionStatus.ACCEPTED, isDeleted: false } }),
       this.postRepo.count({ memberId: id, isDeleted: false })
     ]);
 
+    const followerIds = followers.map(f => f.senderId.toString());
+    const followingIds = followings.map(f => f.receiverId.toString());
+
+    console.log(`[PROFILE_COUNTS] Member ID: ${memberId}`);
+    console.log(`[PROFILE_COUNTS] Followers count: ${followers.length}`);
+    console.log(`[PROFILE_COUNTS] Follower IDs (senderIds):`, followerIds);
+    console.log(`[PROFILE_COUNTS] Followings count: ${followings.length}`);
+    console.log(`[PROFILE_COUNTS] Following IDs (receiverIds):`, followingIds);
+
     return {
-      followersCount,
-      followingsCount,
+      followersCount: followers.length,
+      followingsCount: followings.length,
       postsCount
     };
   }
@@ -1847,10 +1886,18 @@ export class MobileMemberController {
       // Add Connection Status if authenticated
       if (currentUserId && currentUserId !== id) {
         const myRequest = await this.connectionRepo.findOne({
-          where: { senderId: new ObjectId(currentUserId), receiverId: new ObjectId(id) }
+          where: {
+            senderId: { $in: [new ObjectId(currentUserId), currentUserId.toString()] },
+            receiverId: { $in: [new ObjectId(id), id.toString()] },
+            isDeleted: { $ne: true }
+          } as any
         });
         const theirRequest = await this.connectionRepo.findOne({
-          where: { senderId: new ObjectId(id), receiverId: new ObjectId(currentUserId) }
+          where: {
+            senderId: { $in: [new ObjectId(id), id.toString()] },
+            receiverId: { $in: [new ObjectId(currentUserId), currentUserId.toString()] },
+            isDeleted: { $ne: true }
+          } as any
         });
 
         populated.connection = {

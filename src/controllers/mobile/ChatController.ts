@@ -66,7 +66,8 @@ export class MobileChatController {
         $or: [
           { senderId: userA, receiverId: userB, status: ConnectionStatus.BLOCKED },
           { senderId: userB, receiverId: userA, status: ConnectionStatus.BLOCKED }
-        ]
+        ],
+        isDeleted: false
       } as any
     });
     if (blockedConnection) return true;
@@ -160,10 +161,11 @@ export class MobileChatController {
   ) {
     try {
       const userId = new ObjectId(req.user.userId);
+      const userIdStr = userId.toString();
 
       const whereClause: any = {
         participants: { $all: [userId] },
-        deletedBy: { $nin: [new ObjectId(req.user.userId)] }
+        deletedBy: { $nin: [userId] }
       };
 
       const filterKey = (type || status || "").trim().toUpperCase();
@@ -175,13 +177,31 @@ export class MobileChatController {
           whereClause.status = "PENDING";
           whereClause.lastMessageSenderId = userId;
         } else if (filterKey === "USEFUL") {
-          whereClause.status = "USEFUL";
+          whereClause.$or = [
+            { status: "USEFUL", statusUpdatedBy: userId },
+            { [`userStatuses.${userIdStr}`]: "USEFUL" }
+          ];
         } else if (filterKey === "MAY_BE_LATER" || filterKey === "MAYBE_LATER" || filterKey === "MAY BE LATER") {
-          whereClause.status = { $in: ["MAY_BE_LATER", "MAYBE_LATER"] };
+          whereClause.$or = [
+            { status: { $in: ["MAY_BE_LATER", "MAYBE_LATER"] }, statusUpdatedBy: userId },
+            { [`userStatuses.${userIdStr}`]: { $in: ["MAY_BE_LATER", "MAYBE_LATER"] } }
+          ];
         } else if (filterKey === "REJECTED") {
-          whereClause.status = "REJECTED";
+          whereClause.$or = [
+            { status: "REJECTED", statusUpdatedBy: userId },
+            { [`userStatuses.${userIdStr}`]: "REJECTED" }
+          ];
         } else if (filterKey === "ACCEPTED") {
-          whereClause.status = "ACCEPTED";
+          whereClause.$or = [
+            { status: "ACCEPTED" },
+            {
+              status: { $in: ["USEFUL", "MAY_BE_LATER", "MAYBE_LATER", "REJECTED"] },
+              statusUpdatedBy: { $ne: userId }
+            },
+            {
+              [`userStatuses.${userIdStr}`]: "ACCEPTED"
+            }
+          ];
         }
       }
 
@@ -241,7 +261,16 @@ export class MobileChatController {
           orClauses.push({ milestoneId: { $in: matchedMilestoneIds } });
         }
 
-        whereClause.$or = orClauses;
+        if (whereClause.$or) {
+          const filterOr = whereClause.$or;
+          delete whereClause.$or;
+          whereClause.$and = [
+            { $or: filterOr },
+            { $or: orClauses }
+          ];
+        } else {
+          whereClause.$or = orClauses;
+        }
       }
 
       const conversationsRaw = await this.conversationRepo.find({
@@ -404,6 +433,18 @@ export class MobileChatController {
           }
         }
 
+        const myUserStatus = conv.userStatuses?.[userIdStr];
+        let effectiveStatus = conv.status || "";
+        if (myUserStatus) {
+          effectiveStatus = myUserStatus;
+        } else if (conv.status === "USEFUL" || conv.status === "MAY_BE_LATER" || conv.status === "MAYBE_LATER" || conv.status === "REJECTED") {
+          if (conv.statusUpdatedBy && conv.statusUpdatedBy.toString() === userIdStr) {
+            effectiveStatus = conv.status;
+          } else if (conv.statusUpdatedBy && !conv.statusUpdatedBy.equals(userId)) {
+            effectiveStatus = "ACCEPTED";
+          }
+        }
+
         return {
           ...conv,
           lastMessage: visibleLastMessage,
@@ -420,7 +461,7 @@ export class MobileChatController {
           post: post || null,
           product: product || null,
           milestone: conv.milestoneId ? milestoneMap.get(conv.milestoneId.toString()) : null,
-          status: conv.status || "",
+          status: effectiveStatus,
           reportReason: conv.reportReason || null,
           unreadCount
         };
@@ -775,6 +816,22 @@ export class MobileChatController {
         throw new BadRequestError("You are not a participant in this conversation");
       }
 
+      // Check if conversation has been deleted
+      if (
+        (conversation.isDeleted || conversation.status === "DELETED" || conversation.deletedBy) &&
+        status !== "DELETED"
+      ) {
+        throw new BadRequestError("This conversation has been deleted and its status cannot be changed");
+      }
+
+      // Check if conversation has been reported or rejected
+      if (conversation.status === "REPORTED" && status !== "REPORTED" && status !== "DELETED") {
+        throw new BadRequestError("This conversation has been reported and its status cannot be changed");
+      }
+      // if (conversation.status === "REJECTED" && status !== "REJECTED" && status !== "DELETED") {
+      //   throw new BadRequestError("This conversation has been rejected and its status cannot be changed");
+      // }
+
       // Check if conversation is pending and receiver is accepting
       if (status !== "ACCEPTED" && status !== "DELETED" && status !== "REPORTED") {
         if (
@@ -790,6 +847,10 @@ export class MobileChatController {
       }
 
       conversation.status = status as any;
+      conversation.statusUpdatedBy = userId;
+      if (!conversation.userStatuses) conversation.userStatuses = {};
+      conversation.userStatuses[userId.toString()] = status;
+
       if (status === "REPORTED") {
         conversation.reportedBy = userId;
         conversation.reportReason = reason;
@@ -815,7 +876,8 @@ export class MobileChatController {
       }
       if (status === "DELETED") {
         conversation.deletedBy = userId;
-
+        conversation.isDeleted = true;
+        conversation.status = "DELETED";
       }
       await this.conversationRepo.save(conversation);
 
@@ -1224,8 +1286,13 @@ export class MobileChatController {
       const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(conversationId) });
       if (!conversation) throw new NotFoundError("Conversation not found");
 
-      if (conversation.isDeleted || conversation.status === "DELETED" || conversation.deletedBy) {
-        conversation.status = "PENDING";
+      if (conversation.isDeleted || conversation.status === "DELETED" || (conversation.deletedBy && !conversation.deletedBy.equals(senderId))) {
+        throw new BadRequestError("You cannot send messages because this conversation has been deleted");
+      }
+      // if (conversation.status === "REJECTED") {
+      //   throw new BadRequestError("You cannot send messages because this conversation was rejected");
+      // }
+      if (conversation.deletedBy && conversation.deletedBy.equals(senderId)) {
         conversation.isDeleted = false;
         delete conversation.deletedBy;
         await this.conversationRepo.save(conversation);

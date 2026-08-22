@@ -107,12 +107,12 @@ export class BirthdayCronService {
 
     // People that the birthday member follows
     const following = await this.connectionRepo.find({
-      where: { senderId: memberId, status: ConnectionStatus.ACCEPTED } as any
+      where: { senderId: memberId, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
     });
 
     // People that follow the birthday member
     const followers = await this.connectionRepo.find({
-      where: { receiverId: memberId, status: ConnectionStatus.ACCEPTED } as any
+      where: { receiverId: memberId, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
     });
 
     const followingIds = new Set(following.map((f) => f.receiverId.toString()));

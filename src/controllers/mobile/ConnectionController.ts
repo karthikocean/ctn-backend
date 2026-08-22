@@ -72,7 +72,8 @@ export class MobileConnectionController {
       const existing = await this.connectionRepo.findOneBy({
         senderId: new ObjectId(senderId),
         receiverId: new ObjectId(receiverId),
-        status: { $ne: ConnectionStatus.CANCELLED } as any
+        status: { $ne: ConnectionStatus.CANCELLED } as any,
+        isDeleted: false
       });
 
       if (existing) {
@@ -85,13 +86,15 @@ export class MobileConnectionController {
       const existingReqFollowBack = await this.connectionRepo.findOneBy({
         senderId: new ObjectId(receiverId),
         receiverId: new ObjectId(senderId),
-        status: ConnectionStatus.PENDING
+        status: ConnectionStatus.PENDING,
+        isDeleted: false
       });
       // auto following
       const connectionFOllow = new Connection();
       connectionFOllow.senderId = new ObjectId(senderId);
       connectionFOllow.receiverId = new ObjectId(receiverId);
       connectionFOllow.status = ConnectionStatus.ACCEPTED;
+      connectionFOllow.isDeleted = false;
       await this.connectionRepo.save(connectionFOllow);
       let saved;
       if (!existingReqFollowBack) {
@@ -100,6 +103,7 @@ export class MobileConnectionController {
         connection.senderId = new ObjectId(receiverId);
         connection.receiverId = new ObjectId(senderId);
         connection.status = ConnectionStatus.PENDING;
+        connection.isDeleted = false;
         saved = await this.connectionRepo.save(connection);
       }
 
@@ -167,7 +171,8 @@ export class MobileConnectionController {
       // Check if already connected or request exists (in THIS direction)
       let connection = await this.connectionRepo.findOneBy({
         senderId: new ObjectId(senderId),
-        receiverId: new ObjectId(receiverId)
+        receiverId: new ObjectId(receiverId),
+        isDeleted: false
       });
 
       if (connection) {
@@ -185,6 +190,7 @@ export class MobileConnectionController {
 
         // For any other status (PENDING, REJECTED, CANCELLED), directly accept/follow
         connection.status = ConnectionStatus.ACCEPTED;
+        connection.isDeleted = false;
       } else {
         console.log("inisssssssssss");
 
@@ -193,6 +199,7 @@ export class MobileConnectionController {
         connection.senderId = new ObjectId(senderId);
         connection.receiverId = new ObjectId(receiverId);
         connection.status = ConnectionStatus.ACCEPTED;
+        connection.isDeleted = false;
       }
 
       const saved = await this.connectionRepo.save(connection);
@@ -203,7 +210,7 @@ export class MobileConnectionController {
         await insertPushNotification({
           token: receiver.fcmToken,
           subject: "New Follower",
-          content: `${sender?.fullName || "A member"} is following you. Please follow back!`,
+          content: `${sender?.fullName || "A member"} is following you.`,
           moduleName: NotificationModule.CONNECTION,
           moduleId: saved._id.toString(),
           receiverId: receiverId,
@@ -251,7 +258,8 @@ export class MobileConnectionController {
       const connection = await this.connectionRepo.findOneBy({
         senderId: new ObjectId(senderId),
         receiverId: new ObjectId(receiverId),
-        status: ConnectionStatus.ACCEPTED
+        status: ConnectionStatus.ACCEPTED,
+        isDeleted: false
       });
 
       if (!connection) {
@@ -311,7 +319,7 @@ export class MobileConnectionController {
     limit = Number(limit) || 10;
 
     try {
-      const where: any = {};
+      const where: any = { isDeleted: false };
 
       if (type === "SENT") {
         // SENT connection requests are where I initiated them.
@@ -473,45 +481,53 @@ export class MobileConnectionController {
 
       if (type === "FOLLOWING") {
         const followings = await this.connectionRepo.find({
-          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED }
+          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
         });
         targetMemberIds = followings.map(f => f.receiverId);
+        console.log(`[RELATIONSHIP_LIST] Type: FOLLOWING, Target User ID: ${targetUserId}`);
+        console.log(`[RELATIONSHIP_LIST] Following IDs from Connection table:`, targetMemberIds.map(id => id?.toString()));
       }
       else if (type === "FOLLOWERS") {
         const followers = await this.connectionRepo.find({
-          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED }
+          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
         });
         targetMemberIds = followers.map(f => f.senderId);
+        console.log(`[RELATIONSHIP_LIST] Type: FOLLOWERS, Target User ID: ${targetUserId}`);
+        console.log(`[RELATIONSHIP_LIST] Followers IDs from Connection table:`, targetMemberIds.map(id => id?.toString()));
       }
       else if (type === "MUTUAL") {
         // Mutual: Both followings and followers exist
         const followings = await this.connectionRepo.find({
-          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED }
+          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
         });
         const followingIds = new Set(followings.map(f => f.receiverId.toString()));
 
         const followers = await this.connectionRepo.find({
-          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED }
+          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
         });
 
         targetMemberIds = followers
           .filter(f => followingIds.has(f.senderId.toString()))
           .map(f => f.senderId);
+        console.log(`[RELATIONSHIP_LIST] Type: MUTUAL, Target User ID: ${targetUserId}`);
+        console.log(`[RELATIONSHIP_LIST] Mutual IDs from Connection table:`, targetMemberIds.map(id => id?.toString()));
       }
       else if (type === "ALL") {
         // All: combined, unique list of both followings and followers
         const followings = await this.connectionRepo.find({
-          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED }
+          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
         });
         const followingIds = followings.map(f => f.receiverId.toString());
 
         const followers = await this.connectionRepo.find({
-          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED }
+          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
         });
         const followerIds = followers.map(f => f.senderId.toString());
 
         targetMemberIds = Array.from(new Set([...followingIds, ...followerIds]))
           .map(id => new ObjectId(id));
+        console.log(`[RELATIONSHIP_LIST] Type: ALL, Target User ID: ${targetUserId}`);
+        console.log(`[RELATIONSHIP_LIST] All IDs from Connection table:`, targetMemberIds.map(id => id?.toString()));
       }
 
       if (targetMemberIds.length === 0) {
@@ -554,6 +570,13 @@ export class MobileConnectionController {
       });
       total = filteredCount;
 
+      console.log(`[RELATIONSHIP_LIST] Active Members returned from DB (${members.length}/${targetMemberIds.length}):`, members.map(m => m._id.toString()));
+      const returnedIds = new Set(members.map(m => m._id.toString()));
+      const missingIds = targetMemberIds.map(id => id.toString()).filter(id => !returnedIds.has(id));
+      if (missingIds.length > 0) {
+        console.log(`[RELATIONSHIP_LIST] Missing / Inactive / Deleted / Filtered Member IDs:`, missingIds);
+      }
+
       const paginatedMemberIds = members.map(m => m._id);
 
       // Fetch connections between the logged-in user and the paginated members to determine status
@@ -562,13 +585,15 @@ export class MobileConnectionController {
           this.connectionRepo.find({
             where: {
               senderId: new ObjectId(loggedInUserId),
-              receiverId: { $in: paginatedMemberIds }
+              receiverId: { $in: paginatedMemberIds },
+              isDeleted: false
             } as any
           }),
           this.connectionRepo.find({
             where: {
               senderId: { $in: paginatedMemberIds },
-              receiverId: new ObjectId(loggedInUserId)
+              receiverId: new ObjectId(loggedInUserId),
+              isDeleted: false
             } as any
           })
         ])
@@ -677,7 +702,7 @@ export class MobileConnectionController {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
       const userId = req.user.userId;
 
-      const connection = await this.connectionRepo.findOneBy({ _id: new ObjectId(id) });
+      const connection = await this.connectionRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!connection) throw new NotFoundError("Connection request not found");
 
       // Permission Logic
@@ -752,7 +777,7 @@ export class MobileConnectionController {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
       const userId = req.user.userId;
 
-      const connection = await this.connectionRepo.findOneBy({ _id: new ObjectId(id) });
+      const connection = await this.connectionRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!connection) throw new NotFoundError("Connection not found");
 
       // Check if user is part of this connection

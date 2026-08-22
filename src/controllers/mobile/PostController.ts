@@ -378,7 +378,7 @@ export class MobilePostController {
 
       // 1. Find who I am following
       const followings = await this.connectionRepo.find({
-        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
       });
 
       console.log(`User ${userId} is following ${followings.length} members`);
@@ -530,12 +530,12 @@ export class MobilePostController {
 
       // Fetch mutual friends to evaluate MUTUAL_FRIEND requirement visibility
       const following = await this.connectionRepo.find({
-        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
       });
       const followingIds = following.map(f => f.receiverId.toString());
 
       const followers = await this.connectionRepo.find({
-        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
       });
       const followerIds = followers.map(f => f.senderId.toString());
 
@@ -923,12 +923,12 @@ export class MobilePostController {
 
       // Fetch mutual friends to evaluate MUTUAL_FRIEND requirement visibility
       const following = await this.connectionRepo.find({
-        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
       });
       const followingIds = following.map(f => f.receiverId.toString());
 
       const followers = await this.connectionRepo.find({
-        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
       });
       const followerIds = followers.map(f => f.senderId.toString());
 
@@ -1103,13 +1103,13 @@ export class MobilePostController {
 
       // 1. Find who current user follows (needed for GIVE and REQUIREMENT target filters)
       const following = await this.connectionRepo.find({
-        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
       });
       const followingIds = following.map(f => f.receiverId.toString());
 
       // 2. Find who follows current user
       const followers = await this.connectionRepo.find({
-        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED }
+        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
       });
       const followerIds = followers.map(f => f.senderId.toString());
 
