@@ -62,7 +62,7 @@ export class MobilePlanController {
     limit = Number(limit) || 10;
 
     try {
-      const memberId = req.user.userId;
+      const memberId = req.user?.userId || req.user?.id;
       const where: any = { isDeleted: false, status: "active" };
       if (search) {
         where.title = { $regex: search, $options: "i" };
@@ -79,12 +79,15 @@ export class MobilePlanController {
       let currentPlanId: string | null = null;
       let currentPlanAmount = 0;
       let isCurrentSubTrial = false;
+      let refferalUserFlag = false;
 
       if (memberId) {
         const memberRepo = AppDataSource.getMongoRepository(Member);
         const member = await memberRepo.findOneBy({ _id: new ObjectId(memberId), isDeleted: false });
         if (member) {
-          hasUsedTrial = member.hasUsedTrial;
+          // If member has referredBy present, set refferalUserFlag = true
+          refferalUserFlag = Boolean(member.referredBy);
+          hasUsedTrial = member.hasUsedTrial || false;
           const subService = new SubscriptionService();
           const activeSub = await subService.getActiveSubscription(member._id);
           if (activeSub && activeSub.status === "ACTIVE") {
@@ -100,26 +103,26 @@ export class MobilePlanController {
         }
       }
 
-      // Map plans to include action and isTrial fields
+      // If user has chosen trial (hasUsedTrial or isCurrentSubTrial), show isTrial = true for entire plans
+      const userHasChoosedTrial = Boolean(hasUsedTrial || isCurrentSubTrial);
+
+      // Map plans to include action, isTrial, isTrail, refferalUserFlag, and adjust trialDays to 10 if referral user
       const mappedPlans = plans.map(p => {
+        const effectiveTrialDays = refferalUserFlag ? 10 : (p.trialDays ?? 0);
         let action: string | null = "Get Trial";
-        let isTrial = false;
+        const isTrial = userHasChoosedTrial;
 
         if (memberId) {
-          if (!hasUsedTrial) {
-            isTrial = false;
-            action = (p.trialDays && p.trialDays > 0) ? "Get Trial" : "Upgrade";
+          if (!userHasChoosedTrial) {
+            action = (effectiveTrialDays > 0) ? "Get Trial" : "Upgrade";
           } else {
             if (currentPlanId === p._id.toString()) {
               if (isCurrentSubTrial) {
-                isTrial = true;
                 action = "Buy";
               } else {
-                isTrial = false;
                 action = "Current";
               }
             } else {
-              isTrial = false;
               if (isCurrentSubTrial) {
                 action = "Buy";
               } else {
@@ -131,7 +134,10 @@ export class MobilePlanController {
 
         return {
           ...p,
-          isTrial,
+          trialDays: effectiveTrialDays,
+          refferalUserFlag,
+          // isTrial,
+          isTrail: isTrial, // support both spellings for client compatibility
           action
         };
       });
@@ -162,7 +168,7 @@ export class MobilePlanController {
    *         description: Plan not found
    */
   @Get("/:id")
-  async getOne(@Param("id") id: string, @Res() res: any) {
+  async getOne(@Param("id") id: string, @Req() req: any, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
 
@@ -174,9 +180,37 @@ export class MobilePlanController {
 
       if (!plan) throw new NotFoundError("Plan not found");
 
+      let refferalUserFlag = false;
+      let hasUsedTrial = false;
+      let isCurrentSubTrial = false;
+      const memberId = req.user?.userId || req.user?.id;
+
+      if (memberId && ObjectId.isValid(memberId)) {
+        const memberRepo = AppDataSource.getMongoRepository(Member);
+        const member = await memberRepo.findOneBy({ _id: new ObjectId(memberId), isDeleted: false });
+        if (member) {
+          refferalUserFlag = Boolean(member.referredBy);
+          hasUsedTrial = member.hasUsedTrial || false;
+          const subService = new SubscriptionService();
+          const activeSub = await subService.getActiveSubscription(member._id);
+          if (activeSub && activeSub.status === "ACTIVE") {
+            isCurrentSubTrial = activeSub.isTrial || false;
+          }
+        }
+      }
+
+      const userHasChoosedTrial = Boolean(hasUsedTrial || isCurrentSubTrial);
+      const effectiveTrialDays = refferalUserFlag ? 10 : (plan.trialDays ?? 0);
+
       return res.status(StatusCodes.OK).json({
         success: true,
-        data: plan
+        data: {
+          ...plan,
+          trialDays: effectiveTrialDays,
+          refferalUserFlag,
+          isTrial: userHasChoosedTrial,
+          isTrail: userHasChoosedTrial
+        }
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

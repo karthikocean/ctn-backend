@@ -676,7 +676,7 @@ export class MobileChatController {
             _id: msg._id,
             conversationId: msg.conversationId,
             senderId: msg.senderId,
-            content: "This message was deleted",
+            content: "This conversation marked as deleted",
             isDeleted: true,
             isRead: msg.isRead || false,
             isMe: msg.senderId.toString() === req.user.userId,
@@ -1675,7 +1675,7 @@ export class MobileChatController {
       if (!message.senderId.equals(userId)) throw new BadRequestError("You can only delete your own messages");
 
       message.isDeleted = true;
-      message.content = "This message was deleted";
+      message.content = "This conversation marked as deleted";
       if ((message as any).media) delete (message as any).media;
       await this.messageRepo.save(message);
 
@@ -1689,7 +1689,7 @@ export class MobileChatController {
 
         if (latestMessage) {
           if (latestMessage.isDeleted) {
-            conversation.lastMessage = "This message was deleted";
+            conversation.lastMessage = "This conversation marked as deleted";
           } else {
             conversation.lastMessage = latestMessage.content || (latestMessage.media && (latestMessage.media as any).length > 0 ? "📷 Photo" : "");
           }
@@ -1702,7 +1702,7 @@ export class MobileChatController {
         const deletedPayload = {
           messageId: message._id.toString(),
           conversationId: conversation._id.toString(),
-          content: "This message was deleted",
+          content: "This conversation marked as deleted",
           isDeleted: true
         };
 
