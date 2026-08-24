@@ -8,10 +8,75 @@ import { LessonProgress } from "../entity/LessonProgress";
 import { Member, MemberStatus } from "../entity/Member";
 import { UserToken } from "../entity/UserToken";
 import { AdminUser } from "../entity/AdminUser";
+import { Connection, ConnectionStatus } from "../entity/Connection";
+import { ReportedHistory } from "../entity/ReportedHistory";
+import { Conversation } from "../entity/Conversation";
 import { ObjectId } from "mongodb";
 
 let io: SocketServer;
 let activeDisconnects = 0;
+
+async function broadcastUserStatus(ioServer: any, userId: string, isOnline: boolean, lastSeen: Date): Promise<void> {
+  try {
+    if (!ioServer || !AppDataSource.isInitialized || !ObjectId.isValid(userId)) return;
+    const userOid = new ObjectId(userId);
+    const connectionRepo = AppDataSource.getMongoRepository(Connection);
+    const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+    const conversationRepo = AppDataSource.getMongoRepository(Conversation);
+
+    const [blockedConns, reportedHistories, reportedConvs] = await Promise.all([
+      connectionRepo.find({
+        where: {
+          $or: [
+            { senderId: userOid, status: ConnectionStatus.BLOCKED },
+            { receiverId: userOid, status: ConnectionStatus.BLOCKED }
+          ],
+          isDeleted: false
+        } as any
+      }),
+      reportedHistoryRepo.find({
+        where: {
+          $or: [
+            { reporterUserId: userOid },
+            { targetUserId: userOid }
+          ]
+        } as any
+      }),
+      conversationRepo.find({
+        where: {
+          participants: { $all: [userOid] },
+          status: "REPORTED"
+        } as any
+      })
+    ]);
+
+    const blockedSet = new Set<string>();
+    for (const c of blockedConns) {
+      blockedSet.add(c.senderId.equals(userOid) ? c.receiverId.toString() : c.senderId.toString());
+    }
+    for (const r of reportedHistories) {
+      if (r.reporterUserId?.equals(userOid)) blockedSet.add(r.targetUserId.toString());
+      if (r.targetUserId?.equals(userOid)) blockedSet.add(r.reporterUserId.toString());
+    }
+    for (const conv of reportedConvs) {
+      const other = conv.participants.find(p => !p.equals(userOid));
+      if (other) blockedSet.add(other.toString());
+    }
+
+    const sockets = await ioServer.fetchSockets();
+    for (const s of sockets) {
+      const targetUserId = s.data?.userId;
+      if (!targetUserId || targetUserId === userId) continue;
+      if (blockedSet.has(targetUserId)) {
+        s.emit("user_status_changed", { userId, isOnline: false, lastSeen: null });
+      } else {
+        s.emit("user_status_changed", { userId, isOnline, lastSeen });
+      }
+    }
+  } catch (err) {
+    console.error("Failed to broadcast user status", err);
+  }
+}
 
 const isDbClosedError = (err: any): boolean => {
   if (!err) return false;
@@ -200,7 +265,7 @@ export const initSocket = (server: HttpServer) => {
           { _id: new ObjectId(userId) },
           { $set: { isOnline: true } }
         );
-        io.emit("user_status_changed", { userId, isOnline: true, lastSeen: new Date() });
+        await broadcastUserStatus(io, userId, true, new Date());
       } catch (err) {
         if (isDbClosedError(err)) {
           console.log(`🔌 Database is closed/closing. Skipping online status update for user ${userId}`);
@@ -248,7 +313,7 @@ export const initSocket = (server: HttpServer) => {
           { _id: new ObjectId(userId) },
           { $set: { isOnline: data.isOnline, lastSeen } }
         );
-        io.emit("user_status_changed", { userId, isOnline: data.isOnline, lastSeen });
+        await broadcastUserStatus(io, userId, data.isOnline, lastSeen);
       } catch (err) {
         if (isDbClosedError(err)) {
           console.log(`🔌 Database is closed/closing. Skipping manual user status update for user ${userId}`);
@@ -350,7 +415,7 @@ export const initSocket = (server: HttpServer) => {
           );
 
           // Emit to others that the user went offline
-          io.emit("user_status_changed", { userId, isOnline: false, lastSeen });
+          await broadcastUserStatus(io, userId, false, lastSeen);
         }
       } catch (err) {
         if (isDbClosedError(err)) {

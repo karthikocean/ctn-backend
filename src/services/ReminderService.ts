@@ -3,6 +3,8 @@ import { NotifyBy, Reminder, ReminderRecipientType, ReminderStatus, RepeatType }
 import { Message, MessageType } from "../entity/Message";
 import { Conversation } from "../entity/Conversation";
 import { Member } from "../entity/Member";
+import { Contact, ContactType } from "../entity/Contact";
+import { Connection, ConnectionStatus } from "../entity/Connection";
 import { CreateReminderDto } from "../dto/mobile/CreateReminderDto";
 import { UpdateReminderDto } from "../dto/mobile/UpdateReminderDto";
 import { ReminderListDto } from "../dto/mobile/ReminderListDto";
@@ -15,6 +17,20 @@ export class ReminderService {
   private conversationRepo = AppDataSource.getMongoRepository(Conversation);
   private messageRepo = AppDataSource.getMongoRepository(Message);
   private memberRepo = AppDataSource.getMongoRepository(Member);
+  private connectionRepo = AppDataSource.getMongoRepository(Connection);
+
+  private async isMutual(userA: ObjectId, userB: ObjectId): Promise<boolean> {
+    if (userA.equals(userB)) return true;
+    const [conn1, conn2] = await Promise.all([
+      this.connectionRepo.findOne({
+        where: { senderId: userA, receiverId: userB, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
+      }),
+      this.connectionRepo.findOne({
+        where: { senderId: userB, receiverId: userA, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
+      })
+    ]);
+    return !!(conn1 && conn2);
+  }
 
   private validateObjectId(id: string, fieldName: string): ObjectId {
     if (!id || !ObjectId.isValid(id)) {
@@ -69,6 +85,7 @@ export class ReminderService {
         }
       }
     } else if (receiverObjId && !creatorId.equals(receiverObjId)) {
+      const isMutualConnection = await this.isMutual(creatorId, receiverObjId);
       conversation = await this.conversationRepo.findOne({
         where: { participants: { $all: [creatorId, receiverObjId] } } as any,
         order: { updatedAt: "DESC" }
@@ -76,9 +93,12 @@ export class ReminderService {
       if (!conversation) {
         conversation = new Conversation();
         conversation.participants = [creatorId, receiverObjId];
-        conversation.status = "PENDING";
+        conversation.status = isMutualConnection ? "ACCEPTED" : "PENDING";
         conversation.unreadCounts = {};
         conversation = await this.conversationRepo.save(conversation);
+      } else if (conversation.status === "PENDING" && isMutualConnection) {
+        conversation.status = "ACCEPTED";
+        await this.conversationRepo.save(conversation);
       }
       reminder.conversationId = conversation._id;
     }
@@ -98,10 +118,20 @@ export class ReminderService {
     const savedReminder = await this.reminderRepo.save(reminder);
 
     if (conversation) {
-      if (conversation.isDeleted || conversation.status === "DELETED" || conversation.deletedBy) {
+      const isMutualConn = receiverObjId ? await this.isMutual(creatorId, receiverObjId) : false;
+      const wasRejectedOrDeleted =
+        conversation.status === "REJECTED" ||
+        conversation.status === "DELETED" ||
+        conversation.isDeleted ||
+        !!conversation.deletedBy;
+
+      if (wasRejectedOrDeleted) {
         conversation.status = "PENDING";
         conversation.isDeleted = false;
         delete conversation.deletedBy;
+        await this.conversationRepo.save(conversation);
+      } else if (conversation.status === "PENDING" && isMutualConn) {
+        conversation.status = "ACCEPTED";
         await this.conversationRepo.save(conversation);
       }
 

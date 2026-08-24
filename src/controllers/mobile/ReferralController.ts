@@ -87,9 +87,9 @@ export class MobileReferralController {
 
   /**
    * @swagger
-   * /mobile-api/referrals/history:
+   * /mobile-api/referrals/list:
    *   get:
-   *     summary: Get paginated referral history for the current member
+   *     summary: Get paginated referral list for the current member
    *     tags: [Mobile Referrals]
    *     security:
    *       - bearerAuth: []
@@ -117,11 +117,11 @@ export class MobileReferralController {
    *           default: desc
    *     responses:
    *       200:
-   *         description: Referral history retrieved successfully
+   *         description: Referral list retrieved successfully
    */
-  @Get("/history")
+  @Get("/list")
   @HttpCode(StatusCodes.OK)
-  async getReferralHistory(
+  async getReferralList(
     @Req() req: any,
     @QueryParams() query: ReferralHistoryQueryDto,
     @Res() res: any
