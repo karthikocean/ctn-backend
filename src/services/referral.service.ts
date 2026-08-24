@@ -185,7 +185,7 @@ export class ReferralService {
     userReferral.rewardedAt = !isReferrerSubscribed ? new Date() : (null as any);
 
     const savedReferral = await this.userReferralRepo.save(userReferral);
-
+    console.log({ savedReferral })
     // Update referred user's referredBy field
     await this.memberRepo.updateOne(
       { _id: referredMember._id },
