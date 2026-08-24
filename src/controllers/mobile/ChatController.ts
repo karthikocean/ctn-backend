@@ -150,6 +150,29 @@ export class MobileChatController {
 
     return conversation;
   }
+  private getEffectiveStatus(conv: any, userIdStr: string, isMutual: boolean = false): string {
+    const myUserStatus = conv.userStatuses?.[userIdStr];
+    if (conv.status === "DELETED" || myUserStatus === "DELETED") {
+      return "DELETED";
+    }
+    if (myUserStatus) {
+      return myUserStatus;
+    }
+    if (conv.status === "REPORTED") {
+      return "REPORTED";
+    }
+    if (isMutual && conv.status === "PENDING") {
+      return "ACCEPTED";
+    }
+    if (conv.status === "USEFUL" || conv.status === "MAY_BE_LATER" || conv.status === "MAYBE_LATER" || conv.status === "REJECTED") {
+      if (conv.statusUpdatedBy && conv.statusUpdatedBy.toString() === userIdStr) {
+        return conv.status;
+      }
+      return "ACCEPTED";
+    }
+    return conv.status || "ACCEPTED";
+  }
+
   /**
    * @swagger
    * /mobile-api/chats/conversations:
@@ -519,21 +542,7 @@ export class MobileChatController {
           }
         }
 
-        const myUserStatus = conv.userStatuses?.[userIdStr];
-        let effectiveStatus = conv.status || "";
-        if (conv.status === "ACCEPTED") {
-          effectiveStatus = "ACCEPTED";
-        } else if (myUserStatus) {
-          effectiveStatus = myUserStatus;
-        } else if (isMutualMember && conv.status === "PENDING") {
-          effectiveStatus = "ACCEPTED";
-        } else if (conv.status === "USEFUL" || conv.status === "MAY_BE_LATER" || conv.status === "MAYBE_LATER" || conv.status === "REJECTED") {
-          if (conv.statusUpdatedBy && conv.statusUpdatedBy.toString() === userIdStr) {
-            effectiveStatus = conv.status;
-          } else if (conv.statusUpdatedBy && !conv.statusUpdatedBy.equals(userId)) {
-            effectiveStatus = "ACCEPTED";
-          }
-        }
+        const effectiveStatus = this.getEffectiveStatus(conv, userIdStr, isMutualMember);
 
         return {
           ...conv,
@@ -592,34 +601,44 @@ export class MobileChatController {
       const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(id) });
       if (!conversation) throw new NotFoundError("Conversation not found");
 
-      await this.messageRepo.updateMany(
-        { conversationId: new ObjectId(id), senderId: { $ne: userId }, isRead: { $ne: true } } as any,
-        { $set: { isRead: true } } as any
-      );
-
-      // Reset unread count for this user
-      const unreadCounts = conversation.unreadCounts || {};
-      unreadCounts[userId.toString()] = 0;
-      conversation.unreadCounts = { ...unreadCounts };
-      await this.conversationRepo.save(conversation);
-
-      // Notify the sender that their messages have been read (skip if blocked or reported)
       const otherId = conversation.participants.find(p => !p.equals(userId));
       const isBlockedMember = otherId
         ? ((conversation.status === "REPORTED") || (await this.isBlocked(userId, otherId)))
         : false;
 
-      if (otherId && !isBlockedMember) {
-        const io = getIO();
-        const payload = {
-          conversationId: conversation._id,
-          readBy: userId,
-          readAt: new Date()
-        };
-        // Emit to the specific conversation room
-        io.to(`conversation_${conversation._id}`).emit("messages_read", payload);
-        // Also emit directly to the sender's private room
-        io.to(otherId.toString()).emit("messages_read", payload);
+      // Only mark messages as read if the users are not blocked/reported
+      if (!isBlockedMember) {
+        await this.messageRepo.updateMany(
+          {
+            conversationId: new ObjectId(id),
+            senderId: { $ne: userId },
+            isRead: { $ne: true },
+            $or: [
+              { blockedFor: { $exists: false } },
+              { blockedFor: { $nin: [userId] } }
+            ]
+          } as any,
+          { $set: { isRead: true } } as any
+        );
+
+        // Reset unread count for this user
+        const unreadCounts = conversation.unreadCounts || {};
+        unreadCounts[userId.toString()] = 0;
+        conversation.unreadCounts = { ...unreadCounts };
+        await this.conversationRepo.save(conversation);
+
+        if (otherId) {
+          const io = getIO();
+          const payload = {
+            conversationId: conversation._id,
+            readBy: userId,
+            readAt: new Date()
+          };
+          // Emit to the specific conversation room
+          io.to(`conversation_${conversation._id}`).emit("messages_read", payload);
+          // Also emit directly to the sender's private room
+          io.to(otherId.toString()).emit("messages_read", payload);
+        }
       }
 
       return res.status(StatusCodes.OK).json({
@@ -706,16 +725,27 @@ export class MobileChatController {
       );
       const total = filteredMessages.length;
       const messages = filteredMessages.slice(page * limit, (page + 1) * limit);
-      const hasUnread = messages.some(m => !m.isRead && m.senderId.toString() !== userId.toString());
-      if (hasUnread) {
+      const otherParticipant = conversation.participants.find(p => !p.equals(userId));
+      const isBlockedWithOther = otherParticipant
+        ? ((conversation.status === "REPORTED") || (await this.isBlocked(userId, otherParticipant)))
+        : false;
+
+      // Only consider unread messages that are VISIBLE and NOT BLOCKED for this user
+      const unreadVisibleMessageIds = messages
+        .filter(m => !m.isRead && m.senderId.toString() !== userId.toString() && (!m.blockedFor || !m.blockedFor.some((id: any) => id.toString() === userId.toString())))
+        .map(m => m._id);
+
+      if (unreadVisibleMessageIds.length > 0 && !isBlockedWithOther) {
         await this.messageRepo.updateMany(
-          { conversationId: new ObjectId(conversationId), senderId: { $ne: userId }, isRead: { $ne: true } } as any,
+          {
+            _id: { $in: unreadVisibleMessageIds }
+          } as any,
           { $set: { isRead: true } } as any
         );
 
         // Mutate in-memory messages so they are returned as read in this response
         messages.forEach(m => {
-          if (!m.isRead && m.senderId.toString() !== userId.toString()) {
+          if (unreadVisibleMessageIds.some(id => id.equals(m._id))) {
             m.isRead = true;
           }
         });
@@ -727,12 +757,7 @@ export class MobileChatController {
         await this.conversationRepo.save(conversation);
 
         // Notify the sender that their messages have been read (skip if blocked or reported)
-        const otherParticipant = conversation.participants.find(p => !p.equals(userId));
-        const isBlockedWithOther = otherParticipant
-          ? ((conversation.status === "REPORTED") || (await this.isBlocked(userId, otherParticipant)))
-          : false;
-
-        if (otherParticipant && !isBlockedWithOther) {
+        if (otherParticipant) {
           const io = getIO();
           const readPayload = { conversationId: conversation._id, readBy: userId, readAt: new Date() };
           io.to(`conversation_${conversation._id}`).emit("messages_read", readPayload);
@@ -940,7 +965,8 @@ export class MobileChatController {
         conversation.status = "ACCEPTED";
         conversation.isDeleted = false;
         delete conversation.deletedBy;
-        conversation.userStatuses = {};
+        if (!conversation.userStatuses) conversation.userStatuses = {};
+        conversation.userStatuses[userId.toString()] = "ACCEPTED";
         delete (conversation as any).statusUpdatedBy;
       } else if (status === "DELETED") {
         conversation.deletedBy = userId;
@@ -949,16 +975,12 @@ export class MobileChatController {
         if (!conversation.userStatuses) conversation.userStatuses = {};
         conversation.userStatuses[userId.toString()] = "DELETED";
         conversation.statusUpdatedBy = userId;
-      } else {
-        conversation.status = status as any;
-        conversation.statusUpdatedBy = userId;
-        if (!conversation.userStatuses) conversation.userStatuses = {};
-        conversation.userStatuses[userId.toString()] = status;
-      }
-
-      if (status === "REPORTED") {
+      } else if (status === "REPORTED") {
+        conversation.status = "REPORTED";
         conversation.reportedBy = userId;
         conversation.reportReason = reason;
+        if (!conversation.userStatuses) conversation.userStatuses = {};
+        conversation.userStatuses[userId.toString()] = "REPORTED";
 
         const otherId = conversation.participants.find(p => !p.equals(userId));
         if (otherId) {
@@ -978,27 +1000,45 @@ export class MobileChatController {
             await reportedHistoryRepo.save(report);
           }
         }
+      } else {
+        // Personal categorization (like pinned / folder tag: USEFUL, MAY_BE_LATER, MAYBE_LATER, REJECTED)
+        // Store strictly for this user in userStatuses map
+        if (!conversation.userStatuses) conversation.userStatuses = {};
+        conversation.userStatuses[userId.toString()] = status;
+        conversation.statusUpdatedBy = userId;
+        // Keep conversation.status as ACCEPTED if pending, without altering other participant's state
+        if (conversation.status === "PENDING") {
+          conversation.status = "ACCEPTED";
+        }
       }
-      if (status === "DELETED") {
-        conversation.deletedBy = userId;
-        conversation.isDeleted = true;
-        conversation.status = "DELETED";
-      }
+
       await this.conversationRepo.save(conversation);
 
-      // Notify the other participant
       const otherId = conversation.participants.find(p => !p.equals(userId));
-      if (otherId) {
+
+      // If status is ACCEPTED, notify the other participant that request is accepted
+      if (status === "ACCEPTED" && otherId) {
         getIO().to(otherId.toString()).emit("conversation_status_updated", {
           conversationId: conversation._id,
-          status: status
+          status: "ACCEPTED"
         });
       }
+
+      // Always emit to the updating user with their own status
+      getIO().to(userId.toString()).emit("conversation_status_updated", {
+        conversationId: conversation._id,
+        status: status
+      });
+
+      const responseData = {
+        ...conversation,
+        status: status
+      };
 
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Conversation status updated",
-        data: conversation
+        data: responseData
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -1134,6 +1174,7 @@ export class MobileChatController {
 
         io.to(receiverId.toString()).emit("conversation_updated", {
           ...conversation,
+          status: this.getEffectiveStatus(conversation, receiverId.toString()),
           lastMessage: savedMessage.content,
           lastMessageTime: savedMessage.createdAt,
           lastMessageSenderId: savedMessage.senderId,
@@ -1159,6 +1200,7 @@ export class MobileChatController {
       }
       io.to(senderId.toString()).emit("conversation_updated", {
         ...conversation,
+        status: this.getEffectiveStatus(conversation, senderId.toString()),
         lastMessage: savedMessage.content,
         lastMessageTime: savedMessage.createdAt,
         lastMessageSenderId: savedMessage.senderId,
@@ -1313,6 +1355,7 @@ export class MobileChatController {
 
         io.to(receiverId.toString()).emit("conversation_updated", {
           ...conversation,
+          status: this.getEffectiveStatus(conversation, receiverId.toString()),
           lastMessage: savedMessage.content,
           lastMessageTime: savedMessage.createdAt,
           lastMessageSenderId: savedMessage.senderId,
@@ -1338,6 +1381,7 @@ export class MobileChatController {
       }
       io.to(senderId.toString()).emit("conversation_updated", {
         ...conversation,
+        status: this.getEffectiveStatus(conversation, senderId.toString()),
         lastMessage: savedMessage.content,
         lastMessageTime: savedMessage.createdAt,
         lastMessageSenderId: savedMessage.senderId,
@@ -1700,6 +1744,7 @@ export class MobileChatController {
 
         io.to(receiverId.toString()).emit("conversation_updated", {
           ...conversation,
+          status: this.getEffectiveStatus(conversation, receiverId.toString()),
           lastMessage: savedMessage.content,
           lastMessageTime: savedMessage.createdAt,
           lastMessageSenderId: savedMessage.senderId,
@@ -1724,6 +1769,7 @@ export class MobileChatController {
       }
       io.to(senderId.toString()).emit("conversation_updated", {
         ...conversation,
+        status: this.getEffectiveStatus(conversation, senderId.toString()),
         lastMessage: savedMessage.content,
         lastMessageTime: savedMessage.createdAt,
         lastMessageSenderId: savedMessage.senderId,
@@ -1992,6 +2038,7 @@ export class MobileChatController {
 
         io.to(recId.toString()).emit("conversation_updated", {
           ...conversation,
+          status: this.getEffectiveStatus(conversation, recId.toString()),
           lastMessage: content,
           lastMessageTime: savedMessage.createdAt,
           lastMessageSenderId: senderId,
