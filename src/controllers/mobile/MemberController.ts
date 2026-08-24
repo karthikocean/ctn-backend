@@ -118,9 +118,9 @@ export class MobileMemberController {
       member.dob = data.dob ? parseDob(data.dob) : undefined;
       member.status = MemberStatus.ACTIVE; // Or PENDING if you have an approval flow
       member.referralCode = await this.referralService.generateUniqueReferralCode(data.fullName);
-      if (referrerMember) {
-        member.referredBy = referrerMember._id;
-      }
+      // if (referrerMember) {
+      //   member.referredBy = referrerMember._id;
+      // }
 
       const saved = await this.memberRepo.save(member);
 
