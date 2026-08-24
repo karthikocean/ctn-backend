@@ -170,8 +170,8 @@ export class ReferralService {
       activeSub && activeSub.endDate && new Date(activeSub.endDate) > now && !activeSub.isTrial
     );
 
-    // Free referrer gets 500 points immediately upon registration
-    // Subscribed referrer status is PENDING until referred friend subscribes
+    // Free / Trial referrer gets 500 points immediately upon registration
+    // Active Subscribed (purchased) referrer gets NO points (points = 0); status is PENDING until referred friend purchases plan
     const pointsToAward = !isReferrerSubscribed ? 500 : 0;
     const initialStatus = !isReferrerSubscribed ? UserReferralStatus.COMPLETED : UserReferralStatus.PENDING;
 
@@ -183,9 +183,9 @@ export class ReferralService {
     userReferral.referredUserReward = 0;
     userReferral.status = initialStatus;
     userReferral.rewardedAt = !isReferrerSubscribed ? new Date() : (null as any);
+    userReferral.isSubscriptionRewarded = false;
 
     const savedReferral = await this.userReferralRepo.save(userReferral);
-    console.log({ savedReferral })
     // Update referred user's referredBy field
     await this.memberRepo.updateOne(
       { _id: referredMember._id },
@@ -193,7 +193,7 @@ export class ReferralService {
     );
     referredMember.referredBy = referrer._id;
 
-    // Award 500 points to free referrer
+    // Award 500 points to free / trial referrer
     if (pointsToAward > 0) {
       await this.creditRewardPoints(
         referrer._id,
@@ -255,25 +255,36 @@ export class ReferralService {
   }
 
   /**
-   * Handles rewarding the referrer when the referred friend subscribes to a plan:
-   * If referrer has an active subscription, extends subscription validity by 1 extra month.
+   * Handles rewarding the referrer when the referred friend purchases a subscription plan:
+   * If referrer is in an active purchased (non-trial) plan, extends subscription validity by 1 month.
    */
   async handleReferredUserSubscribed(referredMemberId: string | ObjectId): Promise<void> {
     const referredMemberOid = new ObjectId(referredMemberId);
     try {
-      const userReferral = await this.userReferralRepo.findOne({
+      let userReferral = await this.userReferralRepo.findOne({
         where: {
-          referredUserId: referredMemberOid,
-          status: UserReferralStatus.PENDING
+          referredUserId: referredMemberOid
         } as any
       });
 
-      if (!userReferral) return;
+      let referrerId = userReferral?.referrerId;
 
-      const referrer = await this.memberRepo.findOneBy({ _id: userReferral.referrerId, isDeleted: false });
+      if (!referrerId) {
+        const referredMember = await this.memberRepo.findOneBy({ _id: referredMemberOid, isDeleted: false });
+        if (referredMember?.referredBy) {
+          referrerId = new ObjectId(referredMember.referredBy);
+        }
+      }
+
+      if (!referrerId) return;
+
+      const referrer = await this.memberRepo.findOneBy({ _id: referrerId, isDeleted: false });
       if (!referrer) return;
 
-      // Check if referrer currently has an active subscription
+      // Check if subscription reward was already granted for this referral
+      if (userReferral?.isSubscriptionRewarded) return;
+
+      // Check if referrer currently has an active purchased (non-trial) subscription
       const now = new Date();
       const activeSub = await this.subRepo.findOne({
         where: {
@@ -284,20 +295,51 @@ export class ReferralService {
         order: { endDate: "DESC" }
       });
 
-      const isReferrerSubscribed = Boolean(
-        activeSub && activeSub.endDate && new Date(activeSub.endDate) > now && !activeSub.isTrial
+      const isReferrerPurchasedPlan = Boolean(
+        (activeSub && activeSub.endDate && new Date(activeSub.endDate) > now && !activeSub.isTrial) ||
+        (referrer.subscriptionEndDate && new Date(referrer.subscriptionEndDate) > now && referrer.hasUsedTrial)
       );
 
-      if (isReferrerSubscribed) {
-        // Award 1 extra month of subscription validity
-        await this.awardSubscriptionReward(referrer._id, 1);
+      // Only reward subscription extension if referrer is on an active purchased plan
+      if (!isReferrerPurchasedPlan) {
+        console.log(`[ReferralService] Referrer ${referrer._id} is not on an active purchased plan. Skipping subscription extension.`);
+        return;
+      }
+
+      // Bonus months from referrer's plan or default 1
+      let bonusMonths = 1;
+      if (referrer.planId) {
+        const plan = await this.planRepo.findOneBy({ _id: new ObjectId(referrer.planId), isDeleted: false });
+        if (plan?.benefits?.referralBonusMonths !== undefined && plan.benefits.referralBonusMonths !== null) {
+          bonusMonths = plan.benefits.referralBonusMonths;
+        }
+      }
+      if (bonusMonths <= 0) bonusMonths = 1;
+
+      // Award subscription validity extension
+      await this.awardSubscriptionReward(referrer._id, bonusMonths);
+
+      if (userReferral) {
         userReferral.status = UserReferralStatus.COMPLETED;
+        userReferral.isSubscriptionRewarded = true;
         userReferral.rewardedAt = new Date();
         await this.userReferralRepo.save(userReferral);
-        console.log(
-          `[ReferralService] Awarded 1 extra month subscription validity to referrer ${referrer._id} on referred friend ${referredMemberId} subscribing to plan`
-        );
+      } else {
+        const newRef = new UserReferral();
+        newRef.referrerId = referrer._id;
+        newRef.referredUserId = referredMemberOid;
+        newRef.referralCode = referrer.referralCode || "";
+        newRef.referrerReward = 0;
+        newRef.referredUserReward = 0;
+        newRef.status = UserReferralStatus.COMPLETED;
+        newRef.isSubscriptionRewarded = true;
+        newRef.rewardedAt = new Date();
+        await this.userReferralRepo.save(newRef);
       }
+
+      console.log(
+        `[ReferralService] Awarded ${bonusMonths} extra month(s) subscription validity to referrer ${referrer._id} on referred friend ${referredMemberId} purchasing plan`
+      );
     } catch (err: any) {
       console.error(`[ReferralService] Error in handleReferredUserSubscribed for user ${referredMemberId}:`, err.message);
     }
@@ -450,6 +492,7 @@ export class ReferralService {
           referredUserReward: 1,
           status: 1,
           rewardedAt: 1,
+          isSubscriptionRewarded: 1,
           createdAt: 1,
           "referredUser.fullName": 1,
           "referredUser.profilePhoto": 1,
@@ -480,7 +523,6 @@ export class ReferralService {
   async awardSubscriptionReward(memberId: string | ObjectId, months: number = 1): Promise<void> {
     const memberOid = new ObjectId(memberId);
     try {
-      const memberOid = new ObjectId(memberId);
       const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
       if (!member) return;
 
@@ -496,22 +538,29 @@ export class ReferralService {
         order: { endDate: "DESC" }
       });
 
-      if (activeSub && activeSub.endDate && new Date(activeSub.endDate) > now) {
+      const hasActiveSub = (activeSub && activeSub.endDate && new Date(activeSub.endDate) > now) ||
+        (member.subscriptionEndDate && new Date(member.subscriptionEndDate) > now);
+
+      if (hasActiveSub) {
         // Extend existing active subscription
-        const currentEnd = new Date(activeSub.endDate);
+        const currentEnd = activeSub?.endDate && new Date(activeSub.endDate) > now
+          ? new Date(activeSub.endDate)
+          : (member.subscriptionEndDate ? new Date(member.subscriptionEndDate) : now);
+
         const newEnd = new Date(currentEnd);
         newEnd.setMonth(newEnd.getMonth() + months);
 
-        activeSub.endDate = newEnd;
-        await this.subRepo.save(activeSub);
+        if (activeSub) {
+          activeSub.endDate = newEnd;
+          await this.subRepo.save(activeSub);
+        }
 
         await this.memberRepo.updateOne(
           { _id: member._id },
           {
             $set: {
               subscriptionEndDate: newEnd,
-              subscriptionId: activeSub._id,
-              planId: activeSub.planId
+              ...(activeSub ? { subscriptionId: activeSub._id, planId: activeSub.planId } : {})
             }
           }
         );

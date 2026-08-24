@@ -17,6 +17,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Connection, ConnectionStatus } from "../../entity/Connection";
 import { Member, MemberStatus } from "../../entity/Member";
+import { Conversation } from "../../entity/Conversation";
 import { Category } from "../../entity/Category";
 import { CreateConnectionDto, UpdateConnectionStatusDto } from "../../dto/mobile/Connection.dto";
 import { ObjectId } from "mongodb";
@@ -33,6 +34,7 @@ export class MobileConnectionController {
   private connectionRepo = AppDataSource.getMongoRepository(Connection);
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
+  private conversationRepo = AppDataSource.getMongoRepository(Conversation);
 
   /**
    * @swagger
@@ -203,6 +205,22 @@ export class MobileConnectionController {
       }
 
       const saved = await this.connectionRepo.save(connection);
+
+      // If both directions are ACCEPTED (mutual connection), update any pending conversations to ACCEPTED
+      const reverseConn = await this.connectionRepo.findOne({
+        where: { senderId: new ObjectId(receiverId), receiverId: new ObjectId(senderId), status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
+      });
+      if (reverseConn) {
+        await this.conversationRepo.updateMany(
+          {
+            participants: { $all: [new ObjectId(senderId), new ObjectId(receiverId)] },
+            status: "PENDING"
+          } as any,
+          {
+            $set: { status: "ACCEPTED" }
+          } as any
+        );
+      }
 
       // ✅ Send Notification to Receiver (custom follow message)
       if (receiver.fcmToken) {
@@ -724,6 +742,24 @@ export class MobileConnectionController {
 
       connection.status = data.status;
       const saved = await this.connectionRepo.save(connection);
+
+      // If connection was ACCEPTED and both directions are now ACCEPTED (mutual), update any pending conversations to ACCEPTED
+      if (data.status === ConnectionStatus.ACCEPTED) {
+        const reverseConn = await this.connectionRepo.findOne({
+          where: { senderId: connection.receiverId, receiverId: connection.senderId, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
+        });
+        if (reverseConn) {
+          await this.conversationRepo.updateMany(
+            {
+              participants: { $all: [connection.senderId, connection.receiverId] },
+              status: "PENDING"
+            } as any,
+            {
+              $set: { status: "ACCEPTED" }
+            } as any
+          );
+        }
+      }
 
       // ✅ Send Notification to original Sender (Initiator)
       if (data.status === ConnectionStatus.ACCEPTED || data.status === ConnectionStatus.REJECTED) {

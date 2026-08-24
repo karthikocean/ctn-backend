@@ -183,58 +183,14 @@ export async function notifyPostAudience(dto: {
     const connectionRepo = AppDataSource.getMongoRepository(Connection);
 
     const isMutualFriend = post.requirementVisibility === RequirementVisibility.MUTUAL_FRIEND;
-    const hasCategoryFilter = (post.categoryIds && post.categoryIds.length > 0) ||
-      (post.subCategoryIds && post.subCategoryIds.length > 0);
+    const hasRegionFilter = Array.isArray(post.regionIds) && post.regionIds.length > 0;
+    const hasCategoryFilter = (Array.isArray(post.categoryIds) && post.categoryIds.length > 0) ||
+      (Array.isArray(post.subCategoryIds) && post.subCategoryIds.length > 0);
 
-    const dbOnly = !isMutualFriend && !hasCategoryFilter;
-    let targetMembers: Member[] = [];
+    const hasSpecificTargeting = isMutualFriend || hasRegionFilter || hasCategoryFilter;
 
-    if (!dbOnly) {
-      let mutualIds: Set<string> | null = null;
-      if (isMutualFriend) {
-        const following = await connectionRepo.find({
-          where: { senderId: senderObjectId, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
-        });
-        const followingIds = new Set(following.map(c => c.receiverId.toString()));
-        const followers = await connectionRepo.find({
-          where: { receiverId: senderObjectId, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
-        });
-        const followerIds = new Set(followers.map(c => c.senderId.toString()));
-        mutualIds = new Set([...followingIds].filter(id => followerIds.has(id)));
-      }
-
-      if (hasCategoryFilter) {
-        const categoryConditions: any[] = [];
-        if (post.categoryIds && post.categoryIds.length > 0) {
-          categoryConditions.push({ businessCategory: { $in: post.categoryIds } });
-        }
-        if (post.subCategoryIds && post.subCategoryIds.length > 0) {
-          categoryConditions.push({ subCategory: { $in: post.subCategoryIds } });
-        }
-        const categoryWhere: any = {
-          $or: categoryConditions,
-          isDeleted: false,
-          status: MemberStatus.ACTIVE,
-          _id: { $ne: senderObjectId }
-        };
-        if (post.regionIds && post.regionIds.length > 0) {
-          categoryWhere.businessRegion = { $in: post.regionIds };
-        }
-        targetMembers = await memberRepo.find({ where: categoryWhere });
-      }
-
-      if (isMutualFriend && hasCategoryFilter && mutualIds) {
-        targetMembers = targetMembers.filter(m => mutualIds!.has(m._id.toString()));
-      } else if (isMutualFriend && mutualIds) {
-        const mutualObjectIds = [...mutualIds].map(id => new ObjectId(id));
-        if (mutualObjectIds.length > 0) {
-          targetMembers = await memberRepo.find({
-            where: { _id: { $in: mutualObjectIds }, isDeleted: false, status: MemberStatus.ACTIVE } as any
-          });
-        }
-      }
-    } else {
-      // Bulk enqueue broadcast for DB-only active members
+    // If no specific targeting at all (public, no category, no region), broadcast to all active members
+    if (!hasSpecificTargeting) {
       await NotificationProducerService.enqueueBroadcastNotification({
         subject,
         content,
@@ -245,8 +201,67 @@ export async function notifyPostAudience(dto: {
       return;
     }
 
-    // Ensure sender is excluded from target members so creator never receives notification for their own post
+    const memberWhere: any = {
+      isDeleted: false,
+      status: MemberStatus.ACTIVE,
+      _id: { $ne: senderObjectId }
+    };
+
+    // 1. Region Filter
+    if (hasRegionFilter) {
+      const regionObjIds = post.regionIds!.map((r: any) => ObjectId.isValid(r) ? new ObjectId(r) : r);
+      const regionStrIds = post.regionIds!.map((r: any) => r.toString());
+      memberWhere.businessRegion = { $in: [...regionObjIds, ...regionStrIds] };
+    }
+
+    // 2. Category & Subcategory Filter
+    if (hasCategoryFilter) {
+      const categoryConditions: any[] = [];
+      if (Array.isArray(post.categoryIds) && post.categoryIds.length > 0) {
+        const catObjIds = post.categoryIds.map((c: any) => ObjectId.isValid(c) ? new ObjectId(c) : c);
+        const catStrIds = post.categoryIds.map((c: any) => c.toString());
+        categoryConditions.push({ businessCategory: { $in: [...catObjIds, ...catStrIds] } });
+      }
+      if (Array.isArray(post.subCategoryIds) && post.subCategoryIds.length > 0) {
+        const subCatObjIds = post.subCategoryIds.map((c: any) => ObjectId.isValid(c) ? new ObjectId(c) : c);
+        const subCatStrIds = post.subCategoryIds.map((c: any) => c.toString());
+        categoryConditions.push({ subCategory: { $in: [...subCatObjIds, ...subCatStrIds] } });
+      }
+      if (categoryConditions.length > 0) {
+        memberWhere.$or = categoryConditions;
+      }
+    }
+
+    // 3. Mutual Friend Filter
+    if (isMutualFriend) {
+      const following = await connectionRepo.find({
+        where: { senderId: senderObjectId, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
+      });
+      const followingIds = new Set(following.map(c => c.receiverId.toString()));
+      const followers = await connectionRepo.find({
+        where: { receiverId: senderObjectId, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
+      });
+      const followerIds = new Set(followers.map(c => c.senderId.toString()));
+      const mutualIds = [...followingIds].filter(id => followerIds.has(id));
+
+      if (mutualIds.length === 0) {
+        console.log(`[notifyPostAudience] Post ID: ${post._id} has MUTUAL_FRIEND visibility but sender has 0 mutual connections.`);
+        return;
+      }
+
+      const mutualObjectIds = mutualIds.map(id => new ObjectId(id));
+      memberWhere._id = { $in: mutualObjectIds, $ne: senderObjectId };
+    }
+
+    let targetMembers = await memberRepo.find({ where: memberWhere });
+
+    // Exclude sender
     targetMembers = targetMembers.filter(m => m._id.toString() !== senderObjectId.toString());
+
+    if (targetMembers.length === 0) {
+      console.log(`[notifyPostAudience] 0 target members found matching post ${post._id} audience filters (regions: ${post.regionIds?.length || 0}, categories: ${post.categoryIds?.length || 0}, mutual: ${isMutualFriend}).`);
+      return;
+    }
 
     // Queue target personal notifications via BullMQ batch producer
     const personalDtos = targetMembers.map((member) => ({

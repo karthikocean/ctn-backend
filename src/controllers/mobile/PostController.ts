@@ -386,16 +386,11 @@ export class MobilePostController {
       // Ensure all IDs are fresh ObjectIds for the Mongo query
       const followingIds = followings.map(f => new ObjectId(f.receiverId));
 
-      // // Include own posts in the feed
-      // followingIds.push(new ObjectId(userId));
-
-      const { reportedPostIds, reportedMemberIds } = await this.getReportedDataForUser(userId);
-      const reportedMemberSet = new Set(reportedMemberIds.map(id => id.toString()));
-      const filteredFollowingIds = followingIds.filter(id => !reportedMemberSet.has(id.toString()));
+      const { reportedPostIds } = await this.getReportedDataForUser(userId);
 
       // 2. Fetch posts from these members
       const where: any = {
-        memberId: { $in: filteredFollowingIds },
+        memberId: { $in: followingIds },
         isDeleted: false,
         status: { $ne: "reported" }
       };
@@ -606,6 +601,13 @@ export class MobilePostController {
       }
 
       this.applyCategoryVisibilityFilter(where, currentMember);
+
+      const { reportedPostIds } = await this.getReportedDataForUser(userId);
+      if (reportedPostIds.length > 0) {
+        const ninPostCondition = { _id: { $nin: reportedPostIds } };
+        where.$and = [...(where.$and || []), ninPostCondition];
+      }
+
       // console.log(JSON.stringify(where), 'where')
       const allPosts = await this.postRepo.find({ where });
       const total = allPosts.length;
@@ -754,12 +756,11 @@ export class MobilePostController {
 
     try {
       const allowedTypes = [PostType.PROMOTION];
-      const { reportedPostIds, reportedMemberIds } = await this.getReportedDataForUser(userId);
-      const excludedMemberIds = [new ObjectId(userId), ...reportedMemberIds];
+      const { reportedPostIds } = await this.getReportedDataForUser(userId);
       const where: any = {
         isDeleted: false,
         status: { $ne: "reported" },
-        memberId: { $nin: excludedMemberIds }
+        memberId: { $ne: new ObjectId(userId) }
       };
 
       if (reportedPostIds.length > 0) {
@@ -987,14 +988,10 @@ export class MobilePostController {
       }
 
       this.applyCategoryVisibilityFilter(where, currentMember);
-      const { reportedPostIds, reportedMemberIds } = await this.getReportedDataForUser(userId);
+      const { reportedPostIds } = await this.getReportedDataForUser(userId);
       if (reportedPostIds.length > 0) {
         const ninPostCondition = { _id: { $nin: reportedPostIds } };
         where.$and = [...(where.$and || []), ninPostCondition];
-      }
-      if (reportedMemberIds.length > 0) {
-        const ninMemberCondition = { memberId: { $nin: reportedMemberIds } };
-        where.$and = [...(where.$and || []), ninMemberCondition];
       }
       // console.log('aaaaaaaa', JSON.stringify(where))
       const allPosts = await this.postRepo.find({ where });
@@ -1244,7 +1241,7 @@ export class MobilePostController {
       }
       this.applyCategoryVisibilityFilter(where, currentMember);
 
-      const { reportedPostIds, reportedMemberIds } = await this.getReportedDataForUser(userId);
+      const { reportedPostIds } = await this.getReportedDataForUser(userId);
       if (reportedPostIds.length > 0) {
         const ninPostCondition = { _id: { $nin: reportedPostIds } };
         if (where.$and) {
@@ -1254,20 +1251,6 @@ export class MobilePostController {
           delete where.$or;
         } else {
           where._id = { $nin: reportedPostIds };
-        }
-      }
-
-      if (reportedMemberIds.length > 0) {
-        const ninMemberCondition = { memberId: { $nin: reportedMemberIds } };
-        if (where.$and) {
-          where.$and.push(ninMemberCondition);
-        } else if (where.$or) {
-          where.$and = [{ $or: where.$or }, ninMemberCondition];
-          delete where.$or;
-        } else {
-          where.memberId = where.memberId
-            ? { ...where.memberId, $nin: reportedMemberIds }
-            : { $nin: reportedMemberIds };
         }
       }
 
@@ -1603,6 +1586,53 @@ export class MobilePostController {
    *               receiverId:
    *                 type: string
    */
+  private async isMutualFriend(userId1: ObjectId, userId2: ObjectId): Promise<boolean> {
+    if (userId1.equals(userId2)) return true;
+    const [conn1, conn2] = await Promise.all([
+      this.connectionRepo.findOne({
+        where: { senderId: userId1, receiverId: userId2, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
+      }),
+      this.connectionRepo.findOne({
+        where: { senderId: userId2, receiverId: userId1, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
+      })
+    ]);
+    return !!(conn1 && conn2);
+  }
+
+  private async isBlocked(userA: ObjectId, userB: ObjectId): Promise<boolean> {
+    const blockedConnection = await this.connectionRepo.findOne({
+      where: {
+        $or: [
+          { senderId: userA, receiverId: userB, status: ConnectionStatus.BLOCKED },
+          { senderId: userB, receiverId: userA, status: ConnectionStatus.BLOCKED }
+        ],
+        isDeleted: false
+      } as any
+    });
+    if (blockedConnection) return true;
+
+    const reportedConversation = await this.conversationRepo.findOne({
+      where: {
+        participants: { $all: [userA, userB] },
+        status: "REPORTED"
+      } as any
+    });
+    if (reportedConversation) return true;
+
+    const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+    const reportedHistory = await reportedHistoryRepo.findOne({
+      where: {
+        $or: [
+          { reporterUserId: userA, targetUserId: userB },
+          { reporterUserId: userB, targetUserId: userA }
+        ]
+      } as any
+    });
+    if (reportedHistory) return true;
+
+    return false;
+  }
+
   @Post("/:id/share")
   async share(@Req() req: any, @Param("id") id: string, @Body() body: { receiverId: string, message: string }, @Res() res: any) {
     try {
@@ -1618,6 +1648,9 @@ export class MobilePostController {
       if (!post) throw new NotFoundError("Post not found");
 
       const recId = new ObjectId(receiverId);
+      const isMutual = await this.isMutualFriend(userId, recId);
+      const isBlockedMember = await this.isBlocked(userId, recId);
+
       // Find or Create conversation between userId and receiverId
       let targetConversation = await this.conversationRepo.findOne({
         where: {
@@ -1648,15 +1681,25 @@ export class MobilePostController {
         }
 
         targetConversation.postId = post._id;
-        if (targetConversation.deletedBy && targetConversation.deletedBy.equals(userId)) {
+        const wasRejectedOrDeleted =
+          targetConversation.status === "REJECTED" ||
+          targetConversation.status === "DELETED" ||
+          targetConversation.isDeleted ||
+          !!targetConversation.deletedBy;
+
+        if (wasRejectedOrDeleted) {
+          targetConversation.status = "PENDING";
+          targetConversation.isDeleted = false;
           delete targetConversation.deletedBy;
-          await this.conversationRepo.save(targetConversation);
+        } else if (targetConversation.status === "PENDING" && isMutual) {
+          targetConversation.status = "ACCEPTED";
         }
+        await this.conversationRepo.save(targetConversation);
       } else {
         targetConversation = new Conversation();
         targetConversation.participants = [userId, recId];
         targetConversation.postId = post._id;
-        targetConversation.status = "PENDING";
+        targetConversation.status = isMutual ? "ACCEPTED" : "PENDING";
         targetConversation.unreadCounts = {};
         targetConversation = await this.conversationRepo.save(targetConversation);
       }
@@ -1677,8 +1720,11 @@ export class MobilePostController {
         newMessage.type = MessageType.POST_SHARE;
         newMessage.postId = post._id;
         newMessage.isRead = false;
+        if (isBlockedMember && otherId) {
+          newMessage.blockedFor = [otherId];
+        }
         // Check if receiver is in the chat room
-        const isReceiverActive = isUserInConversation(otherId.toString(), targetConversation._id.toString());
+        const isReceiverActive = !isBlockedMember && isUserInConversation(otherId.toString(), targetConversation._id.toString());
         if (isReceiverActive) {
           newMessage.isRead = true;
         }
@@ -1690,26 +1736,28 @@ export class MobilePostController {
         targetConversation.lastMessageTime = new Date();
         targetConversation.lastMessageSenderId = userId;
 
-        // Update unread count for receiver
-        const unreadCounts = targetConversation.unreadCounts || {};
-        if (isReceiverActive) {
-          unreadCounts[otherId.toString()] = 0;
-        } else {
-          unreadCounts[otherId.toString()] = (unreadCounts[otherId.toString()] || 0) + 1;
+        // Update unread count for receiver only if not blocked
+        if (!isBlockedMember) {
+          const unreadCounts = targetConversation.unreadCounts || {};
+          if (isReceiverActive) {
+            unreadCounts[otherId.toString()] = 0;
+          } else {
+            unreadCounts[otherId.toString()] = (unreadCounts[otherId.toString()] || 0) + 1;
+          }
+          targetConversation.unreadCounts = { ...unreadCounts };
         }
-        targetConversation.unreadCounts = { ...unreadCounts };
 
         await this.conversationRepo.save(targetConversation);
 
-        // Socket Notification
-        if (otherId) {
-          const io = getIO();
+        const io = getIO();
+        if (otherId && !isBlockedMember) {
           const populatedMessage = {
             ...newMessage,
             isMe: false,
             post: post
           };
           io.to(otherId.toString()).emit("new_message", populatedMessage);
+
           // Emit conversation update for the conversation list screen
           const sender = await this.memberRepo.findOneBy({ _id: userId });
           let senderCategoryName = null;
@@ -1737,7 +1785,6 @@ export class MobilePostController {
 
           // Send Push Notification if receiver is not active in the chat room and has fcmToken
           const receiver = await this.memberRepo.findOneBy({ _id: otherId, isDeleted: false });
-          console.log("receiver", !isReceiverActive && receiver?.fcmToken, isReceiverActive, receiver?.fcmToken);
           if (!isReceiverActive && receiver?.fcmToken) {
             const senderName = sender?.fullName ? sender.fullName.trim() : "A member";
             await insertPushNotification({
@@ -1751,6 +1798,28 @@ export class MobilePostController {
             });
           }
         }
+
+        // Emit conversation update to sender
+        const receiverMember = await this.memberRepo.findOneBy({ _id: recId });
+        let receiverCategoryName = null;
+        if (receiverMember && receiverMember.businessCategory) {
+          const cat = await this.categoryRepo.findOneBy({ _id: receiverMember.businessCategory });
+          receiverCategoryName = cat ? cat.name : null;
+        }
+        io.to(userId.toString()).emit("conversation_updated", {
+          ...targetConversation,
+          lastMessage: message,
+          lastMessageTime: targetConversation.lastMessageTime,
+          lastMessageSenderId: userId,
+          otherUser: receiverMember ? {
+            _id: receiverMember._id,
+            fullName: receiverMember.fullName,
+            profilePhoto: receiverMember.profilePhoto,
+            categoryName: receiverCategoryName
+          } : null,
+          post: post,
+          unreadCount: targetConversation.unreadCounts?.[userId.toString()] || 0
+        });
       }
 
       return res.status(StatusCodes.OK).json({
@@ -1881,11 +1950,10 @@ export class MobilePostController {
         ? await this.postRepo.find({ where: { _id: { $in: postIds }, isDeleted: false } as any })
         : [];
 
-      const { reportedPostIds, reportedMemberIds } = await this.getReportedDataForUser(req.user.userId);
+      const { reportedPostIds } = await this.getReportedDataForUser(req.user.userId);
       const reportedPostSet = new Set(reportedPostIds.map((id: ObjectId) => id.toString()));
-      const reportedMemberSet = new Set(reportedMemberIds.map((id: ObjectId) => id.toString()));
       const posts = rawPosts.filter(
-        p => !reportedPostSet.has(p._id?.toString()) && !reportedMemberSet.has(p.memberId?.toString())
+        p => !reportedPostSet.has(p._id?.toString())
       );
 
       // Populate Member Info for the posts
@@ -2028,7 +2096,7 @@ export class MobilePostController {
   }
 
   /**
-   * Helper method to get ObjectIds of posts and members reported by the current user.
+   * Helper method to get ObjectIds of posts reported by the current user.
    */
   private async getReportedDataForUser(userId: string): Promise<{
     reportedPostIds: ObjectId[];
@@ -2037,8 +2105,6 @@ export class MobilePostController {
     try {
       const userObjectId = new ObjectId(userId);
       const postReportRepo = AppDataSource.getMongoRepository(PostReport);
-      const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
-      const conversationRepo = AppDataSource.getMongoRepository(Conversation);
 
       // 1. Specific posts reported by this user
       const postReports = await postReportRepo.find({
@@ -2046,24 +2112,7 @@ export class MobilePostController {
       });
       const reportedPostIds = postReports.map(r => r.postId);
 
-      // 2. User profile reports from ReportedHistory
-      const historyReports = await reportedHistoryRepo.find({
-        where: { reporterUserId: userObjectId } as any
-      });
-      const historyUserIds = historyReports.map(r => r.targetUserId.toString());
-
-      // 3. Chat user reports from Conversation
-      const chatReports = await conversationRepo.find({
-        where: { reportedBy: userObjectId, status: "REPORTED" } as any
-      });
-      const chatUserIds = chatReports.flatMap(c =>
-        c.participants.filter(p => !p.equals(userObjectId)).map(p => p.toString())
-      );
-
-      const uniqueMemberIds = [...new Set([...historyUserIds, ...chatUserIds])];
-      const reportedMemberIds = uniqueMemberIds.map(id => new ObjectId(id));
-
-      return { reportedPostIds, reportedMemberIds };
+      return { reportedPostIds, reportedMemberIds: [] };
     } catch (error) {
       console.error("[getReportedDataForUser] Error:", error);
       return { reportedPostIds: [], reportedMemberIds: [] };

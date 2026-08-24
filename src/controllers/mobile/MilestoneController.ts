@@ -410,15 +410,25 @@ export class MobileMilestoneController {
         conversation = new Conversation();
         conversation.participants = [userId, ownerId];
         conversation.milestoneId = milestoneId;
-        conversation.status = "PENDING";
+        conversation.status = "ACCEPTED";
         conversation.unreadCounts = {};
         conversation = await this.conversationRepo.save(conversation);
       } else {
         conversation.milestoneId = milestoneId;
-        if (conversation.deletedBy && conversation.deletedBy.equals(userId)) {
+        const wasRejectedOrDeleted =
+          conversation.status === "REJECTED" ||
+          conversation.status === "DELETED" ||
+          conversation.isDeleted ||
+          !!conversation.deletedBy;
+
+        if (wasRejectedOrDeleted) {
+          conversation.status = "PENDING";
+          conversation.isDeleted = false;
           delete conversation.deletedBy;
-          await this.conversationRepo.save(conversation);
+        } else if (conversation.status === "PENDING") {
+          conversation.status = "ACCEPTED";
         }
+        await this.conversationRepo.save(conversation);
       }
 
       // 2. Create Message

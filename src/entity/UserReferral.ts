@@ -48,6 +48,9 @@ export class UserReferral {
   @Column({ nullable: true })
     rewardedAt?: Date;
 
+  @Column({ default: false })
+    isSubscriptionRewarded?: boolean;
+
   @CreateDateColumn()
     createdAt!: Date;
 

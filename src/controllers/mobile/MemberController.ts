@@ -1730,34 +1730,34 @@ export class MobileMemberController {
       ]).toArray();
 
       // --- 2. Chat reports: conversation where I reported (reportedBy = me, status = REPORTED) ---
-      const chatReportAgg = await this.conversationRepo.aggregate([
-        {
-          $match: {
-            reportedBy: myId,
-            status: "REPORTED"
-          }
-        },
-        {
-          $project: {
-            // The other participant is the reported member
-            reportedMemberId: {
-              $arrayElemAt: [
-                {
-                  $filter: {
-                    input: "$participants",
-                    as: "p",
-                    cond: { $ne: ["$$p", myId] }
-                  }
-                },
-                0
-              ]
-            },
-            reason: "$reportReason",
-            createdAt: 1
-          }
-        },
-        { $match: { reportedMemberId: { $exists: true, $ne: null } } }
-      ]).toArray();
+      // const chatReportAgg = await this.conversationRepo.aggregate([
+      //   {
+      //     $match: {
+      //       reportedBy: myId,
+      //       status: "REPORTED"
+      //     }
+      //   },
+      //   {
+      //     $project: {
+      //       // The other participant is the reported member
+      //       reportedMemberId: {
+      //         $arrayElemAt: [
+      //           {
+      //             $filter: {
+      //               input: "$participants",
+      //               as: "p",
+      //               cond: { $ne: ["$$p", myId] }
+      //             }
+      //           },
+      //           0
+      //         ]
+      //       },
+      //       reason: "$reportReason",
+      //       createdAt: 1
+      //     }
+      //   },
+      //   { $match: { reportedMemberId: { $exists: true, $ne: null } } }
+      // ]).toArray();
 
       // --- 3. Profile reports: reported_history where reporterUserId = me ---
       const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
@@ -1773,15 +1773,15 @@ export class MobileMemberController {
           reason: r.reason,
           createdAt: r.createdAt
         })),
-        ...chatReportAgg.map(r => ({
-          reportedMemberId: r.reportedMemberId,
-          type: "CHAT_REPORT",
-          reason: r.reason,
-          createdAt: r.createdAt
-        })),
+        // ...chatReportAgg.map(r => ({
+        //   reportedMemberId: r.reportedMemberId,
+        //   type: "CHAT_REPORT",
+        //   reason: r.reason,
+        //   createdAt: r.createdAt
+        // })),
         ...historyReportAgg.map(r => ({
           reportedMemberId: r.targetUserId,
-          type: "MEMBER_REPORT",
+          type: "CHAT_REPORT",
           reason: r.reason,
           createdAt: r.createdAt
         }))

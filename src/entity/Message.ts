@@ -67,6 +67,9 @@ export class Message {
     isDeleted!: boolean;
 
   @Column({ nullable: true })
+    blockedFor?: ObjectId[]; // List of user IDs for whom this message was blocked/undelivered
+
+  @Column({ nullable: true })
     replyToMessageId?: ObjectId; // Reference to the message being replied to
 
   @Column({ nullable: true })

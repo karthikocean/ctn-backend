@@ -206,16 +206,56 @@ export class SubscriptionService {
     const normalized = this.normalizeModuleName(moduleName);
 
     // Feature permission checks based on plan.features config
-    if (normalized === "event" && plan.features && plan.features.eventVisitor === false) {
-      throw new BadRequestError("Event Visitor permission is not enabled in your active plan.");
+    if (
+      normalized === "event" ||
+      normalized === "eventvisitor" ||
+      normalized === "event visitor"
+    ) {
+      if (plan.features && plan.features.eventVisitor === false) {
+        throw new BadRequestError("Event Visitor permission is not enabled in your active plan.");
+      }
+      return;
     }
 
-    if ((normalized === "offline stall" || normalized === "offlinestall") && plan.features && plan.features.eventStall === false) {
-      throw new BadRequestError("Event Stall permission is not enabled in your active plan.");
+    if (
+      normalized === "offline stall" ||
+      normalized === "offlinestall" ||
+      normalized === "eventstall" ||
+      normalized === "event stall"
+    ) {
+      if (plan.features && plan.features.eventStall === false) {
+        throw new BadRequestError("Event Stall permission is not enabled in your active plan.");
+      }
+      const planModule = plan.modules?.find(
+        (m) => this.normalizeModuleName(m.moduleName) === normalized
+      );
+      if (!planModule) {
+        return;
+      }
     }
 
-    if (normalized === "spotlight" && plan.features && plan.features.spotlights === false) {
-      throw new BadRequestError("Spotlights permission is not enabled in your active plan.");
+    if (normalized === "spotlight" || normalized === "spotlights") {
+      if (plan.features && plan.features.spotlights === false) {
+        throw new BadRequestError("Spotlights permission is not enabled in your active plan.");
+      }
+      const planModule = plan.modules?.find(
+        (m) => this.normalizeModuleName(m.moduleName) === normalized
+      );
+      if (!planModule) {
+        return;
+      }
+    }
+
+    if (normalized === "monthly meeting" || normalized === "monthlymeeting") {
+      if (plan.features && plan.features.monthlyMeeting === false) {
+        throw new BadRequestError("Monthly Meeting permission is not enabled in your active plan.");
+      }
+      const planModule = plan.modules?.find(
+        (m) => this.normalizeModuleName(m.moduleName) === normalized
+      );
+      if (!planModule) {
+        return;
+      }
     }
 
     const planModule = plan.modules?.find(
@@ -671,12 +711,6 @@ export class SubscriptionService {
     member.subscriptionStartDate = now;
     member.subscriptionEndDate = end;
     await this.memberRepo.save(member);
-
-    try {
-      await new ReferralService().handleReferredUserSubscribed(memberId);
-    } catch (refErr: any) {
-      console.error("[SubscriptionService] Referral reward hook notice:", refErr.message);
-    }
 
     return savedSub;
   }

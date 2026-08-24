@@ -60,6 +60,19 @@ export class MobileChatController {
   private pushNotificationRepo = AppDataSource.getMongoRepository(PushNotification);
   private reminderRepo = AppDataSource.getMongoRepository(Reminder);
 
+  private async isMutual(userA: ObjectId, userB: ObjectId): Promise<boolean> {
+    if (userA.equals(userB)) return true;
+    const [conn1, conn2] = await Promise.all([
+      this.connectionRepo.findOne({
+        where: { senderId: userA, receiverId: userB, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
+      }),
+      this.connectionRepo.findOne({
+        where: { senderId: userB, receiverId: userA, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
+      })
+    ]);
+    return !!(conn1 && conn2);
+  }
+
   private async isBlocked(userA: ObjectId, userB: ObjectId): Promise<boolean> {
     const blockedConnection = await this.connectionRepo.findOne({
       where: {
@@ -81,10 +94,22 @@ export class MobileChatController {
     });
     if (reportedConversation) return true;
 
+    const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+    const reportedHistory = await reportedHistoryRepo.findOne({
+      where: {
+        $or: [
+          { reporterUserId: userA, targetUserId: userB },
+          { reporterUserId: userB, targetUserId: userA }
+        ]
+      } as any
+    });
+    if (reportedHistory) return true;
+
     return false;
   }
 
   private async getOrCreateConversation(senderId: ObjectId, receiverId: ObjectId): Promise<Conversation> {
+    const isMutual = await this.isMutual(senderId, receiverId);
     let conversation = await this.conversationRepo.findOne({
       where: {
         participants: { $all: [senderId, receiverId] }
@@ -95,19 +120,30 @@ export class MobileChatController {
     if (!conversation) {
       conversation = new Conversation();
       conversation.participants = [senderId, receiverId];
-      conversation.status = "PENDING";
+      conversation.status = isMutual ? "ACCEPTED" : "PENDING";
       conversation.unreadCounts = {};
       conversation = await this.conversationRepo.save(conversation);
     } else {
-      const wasDeleted =
-        conversation.isDeleted ||
+      const wasRejectedOrDeleted =
+        conversation.status === "REJECTED" ||
         conversation.status === "DELETED" ||
+        conversation.isDeleted ||
         !!conversation.deletedBy;
 
-      if (wasDeleted) {
+      let needSave = false;
+      if (wasRejectedOrDeleted) {
         conversation.status = "PENDING";
         conversation.isDeleted = false;
         delete conversation.deletedBy;
+        conversation.userStatuses = {};
+        delete (conversation as any).statusUpdatedBy;
+        needSave = true;
+      } else if (isMutual && conversation.status === "PENDING") {
+        conversation.status = "ACCEPTED";
+        needSave = true;
+      }
+
+      if (needSave) {
         await this.conversationRepo.save(conversation);
       }
     }
@@ -333,6 +369,48 @@ export class MobileChatController {
 
       const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
 
+      // Batch check mutual connections and blocked/reported members for all participants
+      const mutualConnections = participantIds.length > 0 ? await this.connectionRepo.find({
+        where: {
+          $or: [
+            { senderId: userId, receiverId: { $in: participantIds }, status: ConnectionStatus.ACCEPTED, isDeleted: false },
+            { receiverId: userId, senderId: { $in: participantIds }, status: ConnectionStatus.ACCEPTED, isDeleted: false }
+          ]
+        } as any
+      }) : [];
+      const followingSet = new Set(mutualConnections.filter(c => c.senderId.equals(userId)).map(c => c.receiverId.toString()));
+      const followerSet = new Set(mutualConnections.filter(c => c.receiverId.equals(userId)).map(c => c.senderId.toString()));
+      const mutualSet = new Set([...followingSet].filter(id => followerSet.has(id)));
+
+      const blockedConnections = participantIds.length > 0 ? await this.connectionRepo.find({
+        where: {
+          $or: [
+            { senderId: userId, receiverId: { $in: participantIds }, status: ConnectionStatus.BLOCKED, isDeleted: false },
+            { receiverId: userId, senderId: { $in: participantIds }, status: ConnectionStatus.BLOCKED, isDeleted: false }
+          ]
+        } as any
+      }) : [];
+      const blockedSet = new Set(
+        blockedConnections.map(c => c.senderId.equals(userId) ? c.receiverId.toString() : c.senderId.toString())
+      );
+
+      const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+      const reportedHistories = participantIds.length > 0 ? await reportedHistoryRepo.find({
+        where: {
+          $or: [
+            { reporterUserId: userId, targetUserId: { $in: participantIds } },
+            { reporterUserId: { $in: participantIds }, targetUserId: userId }
+          ]
+        } as any
+      }) : [];
+      for (const r of reportedHistories) {
+        if (r.reporterUserId?.equals(userId)) {
+          blockedSet.add(r.targetUserId.toString());
+        } else if (r.targetUserId?.equals(userId)) {
+          blockedSet.add(r.reporterUserId.toString());
+        }
+      }
+
       const postIds = conversations
         .map(c => c.postId)
         .filter(id => !!id) as ObjectId[];
@@ -395,6 +473,10 @@ export class MobileChatController {
       const results = conversations.map(conv => {
         const otherParticipantId = conv.participants.find(p => !p.equals(userId));
         const otherUser = otherParticipantId ? memberMap.get(otherParticipantId.toString()) : null;
+        const isMutualMember = otherParticipantId ? mutualSet.has(otherParticipantId.toString()) : false;
+        const isBlockedUser = otherParticipantId
+          ? (blockedSet.has(otherParticipantId.toString()) || conv.status === "REPORTED")
+          : (conv.status === "REPORTED");
         const post = conv.postId ? postMap.get(conv.postId.toString()) : null;
         const product = (conv as any).productId ? productMap.get((conv as any).productId.toString()) : null;
 
@@ -420,7 +502,9 @@ export class MobileChatController {
               rObj?.recipientType === ReminderRecipientType.SELF &&
               m.senderId.toString() !== userId.toString();
 
-            if (!isHiddenSelfReminder) {
+            const isBlockedForMe = m.blockedFor && m.blockedFor.some((id: any) => id.toString() === userId.toString());
+
+            if (!isHiddenSelfReminder && !isBlockedForMe) {
               visibleLastMessage = m.content;
               visibleLastMessageTime = m.createdAt;
               visibleLastMessageSenderId = m.senderId;
@@ -430,13 +514,19 @@ export class MobileChatController {
           }
           if (!foundVisible) {
             visibleLastMessage = null as any;
+            visibleLastMessageTime = null as any;
+            visibleLastMessageSenderId = null as any;
           }
         }
 
         const myUserStatus = conv.userStatuses?.[userIdStr];
         let effectiveStatus = conv.status || "";
-        if (myUserStatus) {
+        if (conv.status === "ACCEPTED") {
+          effectiveStatus = "ACCEPTED";
+        } else if (myUserStatus) {
           effectiveStatus = myUserStatus;
+        } else if (isMutualMember && conv.status === "PENDING") {
+          effectiveStatus = "ACCEPTED";
         } else if (conv.status === "USEFUL" || conv.status === "MAY_BE_LATER" || conv.status === "MAYBE_LATER" || conv.status === "REJECTED") {
           if (conv.statusUpdatedBy && conv.statusUpdatedBy.toString() === userIdStr) {
             effectiveStatus = conv.status;
@@ -455,8 +545,8 @@ export class MobileChatController {
             fullName: otherUser.fullName,
             profilePhoto: otherUser.profilePhoto,
             categoryName: categoryName,
-            isOnline: otherUser.isOnline || false,
-            lastSeen: otherUser.lastSeen || null
+            isOnline: isBlockedUser ? false : (otherUser.isOnline || false),
+            lastSeen: isBlockedUser ? null : (otherUser.lastSeen || null)
           } : null,
           post: post || null,
           product: product || null,
@@ -513,9 +603,13 @@ export class MobileChatController {
       conversation.unreadCounts = { ...unreadCounts };
       await this.conversationRepo.save(conversation);
 
-      // Notify the sender that their messages have been read
+      // Notify the sender that their messages have been read (skip if blocked or reported)
       const otherId = conversation.participants.find(p => !p.equals(userId));
-      if (otherId) {
+      const isBlockedMember = otherId
+        ? ((conversation.status === "REPORTED") || (await this.isBlocked(userId, otherId)))
+        : false;
+
+      if (otherId && !isBlockedMember) {
         const io = getIO();
         const payload = {
           conversationId: conversation._id,
@@ -580,6 +674,7 @@ export class MobileChatController {
       const otherParticipantId = conversation.participants.find(p => !p.equals(new ObjectId(req.user.userId)));
       let otherUser = null;
       if (otherParticipantId) {
+        const isBlockedMember = (conversation.status === "REPORTED") || (await this.isBlocked(new ObjectId(req.user.userId), otherParticipantId));
         const user = await this.memberRepo.findOneBy({ _id: otherParticipantId });
         if (user) {
           let categoryName = null;
@@ -593,22 +688,24 @@ export class MobileChatController {
             profilePhoto: user.profilePhoto,
             businessName: user.businessName,
             categoryName: categoryName,
-            isOnline: user.isOnline || false,
-            lastSeen: user.lastSeen || null
+            isOnline: isBlockedMember ? false : (user.isOnline || false),
+            lastSeen: isBlockedMember ? null : (user.lastSeen || null)
           };
         }
       }
 
-      conversation.postId ? await this.postRepo.findOneBy({ _id: conversation.postId }) : null;
+      const userId = new ObjectId(req.user.userId);
 
-      const [messages, total] = await this.messageRepo.findAndCount({
+      const rawMessages = await this.messageRepo.find({
         where: { conversationId: new ObjectId(conversationId) },
-        order: { createdAt: "DESC" },
-        take: limit,
-        skip: page * limit
+        order: { createdAt: "DESC" }
       });
 
-      const userId = new ObjectId(req.user.userId);
+      const filteredMessages = rawMessages.filter(
+        m => !m.blockedFor || !m.blockedFor.some((id: any) => id.toString() === userId.toString())
+      );
+      const total = filteredMessages.length;
+      const messages = filteredMessages.slice(page * limit, (page + 1) * limit);
       const hasUnread = messages.some(m => !m.isRead && m.senderId.toString() !== userId.toString());
       if (hasUnread) {
         await this.messageRepo.updateMany(
@@ -629,9 +726,13 @@ export class MobileChatController {
         conversation.unreadCounts = { ...unreadCounts };
         await this.conversationRepo.save(conversation);
 
-        // Notify the sender that their messages have been read
+        // Notify the sender that their messages have been read (skip if blocked or reported)
         const otherParticipant = conversation.participants.find(p => !p.equals(userId));
-        if (otherParticipant) {
+        const isBlockedWithOther = otherParticipant
+          ? ((conversation.status === "REPORTED") || (await this.isBlocked(userId, otherParticipant)))
+          : false;
+
+        if (otherParticipant && !isBlockedWithOther) {
           const io = getIO();
           const readPayload = { conversationId: conversation._id, readBy: userId, readAt: new Date() };
           io.to(`conversation_${conversation._id}`).emit("messages_read", readPayload);
@@ -812,44 +913,48 @@ export class MobileChatController {
       if (!conversation) throw new NotFoundError("Conversation not found");
 
       // Verify participant
-      if (!conversation.participants.some(p => p.equals(userId))) {
-        throw new BadRequestError("You are not a participant in this conversation");
-      }
-
-      // Check if conversation has been deleted
-      if (
-        (conversation.isDeleted || conversation.status === "DELETED" || conversation.deletedBy) &&
-        status !== "DELETED"
-      ) {
-        throw new BadRequestError("This conversation has been deleted and its status cannot be changed");
-      }
-
-      // Check if conversation has been reported or rejected
-      if (conversation.status === "REPORTED" && status !== "REPORTED" && status !== "DELETED") {
-        throw new BadRequestError("This conversation has been reported and its status cannot be changed");
-      }
-      // if (conversation.status === "REJECTED" && status !== "REJECTED" && status !== "DELETED") {
-      //   throw new BadRequestError("This conversation has been rejected and its status cannot be changed");
+      // Check if conversation has been reported
+      // if (conversation.status === "REPORTED" && status !== "REPORTED" && status !== "DELETED") {
+      //   throw new BadRequestError("This conversation has been reported and its status cannot be changed");
       // }
 
       // Check if conversation is pending and receiver is accepting
       if (status !== "ACCEPTED" && status !== "DELETED" && status !== "REPORTED") {
-        if (
-          conversation.status === "PENDING" &&
-          conversation?.lastMessageSenderId &&
-          !conversation.lastMessageSenderId.equals(userId)
-        ) {
-          throw new BadRequestError("Please accept the request");
-        }
-        if (conversation.status === "PENDING") {
-          throw new BadRequestError("Request is pending. Please wait.");
+        const otherParticipantId = conversation.participants.find(p => !p.equals(userId));
+        const isMutualConnection = otherParticipantId ? await this.isMutual(userId, otherParticipantId) : false;
+        if (!isMutualConnection) {
+          if (
+            conversation.status === "PENDING" &&
+            conversation?.lastMessageSenderId &&
+            !conversation.lastMessageSenderId.equals(userId)
+          ) {
+            throw new BadRequestError("Please accept the request");
+          }
+          if (conversation.status === "PENDING") {
+            throw new BadRequestError("Request is pending. Please wait.");
+          }
         }
       }
 
-      conversation.status = status as any;
-      conversation.statusUpdatedBy = userId;
-      if (!conversation.userStatuses) conversation.userStatuses = {};
-      conversation.userStatuses[userId.toString()] = status;
+      if (status === "ACCEPTED") {
+        conversation.status = "ACCEPTED";
+        conversation.isDeleted = false;
+        delete conversation.deletedBy;
+        conversation.userStatuses = {};
+        delete (conversation as any).statusUpdatedBy;
+      } else if (status === "DELETED") {
+        conversation.deletedBy = userId;
+        conversation.isDeleted = true;
+        conversation.status = "DELETED";
+        if (!conversation.userStatuses) conversation.userStatuses = {};
+        conversation.userStatuses[userId.toString()] = "DELETED";
+        conversation.statusUpdatedBy = userId;
+      } else {
+        conversation.status = status as any;
+        conversation.statusUpdatedBy = userId;
+        if (!conversation.userStatuses) conversation.userStatuses = {};
+        conversation.userStatuses[userId.toString()] = status;
+      }
 
       if (status === "REPORTED") {
         conversation.reportedBy = userId;
@@ -942,9 +1047,7 @@ export class MobileChatController {
       const receiverId = post.memberId;
       if (senderId.equals(receiverId)) throw new BadRequestError("You cannot respond to your own post");
 
-      if (await this.isBlocked(senderId, receiverId)) {
-        throw new BadRequestError("You can't message this member because they've blocked you");
-      }
+      const isBlockedMember = await this.isBlocked(senderId, receiverId);
 
       let conversation = await this.getOrCreateConversation(senderId, receiverId);
       conversation.postId = new ObjectId(postId);
@@ -955,46 +1058,40 @@ export class MobileChatController {
           conversationId: conversation._id,
           senderId: senderId,
           postId: new ObjectId(postId),
-          type: { $in: [MessageType.POST_RESPONSE, MessageType.POST_SHARE] }
+          type: { $in: [MessageType.POST_RESPONSE, MessageType.POST_SHARE] },
+          isDeleted: { $ne: true }
         } as any
       });
-
-      if (existingResponse) {
-        return res.status(StatusCodes.OK).json({
-          success: true,
-          message: "You have already responded to this post",
-          data: {
-            conversationId: conversation._id,
-            message: existingResponse
-          }
-        });
-      }
 
       const newMessage = new Message();
       newMessage.conversationId = conversation._id;
       newMessage.senderId = senderId;
       newMessage.content = message || "Hi, I'm interested in your post.";
-      newMessage.type = MessageType.POST_RESPONSE;
+      newMessage.type = existingResponse ? MessageType.TEXT : MessageType.POST_RESPONSE;
       newMessage.postId = new ObjectId(postId);
       newMessage.isDeleted = false;
       newMessage.isRead = false;
+      if (isBlockedMember && receiverId) {
+        newMessage.blockedFor = [receiverId];
+      }
       // Check if receiver is in the chat room
-      const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
+      const isReceiverActive = !isBlockedMember && isUserInConversation(receiverId.toString(), conversation._id.toString());
       if (isReceiverActive) {
         newMessage.isRead = true;
       }
 
       const savedMessage = await this.messageRepo.save(newMessage);
 
-      // Send Push Notification if receiver is not active in the chat room and has fcmToken
+      // Send Push Notification if receiver is not active in the chat room and has fcmToken (skip if blocked/reported)
       const receiver = await this.memberRepo.findOneBy({ _id: receiverId, isDeleted: false });
-      if (!isReceiverActive && receiver?.fcmToken) {
+      if (!isBlockedMember && !isReceiverActive && receiver?.fcmToken) {
+        const isMutualMember = await this.isMutual(senderId, receiverId);
         // const sender = await this.memberRepo.findOneBy({ _id: senderId });
         await insertPushNotification({
           token: receiver.fcmToken,
           subject: `New Message for ${post.title}`,
           content: newMessage.content,
-          moduleName: NotificationModule.MESSAGE_REQUEST,
+          moduleName: isMutualMember ? NotificationModule.MESSAGE : NotificationModule.MESSAGE_REQUEST,
           moduleId: conversation._id.toString(),
           receiverId: receiverId.toString(),
           senderId: senderId.toString()
@@ -1005,48 +1102,76 @@ export class MobileChatController {
       conversation.lastMessageTime = new Date();
       conversation.lastMessageSenderId = senderId;
 
-      // Update unread count for receiver
-      const unreadCounts = conversation.unreadCounts || {};
-      if (isReceiverActive) {
-        unreadCounts[receiverId.toString()] = 0;
-      } else {
-        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
+      // Update unread count for receiver only if not blocked
+      if (!isBlockedMember) {
+        const unreadCounts = conversation.unreadCounts || {};
+        if (isReceiverActive) {
+          unreadCounts[receiverId.toString()] = 0;
+        } else {
+          unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
+        }
+        conversation.unreadCounts = { ...unreadCounts };
       }
-      conversation.unreadCounts = { ...unreadCounts };
 
       await this.conversationRepo.save(conversation);
 
       const io = getIO();
-      io.to(receiverId.toString()).emit("new_message", {
-        ...savedMessage,
-        post
-      });
+      if (!isBlockedMember) {
+        io.to(receiverId.toString()).emit("new_message", {
+          ...savedMessage,
+          post
+        });
 
-      // Emit conversation update for the conversation list screen
-      const sender = await this.memberRepo.findOneBy({ _id: senderId });
-      let senderCategoryName = null;
-      if (sender && sender.businessCategory) {
-        const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
-        senderCategoryName = cat ? cat.name : null;
+        // Emit conversation update for receiver
+        const sender = await this.memberRepo.findOneBy({ _id: senderId });
+        let senderCategoryName = null;
+        if (sender && sender.businessCategory) {
+          const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
+          senderCategoryName = cat ? cat.name : null;
+        }
+
+        const unreadCount = conversation.unreadCounts?.[receiverId.toString()] || 0;
+
+        io.to(receiverId.toString()).emit("conversation_updated", {
+          ...conversation,
+          lastMessage: savedMessage.content,
+          lastMessageTime: savedMessage.createdAt,
+          lastMessageSenderId: savedMessage.senderId,
+          otherUser: sender ? {
+            _id: sender._id,
+            fullName: sender.fullName,
+            profilePhoto: sender.profilePhoto,
+            categoryName: senderCategoryName,
+            isOnline: sender.isOnline || false,
+            lastSeen: sender.lastSeen || null
+          } : null,
+          post: post || null,
+          unreadCount
+        });
       }
 
-      const unreadCount = conversation.unreadCounts?.[receiverId.toString()] || 0;
-
-      io.to(receiverId.toString()).emit("conversation_updated", {
+      // Emit conversation update to sender
+      const receiverMember = await this.memberRepo.findOneBy({ _id: receiverId });
+      let receiverCategoryName = null;
+      if (receiverMember && receiverMember.businessCategory) {
+        const cat = await this.categoryRepo.findOneBy({ _id: receiverMember.businessCategory });
+        receiverCategoryName = cat ? cat.name : null;
+      }
+      io.to(senderId.toString()).emit("conversation_updated", {
         ...conversation,
         lastMessage: savedMessage.content,
         lastMessageTime: savedMessage.createdAt,
         lastMessageSenderId: savedMessage.senderId,
-        otherUser: sender ? {
-          _id: sender._id,
-          fullName: sender.fullName,
-          profilePhoto: sender.profilePhoto,
-          categoryName: senderCategoryName,
-          isOnline: sender.isOnline || false,
-          lastSeen: sender.lastSeen || null
+        otherUser: receiverMember ? {
+          _id: receiverMember._id,
+          fullName: receiverMember.fullName,
+          profilePhoto: receiverMember.profilePhoto,
+          categoryName: receiverCategoryName,
+          isOnline: receiverMember.isOnline || false,
+          lastSeen: receiverMember.lastSeen || null
         } : null,
         post: post || null,
-        unreadCount
+        unreadCount: conversation.unreadCounts?.[senderId.toString()] || 0
       });
 
       let pointsResult = { awarded: 0, balance: 0 };
@@ -1102,9 +1227,7 @@ export class MobileChatController {
       const receiverId = product.memberId;
       if (senderId.equals(receiverId)) throw new BadRequestError("You cannot respond to your own product");
 
-      if (await this.isBlocked(senderId, receiverId)) {
-        throw new BadRequestError("You cannot send messages to this member.");
-      }
+      const isBlockedMember = await this.isBlocked(senderId, receiverId);
 
       let conversation = await this.getOrCreateConversation(senderId, receiverId);
       (conversation as any).productId = new ObjectId(productId);
@@ -1115,45 +1238,39 @@ export class MobileChatController {
           conversationId: conversation._id,
           senderId: senderId,
           type: MessageType.PRODUCT_RESPONSE,
-          productId: new ObjectId(productId)
+          productId: new ObjectId(productId),
+          isDeleted: { $ne: true }
         } as any
       });
-
-      if (existingResponse) {
-        return res.status(StatusCodes.OK).json({
-          success: true,
-          message: "You have already responded to this product",
-          data: {
-            conversationId: conversation._id,
-            message: existingResponse
-          }
-        });
-      }
 
       const newMessage = new Message();
       newMessage.conversationId = conversation._id;
       newMessage.senderId = senderId;
       newMessage.content = message || "Hi, I'm interested in your product.";
-      newMessage.type = MessageType.PRODUCT_RESPONSE;
+      newMessage.type = existingResponse ? MessageType.TEXT : MessageType.PRODUCT_RESPONSE;
       (newMessage as any).productId = new ObjectId(productId);
       newMessage.isRead = false;
+      if (isBlockedMember && receiverId) {
+        newMessage.blockedFor = [receiverId];
+      }
       // Check if receiver is in the chat room
-      const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
+      const isReceiverActive = !isBlockedMember && isUserInConversation(receiverId.toString(), conversation._id.toString());
       if (isReceiverActive) {
         newMessage.isRead = true;
       }
 
       const savedMessage = await this.messageRepo.save(newMessage);
 
-      // Send Push Notification if receiver is not active in the chat room and has fcmToken
+      // Send Push Notification if receiver is not active in the chat room and has fcmToken (skip if blocked/reported)
       const receiver = await this.memberRepo.findOneBy({ _id: receiverId, isDeleted: false });
-      if (!isReceiverActive && receiver?.fcmToken) {
+      if (!isBlockedMember && !isReceiverActive && receiver?.fcmToken) {
+        const isMutualMember = await this.isMutual(senderId, receiverId);
         // const sender = await this.memberRepo.findOneBy({ _id: senderId });
         await insertPushNotification({
           token: receiver.fcmToken,
           subject: "New Message for product - " + product.productName,
           content: newMessage.content,
-          moduleName: NotificationModule.MESSAGE_REQUEST,
+          moduleName: isMutualMember ? NotificationModule.MESSAGE : NotificationModule.MESSAGE_REQUEST,
           moduleId: conversation._id.toString(),
           receiverId: receiverId.toString(),
           senderId: senderId.toString()
@@ -1164,48 +1281,76 @@ export class MobileChatController {
       conversation.lastMessageTime = new Date();
       conversation.lastMessageSenderId = senderId;
 
-      // Update unread count for receiver
-      const unreadCounts = conversation.unreadCounts || {};
-      if (isReceiverActive) {
-        unreadCounts[receiverId.toString()] = 0;
-      } else {
-        unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
+      // Update unread count for receiver only if not blocked
+      if (!isBlockedMember) {
+        const unreadCounts = conversation.unreadCounts || {};
+        if (isReceiverActive) {
+          unreadCounts[receiverId.toString()] = 0;
+        } else {
+          unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
+        }
+        conversation.unreadCounts = { ...unreadCounts };
       }
-      conversation.unreadCounts = { ...unreadCounts };
 
       await this.conversationRepo.save(conversation);
 
       const io = getIO();
-      io.to(receiverId.toString()).emit("new_message", {
-        ...savedMessage,
-        product
-      });
+      if (!isBlockedMember) {
+        io.to(receiverId.toString()).emit("new_message", {
+          ...savedMessage,
+          product
+        });
 
-      // Emit conversation update for the conversation list screen
-      const sender = await this.memberRepo.findOneBy({ _id: senderId });
-      let senderCategoryName = null;
-      if (sender && sender.businessCategory) {
-        const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
-        senderCategoryName = cat ? cat.name : null;
+        // Emit conversation update for the conversation list screen
+        const sender = await this.memberRepo.findOneBy({ _id: senderId });
+        let senderCategoryName = null;
+        if (sender && sender.businessCategory) {
+          const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
+          senderCategoryName = cat ? cat.name : null;
+        }
+
+        const unreadCount = conversation.unreadCounts?.[receiverId.toString()] || 0;
+
+        io.to(receiverId.toString()).emit("conversation_updated", {
+          ...conversation,
+          lastMessage: savedMessage.content,
+          lastMessageTime: savedMessage.createdAt,
+          lastMessageSenderId: savedMessage.senderId,
+          otherUser: sender ? {
+            _id: sender._id,
+            fullName: sender.fullName,
+            profilePhoto: sender.profilePhoto,
+            categoryName: senderCategoryName,
+            isOnline: sender.isOnline || false,
+            lastSeen: sender.lastSeen || null
+          } : null,
+          product: product || null,
+          unreadCount
+        });
       }
 
-      const unreadCount = conversation.unreadCounts?.[receiverId.toString()] || 0;
-
-      io.to(receiverId.toString()).emit("conversation_updated", {
+      // Emit conversation update to sender
+      const receiverMember = await this.memberRepo.findOneBy({ _id: receiverId });
+      let receiverCategoryName = null;
+      if (receiverMember && receiverMember.businessCategory) {
+        const cat = await this.categoryRepo.findOneBy({ _id: receiverMember.businessCategory });
+        receiverCategoryName = cat ? cat.name : null;
+      }
+      io.to(senderId.toString()).emit("conversation_updated", {
         ...conversation,
         lastMessage: savedMessage.content,
         lastMessageTime: savedMessage.createdAt,
         lastMessageSenderId: savedMessage.senderId,
-        otherUser: sender ? {
-          _id: sender._id,
-          fullName: sender.fullName,
-          profilePhoto: sender.profilePhoto,
-          categoryName: senderCategoryName,
-          isOnline: sender.isOnline || false,
-          lastSeen: sender.lastSeen || null
+        otherUser: receiverMember ? {
+          _id: receiverMember._id,
+          fullName: receiverMember.fullName,
+          profilePhoto: receiverMember.profilePhoto,
+          categoryName: receiverCategoryName,
+          isOnline: receiverMember.isOnline || false,
+          lastSeen: receiverMember.lastSeen || null
         } : null,
         product: product || null,
-        unreadCount
+        unreadCount: conversation.unreadCounts?.[senderId.toString()] || 0
       });
 
       return res.status(StatusCodes.OK).json({
@@ -1286,27 +1431,30 @@ export class MobileChatController {
       const conversation = await this.conversationRepo.findOneBy({ _id: new ObjectId(conversationId) });
       if (!conversation) throw new NotFoundError("Conversation not found");
 
-      if (conversation.isDeleted || conversation.status === "DELETED" || (conversation.deletedBy && !conversation.deletedBy.equals(senderId))) {
-        throw new BadRequestError("You cannot send messages because this conversation has been deleted");
-      }
-      // if (conversation.status === "REJECTED") {
-      //   throw new BadRequestError("You cannot send messages because this conversation was rejected");
-      // }
-      if (conversation.deletedBy && conversation.deletedBy.equals(senderId)) {
-        conversation.isDeleted = false;
-        delete conversation.deletedBy;
-        await this.conversationRepo.save(conversation);
-      }
-
       const receiverId = conversation.participants.find(p => !p.equals(senderId));
       if (!receiverId) throw new BadRequestError("No receiver found in this conversation");
 
-      if (conversation.status === "REPORTED") {
-        throw new BadRequestError("You can't message this member because they've blocked you");
+      const isMutualConnection = await this.isMutual(senderId, receiverId);
+
+      const wasRejectedOrDeleted =
+        conversation.status === "REJECTED" ||
+        conversation.status === "DELETED" ||
+        conversation.isDeleted ||
+        !!conversation.deletedBy;
+
+      if (wasRejectedOrDeleted) {
+        conversation.isDeleted = false;
+        delete conversation.deletedBy;
+        conversation.userStatuses = {};
+        delete (conversation as any).statusUpdatedBy;
+        conversation.status = "PENDING";
+        await this.conversationRepo.save(conversation);
+      } else if (conversation.status === "PENDING" && isMutualConnection) {
+        conversation.status = "ACCEPTED";
+        await this.conversationRepo.save(conversation);
       }
-      if (await this.isBlocked(senderId, receiverId)) {
-        throw new BadRequestError("You can't message this member because they've blocked you");
-      }
+
+      const isBlockedMember = (conversation.status === "REPORTED") || (await this.isBlocked(senderId, receiverId));
 
       // Auto-generate content for Business Actions if missing
       if (!content) {
@@ -1337,9 +1485,12 @@ export class MobileChatController {
       newMessage.content = content;
       newMessage.type = type;
       newMessage.isRead = false;
+      if (isBlockedMember && receiverId) {
+        newMessage.blockedFor = [receiverId];
+      }
 
       // Check if receiver is in the chat room
-      const isReceiverActive = isUserInConversation(receiverId.toString(), conversation._id.toString());
+      const isReceiverActive = !isBlockedMember && isUserInConversation(receiverId.toString(), conversation._id.toString());
       if (isReceiverActive) {
         newMessage.isRead = true;
       }
@@ -1451,9 +1602,9 @@ export class MobileChatController {
         !actionData?.recipientType
       );
 
-      // Send Push Notification if receiver is not active in the chat room and has fcmToken (skip if self reminder)
+      // Send Push Notification if receiver is not active in the chat room and has fcmToken (skip if self reminder or blocked/reported)
       const receiver = await this.memberRepo.findOneBy({ _id: receiverId, isDeleted: false });
-      if (!isSelfReminder && !isReceiverActive && receiver?.fcmToken) {
+      if (!isBlockedMember && !isSelfReminder && !isReceiverActive && receiver?.fcmToken) {
         const sender = await this.memberRepo.findOneBy({ _id: senderId, isDeleted: false });
         const senderName = sender?.fullName ? sender.fullName.trim() : "A member";
 
@@ -1491,14 +1642,16 @@ export class MobileChatController {
         conversation.lastMessageTime = new Date();
         conversation.lastMessageSenderId = senderId;
 
-        // Update unread count for receiver
-        const unreadCounts = conversation.unreadCounts || {};
-        if (isReceiverActive) {
-          unreadCounts[receiverId.toString()] = 0;
-        } else {
-          unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
+        // Update unread count for receiver only if not blocked
+        if (!isBlockedMember) {
+          const unreadCounts = conversation.unreadCounts || {};
+          if (isReceiverActive) {
+            unreadCounts[receiverId.toString()] = 0;
+          } else {
+            unreadCounts[receiverId.toString()] = (unreadCounts[receiverId.toString()] || 0) + 1;
+          }
+          conversation.unreadCounts = { ...unreadCounts };
         }
-        conversation.unreadCounts = { ...unreadCounts };
       }
 
       await this.conversationRepo.save(conversation);
@@ -1522,7 +1675,7 @@ export class MobileChatController {
         }
       }
 
-      if (!isSelfReminder) {
+      if (!isSelfReminder && !isBlockedMember) {
         io.to(`conversation_${conversation._id}`).emit("new_message", populatedMessage);
       }
 
@@ -1532,7 +1685,7 @@ export class MobileChatController {
         isMe: true
       });
 
-      if (receiverId && !isSelfReminder) {
+      if (receiverId && !isSelfReminder && !isBlockedMember) {
         io.to(receiverId.toString()).emit("new_message", populatedMessage);
 
         // Emit conversation update for the conversation list screen
@@ -1777,9 +1930,7 @@ export class MobileChatController {
         throw new NotFoundError("Receiver not found");
       }
 
-      if (await this.isBlocked(senderId, recId)) {
-        throw new BadRequestError("You cannot send messages to this member.");
-      }
+      const isBlockedMember = await this.isBlocked(senderId, recId);
 
       let conversation = await this.getOrCreateConversation(senderId, recId);
 
@@ -1794,7 +1945,7 @@ export class MobileChatController {
       newMessage.isRead = false;
 
       // Check if receiver is in the chat room
-      const isReceiverActive = isUserInConversation(recId.toString(), conversation._id.toString());
+      const isReceiverActive = !isBlockedMember && isUserInConversation(recId.toString(), conversation._id.toString());
       if (isReceiverActive) {
         newMessage.isRead = true;
       }
@@ -1802,31 +1953,20 @@ export class MobileChatController {
       const savedMessage = await this.messageRepo.save(newMessage);
       await this.pushNotificationRepo.delete({ _id: new ObjectId(notificationId) });
 
-      // Send Push Notification if receiver is not active in the chat room and has fcmToken
-      // if (!isReceiverActive && receiver.fcmToken) {
-      //   await insertPushNotification({
-      //     token: receiver.fcmToken,
-      //     subject: "Birthday Wish! 🎂",
-      //     content: content,
-      //     moduleName: NotificationModule.MESSAGE,
-      //     moduleId: conversation._id.toString(),
-      //     receiverId: recId.toString(),
-      //     senderId: senderId.toString()
-      //   });
-      // }
-
       // Update conversation details
       conversation.lastMessage = content;
       conversation.lastMessageTime = new Date();
       conversation.lastMessageSenderId = senderId;
 
-      const unreadCounts = conversation.unreadCounts || {};
-      if (isReceiverActive) {
-        unreadCounts[recId.toString()] = 0;
-      } else {
-        unreadCounts[recId.toString()] = (unreadCounts[recId.toString()] || 0) + 1;
+      if (!isBlockedMember) {
+        const unreadCounts = conversation.unreadCounts || {};
+        if (isReceiverActive) {
+          unreadCounts[recId.toString()] = 0;
+        } else {
+          unreadCounts[recId.toString()] = (unreadCounts[recId.toString()] || 0) + 1;
+        }
+        conversation.unreadCounts = { ...unreadCounts };
       }
-      conversation.unreadCounts = { ...unreadCounts };
 
       await this.conversationRepo.save(conversation);
 
@@ -1838,31 +1978,56 @@ export class MobileChatController {
         businessAction: null
       };
 
-      io.to(recId.toString()).emit("new_message", populatedMessage);
+      if (!isBlockedMember) {
+        io.to(recId.toString()).emit("new_message", populatedMessage);
 
-      const sender = await this.memberRepo.findOneBy({ _id: senderId });
-      let senderCategoryName = null;
-      if (sender && sender.businessCategory) {
-        const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
-        senderCategoryName = cat ? cat.name : null;
+        const sender = await this.memberRepo.findOneBy({ _id: senderId });
+        let senderCategoryName = null;
+        if (sender && sender.businessCategory) {
+          const cat = await this.categoryRepo.findOneBy({ _id: sender.businessCategory });
+          senderCategoryName = cat ? cat.name : null;
+        }
+
+        const unreadCount = conversation.unreadCounts?.[recId.toString()] || 0;
+
+        io.to(recId.toString()).emit("conversation_updated", {
+          ...conversation,
+          lastMessage: content,
+          lastMessageTime: savedMessage.createdAt,
+          lastMessageSenderId: senderId,
+          otherUser: sender ? {
+            _id: sender._id,
+            fullName: sender.fullName,
+            profilePhoto: sender.profilePhoto,
+            categoryName: senderCategoryName,
+            isOnline: sender.isOnline || false,
+            lastSeen: sender.lastSeen || null
+          } : null,
+          unreadCount
+        });
       }
 
-      const unreadCount = conversation.unreadCounts?.[recId.toString()] || 0;
-
-      io.to(recId.toString()).emit("conversation_updated", {
+      // Emit conversation_updated to sender
+      const receiverMember = await this.memberRepo.findOneBy({ _id: recId });
+      let receiverCategoryName = null;
+      if (receiverMember && receiverMember.businessCategory) {
+        const cat = await this.categoryRepo.findOneBy({ _id: receiverMember.businessCategory });
+        receiverCategoryName = cat ? cat.name : null;
+      }
+      io.to(senderId.toString()).emit("conversation_updated", {
         ...conversation,
         lastMessage: content,
         lastMessageTime: savedMessage.createdAt,
         lastMessageSenderId: senderId,
-        otherUser: sender ? {
-          _id: sender._id,
-          fullName: sender.fullName,
-          profilePhoto: sender.profilePhoto,
-          categoryName: senderCategoryName,
-          isOnline: sender.isOnline || false,
-          lastSeen: sender.lastSeen || null
+        otherUser: receiverMember ? {
+          _id: receiverMember._id,
+          fullName: receiverMember.fullName,
+          profilePhoto: receiverMember.profilePhoto,
+          categoryName: receiverCategoryName,
+          isOnline: receiverMember.isOnline || false,
+          lastSeen: receiverMember.lastSeen || null
         } : null,
-        unreadCount
+        unreadCount: conversation.unreadCounts?.[senderId.toString()] || 0
       });
 
       return res.status(StatusCodes.OK).json({
