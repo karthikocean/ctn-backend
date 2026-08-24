@@ -13,38 +13,38 @@ export class AdminReferralListQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-    page?: number = 0;
+  page?: number = 0;
 
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-    limit?: number = 10;
+  limit?: number = 10;
 
   @IsOptional()
   @IsString()
-    search?: string;
+  search?: string;
 
   @IsOptional()
   @IsString()
-    category?: string;
+  category?: string;
 
   @IsOptional()
   @IsEnum(ReferralActivityFilter)
-    referralFilter?: ReferralActivityFilter;
+  referralFilter?: ReferralActivityFilter;
 
   @IsOptional()
   @IsString()
-    status?: string;
+  status?: string;
 
   @IsOptional()
   @IsString()
-    startDate?: string;
+  startDate?: string;
 
   @IsOptional()
   @IsString()
-    endDate?: string;
+  endDate?: string;
 
   @IsOptional()
-  @@IsString()
-    sortBy?: string;
+  @IsString()
+  sortBy?: string;
 }
