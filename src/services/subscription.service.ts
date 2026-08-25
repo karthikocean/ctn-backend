@@ -346,7 +346,7 @@ export class SubscriptionService {
 
     if (used >= limit) {
       throw new BadRequestError(
-        `${frequency} limit of ${limit} response(s) reached. Upgrade your plan to continue.`
+        `${frequency ? frequency.charAt(0).toUpperCase() + frequency.slice(1) : "Daily"} limit of ${limit} response(s) reached. Upgrade your plan to continue.`
       );
     }
   }
@@ -547,7 +547,7 @@ export class SubscriptionService {
    */
   buildLimitExceededError(moduleName: string, used: number, limit: number, frequency: string): BadRequestError {
     return new BadRequestError(
-      `${frequency} upload limit reached. Try again later or upgrade your plan.`
+      `${frequency ? frequency.charAt(0).toUpperCase() + frequency.slice(1) : "Daily"} upload limit reached. Try again later or upgrade your plan.`
     );
   }
 
@@ -739,6 +739,13 @@ export class SubscriptionService {
     member.subscriptionStartDate = now;
     member.subscriptionEndDate = end;
     await this.memberRepo.save(member);
+
+    try {
+      const { ReferralService } = await import("./referral.service");
+      await new ReferralService().handleReferredUserTrialStarted(memberObjectId);
+    } catch (refErr: any) {
+      console.error("[SubscriptionService] Referral trial reward hook notice:", refErr?.message || refErr);
+    }
 
     return savedSub;
   }

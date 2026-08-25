@@ -1,4 +1,4 @@
-import { Entity, ObjectIdColumn, Column, CreateDateColumn } from "typeorm";
+import { Entity, ObjectIdColumn, Column, CreateDateColumn, UpdateDateColumn } from "typeorm";
 import { ObjectId } from "mongodb";
 
 @Entity("reported_history")
@@ -18,6 +18,18 @@ export class ReportedHistory {
   @Column()
     reason!: string;
 
+  @Column({ default: "REPORTED" })
+    status!: "REPORTED" | "UNREPORTED";
+
+  @Column({ default: false })
+    isDeleted!: boolean;
+
+  @Column({ nullable: true })
+    unreportedAt?: Date;
+
   @CreateDateColumn()
     createdAt!: Date;
+
+  @UpdateDateColumn()
+    updatedAt!: Date;
 }

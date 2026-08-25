@@ -1092,22 +1092,11 @@ export class MobileChatController {
       let conversation = await this.getOrCreateConversation(senderId, receiverId);
       conversation.postId = new ObjectId(postId);
 
-      // Check if sender already responded or shared this post in this conversation
-      const existingResponse = await this.messageRepo.findOne({
-        where: {
-          conversationId: conversation._id,
-          senderId: senderId,
-          postId: new ObjectId(postId),
-          type: { $in: [MessageType.POST_RESPONSE, MessageType.POST_SHARE] },
-          isDeleted: { $ne: true }
-        } as any
-      });
-
       const newMessage = new Message();
       newMessage.conversationId = conversation._id;
       newMessage.senderId = senderId;
       newMessage.content = message || "Hi, I'm interested in your post.";
-      newMessage.type = existingResponse ? MessageType.TEXT : MessageType.POST_RESPONSE;
+      newMessage.type = MessageType.POST_RESPONSE;
       newMessage.postId = new ObjectId(postId);
       newMessage.isDeleted = false;
       newMessage.isRead = false;
@@ -1274,22 +1263,11 @@ export class MobileChatController {
       let conversation = await this.getOrCreateConversation(senderId, receiverId);
       (conversation as any).productId = new ObjectId(productId);
 
-      // Check if sender already responded to this product in this conversation
-      const existingResponse = await this.messageRepo.findOne({
-        where: {
-          conversationId: conversation._id,
-          senderId: senderId,
-          type: MessageType.PRODUCT_RESPONSE,
-          productId: new ObjectId(productId),
-          isDeleted: { $ne: true }
-        } as any
-      });
-
       const newMessage = new Message();
       newMessage.conversationId = conversation._id;
       newMessage.senderId = senderId;
       newMessage.content = message || "Hi, I'm interested in your product.";
-      newMessage.type = existingResponse ? MessageType.TEXT : MessageType.PRODUCT_RESPONSE;
+      newMessage.type = MessageType.PRODUCT_RESPONSE;
       (newMessage as any).productId = new ObjectId(productId);
       newMessage.isRead = false;
       if (isBlockedMember && receiverId) {

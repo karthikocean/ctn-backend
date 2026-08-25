@@ -125,8 +125,8 @@ export class ReferralService {
 
   /**
    * Processes a referral for a newly registered member or manual apply:
-   * 1. Free Referrer: earns 500 reward points when referred friend registers.
-   * 2. Active Subscribed Referrer: status set to PENDING, receives 1 extra month validity when friend subscribes.
+   * Sets up referral relation in PENDING status.
+   * Referral points / subscription rewards are awarded ONLY when the referred friend activates a trial or buys a plan.
    */
   async processReferral(params: {
     referredMember: Member;
@@ -156,36 +156,19 @@ export class ReferralService {
       throw new BadRequestError("Referral reward has already been applied for this user.");
     }
 
-    // Check if referrer currently has an active paid subscription
-    const now = new Date();
-    const activeSub = await this.subRepo.findOne({
-      where: {
-        memberId: referrer._id,
-        status: "ACTIVE",
-        isDeleted: false
-      } as any,
-      order: { endDate: "DESC" }
-    });
-    const isReferrerSubscribed = Boolean(
-      activeSub && activeSub.endDate && new Date(activeSub.endDate) > now && !activeSub.isTrial
-    );
-
-    // Free / Trial referrer gets 500 points immediately upon registration
-    // Active Subscribed (purchased) referrer gets NO points (points = 0); status is PENDING until referred friend purchases plan
-    const pointsToAward = !isReferrerSubscribed ? 500 : 0;
-    const initialStatus = !isReferrerSubscribed ? UserReferralStatus.COMPLETED : UserReferralStatus.PENDING;
-
+    // Referral is registered in PENDING status. Points/rewards are credited only when the referred user chooses a plan or trial.
     const userReferral = new UserReferral();
     userReferral.referrerId = referrer._id;
     userReferral.referredUserId = referredMember._id;
     userReferral.referralCode = normalizedCode;
-    userReferral.referrerReward = pointsToAward;
+    userReferral.referrerReward = 0;
     userReferral.referredUserReward = 0;
-    userReferral.status = initialStatus;
-    userReferral.rewardedAt = !isReferrerSubscribed ? new Date() : (null as any);
+    userReferral.status = UserReferralStatus.PENDING;
+    userReferral.rewardedAt = null as any;
     userReferral.isSubscriptionRewarded = false;
 
     const savedReferral = await this.userReferralRepo.save(userReferral);
+
     // Update referred user's referredBy field
     await this.memberRepo.updateOne(
       { _id: referredMember._id },
@@ -193,23 +176,13 @@ export class ReferralService {
     );
     referredMember.referredBy = referrer._id;
 
-    // Award 500 points to free / trial referrer
-    if (pointsToAward > 0) {
-      await this.creditRewardPoints(
-        referrer._id,
-        pointsToAward,
-        "REFERRAL_REFERRER",
-        savedReferral._id
-      );
-    }
-
     console.log(
-      `[ReferralService] Processed referral: Referrer ${referrer._id} (Subscribed: ${isReferrerSubscribed}) -> Referred ${referredMember._id}. Points awarded: ${pointsToAward}`
+      `[ReferralService] Linked referred user ${referredMember._id} to referrer ${referrer._id}. Rewards pending until plan or trial is chosen.`
     );
 
     return {
       userReferral: savedReferral,
-      referrerReward: pointsToAward,
+      referrerReward: 0,
       referredReward: 0
     };
   }
@@ -251,6 +224,71 @@ export class ReferralService {
       await this.historyRepo.save(history);
     } catch (err: any) {
       console.error(`[ReferralService] Error crediting reward points to member ${memberId}:`, err.message);
+    }
+  }
+
+  /**
+   * Handles awarding points to referrer when the referred friend activates a trial or chooses a plan:
+   * Referrer receives 500 points when plan/trial is activated.
+   */
+  async handleReferredUserTrialStarted(referredMemberId: string | ObjectId): Promise<void> {
+    const referredMemberOid = new ObjectId(referredMemberId);
+    try {
+      let userReferral = await this.userReferralRepo.findOne({
+        where: {
+          referredUserId: referredMemberOid
+        } as any
+      });
+
+      let referrerId = userReferral?.referrerId;
+
+      if (!referrerId) {
+        const referredMember = await this.memberRepo.findOneBy({ _id: referredMemberOid, isDeleted: false });
+        if (referredMember?.referredBy) {
+          referrerId = new ObjectId(referredMember.referredBy);
+        }
+      }
+
+      if (!referrerId) return;
+
+      const referrer = await this.memberRepo.findOneBy({ _id: referrerId, isDeleted: false });
+      if (!referrer) return;
+
+      // If points were already awarded for this referral, skip
+      if (userReferral && userReferral.rewardedAt && userReferral.referrerReward > 0) {
+        return;
+      }
+
+      const pointsToAward = 500;
+      await this.creditRewardPoints(
+        referrer._id,
+        pointsToAward,
+        "REFERRAL_REFERRER",
+        userReferral ? userReferral._id : referrer._id
+      );
+
+      if (userReferral) {
+        userReferral.referrerReward = pointsToAward;
+        userReferral.status = UserReferralStatus.COMPLETED;
+        userReferral.rewardedAt = new Date();
+        await this.userReferralRepo.save(userReferral);
+      } else {
+        const newRef = new UserReferral();
+        newRef.referrerId = referrer._id;
+        newRef.referredUserId = referredMemberOid;
+        newRef.referralCode = referrer.referralCode || "";
+        newRef.referrerReward = pointsToAward;
+        newRef.referredUserReward = 0;
+        newRef.status = UserReferralStatus.COMPLETED;
+        newRef.rewardedAt = new Date();
+        await this.userReferralRepo.save(newRef);
+      }
+
+      console.log(
+        `[ReferralService] Awarded ${pointsToAward} referral points to referrer ${referrer._id} on referred friend ${referredMemberId} starting trial/choosing plan`
+      );
+    } catch (err: any) {
+      console.error(`[ReferralService] Error in handleReferredUserTrialStarted for user ${referredMemberId}:`, err.message);
     }
   }
 
@@ -316,7 +354,7 @@ export class ReferralService {
 
       // Only reward subscription extension if referrer is on an active purchased (non-trial) plan
       if (!isReferrerPurchasedPlan) {
-        console.log(`[ReferralService] Referrer ${referrer._id} is in a trial or free plan. Skipping subscription extension.`);
+        console.log(`[ReferralService] Referrer ${referrer._id} is in a trial or free plan. Skipping reward because referred user purchased plan directly without taking trial.`);
         return;
       }
 
