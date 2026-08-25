@@ -1,3 +1,4 @@
+import { ReportedHistory } from "../../entity/ReportedHistory";
 import {
   JsonController,
   Get,
@@ -146,13 +147,15 @@ export class MobileMilestoneController {
     try {
       const userId = req.user.userId;
 
-      // 1. Find mutual friends
+      // 1. Find mutual friends and exclude blocked/reported users
       const mutualIds = await this.getMutualFriendIds(new ObjectId(userId));
+      const blockedIds = await this.getBlockedOrReportedUserIds(new ObjectId(userId));
+      const filteredMutualIds = mutualIds.filter(id => !blockedIds.has(id.toString()));
 
       // 2. Find active milestones from these mutual friends
-      const milestones = mutualIds.length > 0 ? await this.milestoneRepo.find({
+      const milestones = filteredMutualIds.length > 0 ? await this.milestoneRepo.find({
         where: {
-          memberId: { $in: mutualIds },
+          memberId: { $in: filteredMutualIds },
           isDeleted: false,
           // isActive: true,
           expiresAt: { $gt: new Date() }
@@ -840,4 +843,92 @@ export class MobileMilestoneController {
 
     return !!(conn1 && conn2);
   }
+
+  // private async isBlocked(userA: ObjectId, userB: ObjectId): Promise<boolean> {
+  //   const connectionRepo = AppDataSource.getMongoRepository(Connection);
+  //   const blockedConnection = await connectionRepo.findOne({
+  //     where: {
+  //       $or: [
+  //         { senderId: userA, receiverId: userB, status: ConnectionStatus.BLOCKED },
+  //         { senderId: userB, receiverId: userA, status: ConnectionStatus.BLOCKED }
+  //       ],
+  //       isDeleted: false
+  //     } as any
+  //   });
+  //   if (blockedConnection) return true;
+
+  //   const conversationRepo = AppDataSource.getMongoRepository(Conversation);
+  //   const reportedConversation = await conversationRepo.findOne({
+  //     where: {
+  //       participants: { $all: [userA, userB] },
+  //       status: "REPORTED"
+  //     } as any
+  //   });
+  //   if (reportedConversation) return true;
+
+  //   const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+  //   const reportedHistory = await reportedHistoryRepo.findOne({
+  //     where: {
+  //       $or: [
+  //         { reporterUserId: userA, targetUserId: userB },
+  //         { reporterUserId: userB, targetUserId: userA }
+  //       ],
+  //       isDeleted: { $ne: true }
+  //     } as any
+  //   });
+  //   if (reportedHistory) return true;
+
+  //   return false;
+  // }
+
+  private async getBlockedOrReportedUserIds(userId: ObjectId): Promise<Set<string>> {
+    const connectionRepo = AppDataSource.getMongoRepository(Connection);
+    const conversationRepo = AppDataSource.getMongoRepository(Conversation);
+    const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+
+    const [blockedConns, reportedHistories, reportedConvs] = await Promise.all([
+      connectionRepo.find({
+        where: {
+          $or: [
+            { senderId: userId, status: ConnectionStatus.BLOCKED },
+            { receiverId: userId, status: ConnectionStatus.BLOCKED }
+          ],
+          isDeleted: false
+        } as any
+      }),
+      reportedHistoryRepo.find({
+        where: {
+          $or: [
+            { reporterUserId: userId },
+            { targetUserId: userId }
+          ],
+          isDeleted: { $ne: true }
+        } as any
+      }),
+      conversationRepo.find({
+        where: {
+          participants: { $all: [userId] },
+          status: "REPORTED"
+        } as any
+      })
+    ]);
+
+    const blockedIds = new Set<string>();
+    blockedConns.forEach(c => {
+      if (c.senderId.equals(userId)) blockedIds.add(c.receiverId.toString());
+      else blockedIds.add(c.senderId.toString());
+    });
+    reportedHistories.forEach(r => {
+      if (r.reporterUserId.equals(userId)) blockedIds.add(r.targetUserId.toString());
+      else blockedIds.add(r.reporterUserId.toString());
+    });
+    reportedConvs.forEach(c => {
+      c.participants.forEach(p => {
+        if (!p.equals(userId)) blockedIds.add(p.toString());
+      });
+    });
+
+    return blockedIds;
+  }
+
 }
