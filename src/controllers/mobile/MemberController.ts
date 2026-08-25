@@ -117,7 +117,7 @@ export class MobileMemberController {
       member.dailyScore = 0;
       member.dob = data.dob ? parseDob(data.dob) : undefined;
       member.status = MemberStatus.ACTIVE; // Or PENDING if you have an approval flow
-      member.referralCode = await this.referralService.generateUniqueReferralCode(data.fullName);
+      member.referralCode = await this.referralService.generateUniqueReferralCode("Trusted Network");
       // if (referrerMember) {
       //   member.referredBy = referrerMember._id;
       // }
@@ -1983,103 +1983,6 @@ export class MobileMemberController {
    *               comments:
    *                 type: string
    */
-
-  /**
-   * @swagger
-   * /mobile-api/members/{id}/unreport:
-   *   post:
-   *     summary: Unreport a previously reported member
-   *     tags: [Mobile Member]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: id
-   *         required: true
-   *         schema:
-   *           type: string
-   *     responses:
-   *       200:
-   *         description: Member unreported successfully
-   *       400:
-   *         description: Invalid member ID
-   *       404:
-   *         description: Member not found
-   */
-  @Post("/:id/unreport")
-  @UseBefore(MobileAuthMiddleware)
-  async unreportMember(
-    @Req() req: any,
-    @Param("id") id: string,
-    @Res() res: any
-  ) {
-    try {
-      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid member ID");
-      const reporterUserId = new ObjectId(req.user.userId);
-      const targetUserId = new ObjectId(id);
-
-      const member = await this.memberRepo.findOne({
-        where: { _id: targetUserId, isDeleted: false }
-      });
-      if (!member) throw new NotFoundError("Member not found");
-
-      // 1. Remove profile report history
-      const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
-      await reportedHistoryRepo.deleteMany({
-        reporterUserId: reporterUserId,
-        targetUserId: targetUserId
-      } as any);
-
-      // 2. Remove any post reports by this reporter on the target user's posts
-      const targetPosts = await this.postRepo.find({
-        where: { memberId: targetUserId } as any
-      });
-      if (targetPosts.length > 0) {
-        const postIds = targetPosts.map(p => p._id);
-        await this.postReportRepo.deleteMany({
-          reporterId: reporterUserId,
-          postId: { $in: postIds }
-        } as any);
-      }
-
-      return res.status(StatusCodes.OK).json({
-        success: true,
-        message: "Member unreported successfully"
-      });
-    } catch (error: any) {
-      return handleErrorResponse(error, res);
-    }
-  }
-
-  /**
-   * @swagger
-   * /mobile-api/members/{id}/report:
-   *   delete:
-   *     summary: Unreport a member via DELETE method
-   *     tags: [Mobile Member]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: id
-   *         required: true
-   *         schema:
-   *           type: string
-   *     responses:
-   *       200:
-   *         description: Member unreported successfully
-   */
-  @Delete("/:id/report")
-  @Delete("/:id/unreport")
-  @UseBefore(MobileAuthMiddleware)
-  async unreportMemberDelete(
-    @Req() req: any,
-    @Param("id") id: string,
-    @Res() res: any
-  ) {
-    return this.unreportMember(req, id, res);
-  }
-
   @Post("/:id/report")
   @UseBefore(MobileAuthMiddleware)
   async reportMember(
