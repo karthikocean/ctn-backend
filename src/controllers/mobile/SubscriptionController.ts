@@ -17,6 +17,7 @@ import { Plan } from "../../entity/Plan";
 import { MemberSubscription } from "../../entity/MemberSubscription";
 import { Payment } from "../../entity/Payment";
 import { Member } from "../../entity/Member";
+import { UserReferral } from "../../entity/UserReferral";
 import { UserToken } from "../../entity/UserToken";
 import { SubscriptionFeatureUsage } from "../../entity/SubscriptionFeatureUsage";
 import { SubscriptionService } from "../../services/subscription.service";
@@ -124,10 +125,19 @@ export class MobileSubscriptionController {
       let currentPlanId: string | null = null;
       let currentPlanAmount = 0;
       let isCurrentSubTrial = false;
+      let refferalUserFlag = false;
 
       if (memberId) {
         const member = await this.memberRepo.findOneBy({ _id: new ObjectId(memberId), isDeleted: false });
         if (member) {
+          refferalUserFlag = Boolean(member.referredBy);
+          if (!refferalUserFlag) {
+            const userReferralRepo = AppDataSource.getMongoRepository(UserReferral);
+            const referralRecord = await userReferralRepo.findOneBy({ referredUserId: new ObjectId(memberId) });
+            if (referralRecord) {
+              refferalUserFlag = true;
+            }
+          }
           hasUsedTrial = member.hasUsedTrial;
           const activeSub = await this.subscriptionService.getActiveSubscription(member._id);
           if (activeSub && activeSub.status === "ACTIVE") {
@@ -145,13 +155,14 @@ export class MobileSubscriptionController {
 
       // Map plans to include action and isTrial fields
       const mappedPlans = plans.map(p => {
+        const effectiveTrialDays = refferalUserFlag ? 10 : (p.trialDays ?? 0);
         let action: string | null = "Get Trial";
         let isTrial = false;
 
         if (memberId) {
           if (!hasUsedTrial) {
             isTrial = false;
-            action = (p.trialDays && p.trialDays > 0) ? "Get Trial" : "Upgrade";
+            action = (effectiveTrialDays > 0) ? "Get Trial" : "Upgrade";
           } else {
             if (currentPlanId === p._id.toString()) {
               if (isCurrentSubTrial) {
@@ -174,6 +185,8 @@ export class MobileSubscriptionController {
 
         return {
           ...p,
+          trialDays: effectiveTrialDays,
+          refferalUserFlag,
           isTrial,
           action
         };

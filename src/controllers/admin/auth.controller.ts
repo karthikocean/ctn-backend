@@ -21,9 +21,12 @@ import { LoginDto, ChangePinDto, ForgotPinDto, VerifyOtpDto, ResetPinDto } from 
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { UseBefore } from "routing-controllers";
-import { sendForgotPinSMS } from "../../utils/sms";
+import { MailService } from "../../services/mail.service";
 import { Role } from "../../entity/Role.Permission";
 import { Franchise, FranchiseStatus } from "../../entity/Franchise";
+
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const PASSWORD_POLICY_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>_\-+=~`[\]\\;/]).{8,}$/;
 
 @JsonController("/auth")
 export class AuthController {
@@ -32,7 +35,7 @@ export class AuthController {
    * @swagger
    * /api/admin/auth/login:
    *   post:
-   *     summary: Admin login using phone number and PIN
+   *     summary: Admin login using email and password
    *     tags: [Auth]
    *     requestBody:
    *       required: true
@@ -44,7 +47,7 @@ export class AuthController {
    *       200:
    *         description: Login successful
    *       400:
-   *         description: Missing fields
+   *         description: Missing fields or invalid email
    *       401:
    *         description: Invalid credentials
    */
@@ -52,21 +55,35 @@ export class AuthController {
   @HttpCode(StatusCodes.OK)
   async login(@Body() body: LoginDto, @Res() res: any) {
     try {
-      const { phoneNumber, pin } = body;
+      const email = (body.email || "").trim().toLowerCase();
+      const password = body.password || "";
+
+      if (!email || !EMAIL_REGEX.test(email)) {
+        throw new BadRequestError("Please provide a valid email address");
+      }
+
+      if (!password) {
+        throw new BadRequestError("Password is required");
+      }
 
       const userRepo = AppDataSource.getMongoRepository(AdminUser);
       const user = await userRepo.findOne({
-        where: { phoneNumber }
+        where: {
+          email: { $regex: new RegExp(`^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+          isDeleted: false
+        } as any
       });
 
       if (!user) {
-        throw new UnauthorizedError("User Account not found!!");
+        throw new UnauthorizedError("Invalid email or password");
       }
+
       const roleRepo = await AppDataSource.getMongoRepository(Role);
       const role = await roleRepo.findOne({ where: { _id: user.roleId } });
       if (!role) {
         throw new UnauthorizedError("Role not found");
       }
+
       if (role.code === "FRANCHISE_OWNER") {
         const franchiseOwnerRepo = AppDataSource.getMongoRepository(Franchise);
         const franchiseOwner = await franchiseOwnerRepo.findOne({ where: { userId: { $in: [user.id] } } });
@@ -79,11 +96,16 @@ export class AuthController {
         if (franchiseOwner.isDeleted) {
           throw new UnauthorizedError("Franchise Owner is deleted. Please contact admin.");
         }
-
       }
-      const isMatch = await bcrypt.compare(pin, user.pin);
+
+      const credential = user.password || user.pin;
+      if (!credential) {
+        throw new UnauthorizedError("Invalid email or password");
+      }
+
+      const isMatch = await bcrypt.compare(password, credential);
       if (!isMatch) {
-        throw new UnauthorizedError("User Pin is incorrect!!");
+        throw new UnauthorizedError("Invalid email or password");
       }
 
       // Check if the account is active
@@ -91,7 +113,7 @@ export class AuthController {
         throw new UnauthorizedError("Account is inactive. Please contact admin.");
       }
 
-      // Generate new token and save to DB (allows multi-device login sessions for admin users)
+      // Generate new token and save to DB
       const finalToken = jwt.sign(
         {
           id: user.id.toString(),
@@ -136,7 +158,7 @@ export class AuthController {
    * @swagger
    * /api/admin/auth/change-pin:
    *   post:
-   *     summary: Change admin user PIN
+   *     summary: Change admin user Password
    *     tags: [Auth]
    *     security:
    *       - bearerAuth: []
@@ -148,9 +170,9 @@ export class AuthController {
    *             $ref: '#/components/schemas/ChangePinDto'
    *     responses:
    *       200:
-   *         description: PIN changed successfully
+   *         description: Password changed successfully
    *       400:
-   *         description: Invalid old PIN
+   *         description: Invalid old password
    *       401:
    *         description: Unauthorized
    */
@@ -162,6 +184,14 @@ export class AuthController {
       const { oldPin, newPin } = body;
       const userId = (res.req as any).user.userId;
 
+      if (oldPin && newPin && oldPin === newPin) {
+        throw new BadRequestError("New password cannot be the same as current password");
+      }
+
+      if (!newPin || !PASSWORD_POLICY_REGEX.test(newPin)) {
+        throw new BadRequestError("Password must be at least 8 characters long and include an uppercase letter, a number, and a special character");
+      }
+
       const userRepo = AppDataSource.getMongoRepository(AdminUser);
       const user = await userRepo.findOne({
         where: { _id: new ObjectId(userId) }
@@ -171,16 +201,19 @@ export class AuthController {
         throw new UnauthorizedError("User not found");
       }
 
-      const isMatch = await bcrypt.compare(oldPin, user.pin);
+      const credential = user.password || user.pin;
+      const isMatch = credential ? await bcrypt.compare(oldPin, credential) : false;
       if (!isMatch) {
-        throw new BadRequestError("Invalid old PIN");
+        throw new BadRequestError("Invalid current password");
       }
 
-      user.pin = await bcrypt.hash(newPin, 10);
+      const hashedNew = await bcrypt.hash(newPin, 10);
+      user.pin = hashedNew;
+      user.password = hashedNew;
       await userRepo.save(user);
 
       return res.status(StatusCodes.OK).json({
-        message: "PIN changed successfully"
+        message: "Password changed successfully"
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -228,7 +261,7 @@ export class AuthController {
    * @swagger
    * /api/admin/auth/forgot-pin:
    *   post:
-   *     summary: Send OTP for admin password/PIN reset
+   *     summary: Send OTP to admin email for password reset
    *     tags: [Auth]
    *     requestBody:
    *       required: true
@@ -240,51 +273,60 @@ export class AuthController {
    *       200:
    *         description: OTP sent successfully
    *       400:
-   *         description: User Account not found or bad request
+   *         description: User account not found or invalid email
    */
   @Post("/forgot-pin")
   @HttpCode(StatusCodes.OK)
   async forgotPin(@Body() body: ForgotPinDto, @Res() res: any) {
     try {
-      const { phoneNumber } = body;
+      const email = (body.email || "").trim().toLowerCase();
+
+      if (!email || !EMAIL_REGEX.test(email)) {
+        throw new BadRequestError("Please provide a valid email address");
+      }
 
       const userRepo = AppDataSource.getMongoRepository(AdminUser);
       const user = await userRepo.findOne({
-        where: { phoneNumber }
+        where: {
+          email: { $regex: new RegExp(`^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+          isDeleted: false
+        } as any
       });
 
       if (!user) {
-        throw new BadRequestError("Admin User not found with this phone number!!");
+        throw new BadRequestError("Admin User not found with this email address");
       }
 
+      const targetEmail = (user.email || email).toLowerCase().trim();
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
       const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + 2);
+      expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
       const verificationRepo = AppDataSource.getMongoRepository(Verification);
-      let verification = await verificationRepo.findOne({
-        where: { identifier: phoneNumber, type: "phone", isVerified: false }
+
+      // Clean up any existing verification records for this email first
+      await verificationRepo.deleteMany({ identifier: targetEmail });
+
+      // Create a fresh verification record
+      const verification = verificationRepo.create({
+        identifier: targetEmail,
+        type: "email",
+        otp,
+        expiresAt,
+        isVerified: false
       });
 
-      if (verification) {
-        verification.otp = otp;
-        verification.expiresAt = expiresAt;
-      } else {
-        verification = verificationRepo.create({
-          identifier: phoneNumber,
-          type: "phone",
-          otp,
-          expiresAt,
-          isVerified: false
-        });
-      }
-
       await verificationRepo.save(verification);
-      await sendForgotPinSMS(phoneNumber, otp);
+
+      try {
+        await MailService.sendVerificationOTP(targetEmail, otp);
+      } catch (mailError) {
+        console.error("Failed to send OTP email:", mailError);
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,
-        message: "OTP sent successfully"
+        message: "OTP sent to your email successfully"
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -295,7 +337,7 @@ export class AuthController {
    * @swagger
    * /api/admin/auth/verify-otp:
    *   post:
-   *     summary: Verify the OTP code
+   *     summary: Verify the OTP code sent to email
    *     tags: [Auth]
    *     requestBody:
    *       required: true
@@ -313,21 +355,17 @@ export class AuthController {
   @HttpCode(StatusCodes.OK)
   async verifyOtp(@Body() body: VerifyOtpDto, @Res() res: any) {
     try {
-      const { phoneNumber, otp } = body;
+      const email = (body.email || "").trim().toLowerCase();
+      const otp = (body.otp || "").trim();
 
-      const userRepo = AppDataSource.getMongoRepository(AdminUser);
-      const user = await userRepo.findOne({
-        where: { phoneNumber }
-      });
-
-      if (!user) {
-        throw new BadRequestError("Admin User not found!!");
+      if (!email || !EMAIL_REGEX.test(email)) {
+        throw new BadRequestError("Please provide a valid email address");
       }
 
       const verificationRepo = AppDataSource.getMongoRepository(Verification);
 
       const verification = await verificationRepo.findOne({
-        where: { identifier: phoneNumber, type: "phone", otp, isVerified: false }
+        where: { identifier: email, otp, isVerified: false }
       });
 
       if (!verification) {
@@ -335,10 +373,15 @@ export class AuthController {
       }
 
       if (new Date() > verification.expiresAt) {
-        throw new BadRequestError("Verification code has expired");
+        await verificationRepo.deleteMany({ identifier: email });
+        throw new BadRequestError("Verification code has expired. Please request a new OTP.");
       }
 
       verification.isVerified = true;
+      // Allow 10 minutes from verification to complete password reset
+      const resetWindow = new Date();
+      resetWindow.setMinutes(resetWindow.getMinutes() + 10);
+      verification.expiresAt = resetWindow;
       await verificationRepo.save(verification);
 
       return res.status(StatusCodes.OK).json({
@@ -354,7 +397,7 @@ export class AuthController {
    * @swagger
    * /api/admin/auth/reset-pin:
    *   post:
-   *     summary: Reset admin PIN after OTP verification
+   *     summary: Reset admin password after OTP verification
    *     tags: [Auth]
    *     requestBody:
    *       required: true
@@ -364,7 +407,7 @@ export class AuthController {
    *             $ref: '#/components/schemas/ResetPinDto'
    *     responses:
    *       200:
-   *         description: PIN reset successful
+   *         description: Password reset successful
    *       400:
    *         description: Verification expired or missing
    */
@@ -372,47 +415,60 @@ export class AuthController {
   @HttpCode(StatusCodes.OK)
   async resetPin(@Body() body: ResetPinDto, @Res() res: any) {
     try {
-      const { phoneNumber, newPin } = body;
+      const email = (body.email || "").trim().toLowerCase();
+      const newPassword = body.newPassword || (body as any).newPin;
+
+      if (!email || !EMAIL_REGEX.test(email)) {
+        throw new BadRequestError("Please provide a valid email address");
+      }
+
+      if (!newPassword) {
+        throw new BadRequestError("Please provide a new password");
+      }
+      if (!PASSWORD_POLICY_REGEX.test(newPassword)) {
+        throw new BadRequestError("Password must be at least 8 characters long and include an uppercase letter, a number, and a special character");
+      }
 
       const verificationRepo = AppDataSource.getMongoRepository(Verification);
       const verification = await verificationRepo.findOne({
-        where: { identifier: phoneNumber, type: "phone", isVerified: true },
-        order: { createdAt: "DESC" }
+        where: { identifier: email, isVerified: true }
       });
 
       if (!verification) {
-        throw new BadRequestError("Please verify your phone number first");
+        throw new BadRequestError("Please verify your email address first");
       }
 
-      const twoMinutesAgo = new Date();
-      twoMinutesAgo.setMinutes(twoMinutesAgo.getMinutes() - 2);
-      if (verification.createdAt < twoMinutesAgo) {
+      if (new Date() > verification.expiresAt) {
+        await verificationRepo.deleteMany({ identifier: email });
         throw new BadRequestError("Verification expired. Please request a new OTP.");
       }
 
       const userRepo = AppDataSource.getMongoRepository(AdminUser);
       const user = await userRepo.findOne({
-        where: { phoneNumber }
+        where: {
+          email: { $regex: new RegExp(`^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+          isDeleted: false
+        } as any
       });
 
       if (!user) {
         throw new BadRequestError("Admin User not found");
       }
 
-      user.pin = await bcrypt.hash(newPin, 10);
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      user.pin = hashedPassword;
+      user.password = hashedPassword;
       await userRepo.save(user);
 
-      // Consume the verification
-      verification.isVerified = false;
-      await verificationRepo.save(verification);
+      // Permanently remove all verification records for this identifier after successful reset
+      await verificationRepo.deleteMany({ identifier: email });
 
       return res.status(StatusCodes.OK).json({
         success: true,
-        message: "PIN reset successfully"
+        message: "Password reset successfully"
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
   }
 }
-

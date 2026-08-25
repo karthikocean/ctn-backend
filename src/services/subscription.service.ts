@@ -15,6 +15,7 @@ import { OnlineStallProduct } from "../entity/OnlineStallProduct";
 import { StallBooking } from "../entity/StallBooking";
 import { OneToOne } from "../entity/OneToOne";
 import { ThankYouSlip } from "../entity/ThankYouSlip";
+import { UserReferral } from "../entity/UserReferral";
 import { BadRequestError, NotFoundError } from "routing-controllers";
 import { ReferralService } from "./referral.service";
 
@@ -613,6 +614,17 @@ export class SubscriptionService {
 
     const diffTime = activeSub.endDate.getTime() - now.getTime();
     const daysRemaining = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+
+    let totalDays = 0;
+    if (activeSub.startDate && activeSub.endDate) {
+      totalDays = Math.max(1, Math.round((activeSub.endDate.getTime() - activeSub.startDate.getTime()) / (1000 * 60 * 60 * 24)));
+    }
+
+    let totalTrialDays = 0;
+    if (activeSub.isTrial) {
+      totalTrialDays = totalDays > 0 ? totalDays : (plan?.trialDays || 0);
+    }
+
     return {
       subscriptionId: activeSub._id || null,
       planId: activeSub.planId || null,
@@ -622,6 +634,8 @@ export class SubscriptionService {
       startDate: activeSub.startDate,
       endDate: activeSub.endDate,
       daysRemaining,
+      totalDays,
+      totalTrialDays,
       features,
       isTrial: activeSub.isTrial || false
     };
@@ -637,6 +651,8 @@ export class SubscriptionService {
       startDate,
       endDate: startDate,
       daysRemaining: 0,
+      totalDays: 0,
+      totalTrialDays: 0,
       isTrial: false,
       features: this.getDefaultGuestFeatures()
     };
@@ -680,7 +696,19 @@ export class SubscriptionService {
       throw new NotFoundError("Selected plan not found");
     }
 
-    if (!trialPlan.trialDays || trialPlan.trialDays <= 0) {
+    // Determine if the member registered using a referral code
+    let isReferred = Boolean(member.referredBy);
+    if (!isReferred) {
+      const userReferralRepo = AppDataSource.getMongoRepository(UserReferral);
+      const referralRecord = await userReferralRepo.findOneBy({ referredUserId: memberObjectId });
+      if (referralRecord) {
+        isReferred = true;
+      }
+    }
+
+    const allocatedTrialDays = isReferred ? 10 : (trialPlan.trialDays || 0);
+
+    if (allocatedTrialDays <= 0) {
       throw new BadRequestError(`The plan "${trialPlan.title}" does not offer a free trial period.`);
     }
 
@@ -691,7 +719,7 @@ export class SubscriptionService {
 
     const now = new Date();
     const end = new Date();
-    end.setDate(end.getDate() + trialPlan.trialDays);
+    end.setDate(end.getDate() + allocatedTrialDays);
 
     const newSub = new MemberSubscription();
     newSub.memberId = memberObjectId;

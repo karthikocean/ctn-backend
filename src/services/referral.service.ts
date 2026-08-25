@@ -286,23 +286,37 @@ export class ReferralService {
 
       // Check if referrer currently has an active purchased (non-trial) subscription
       const now = new Date();
-      const activeSub = await this.subRepo.findOne({
-        where: {
+      let activeSub: MemberSubscription | null = null;
+      if (referrer.subscriptionId) {
+        activeSub = await this.subRepo.findOneBy({
+          _id: new ObjectId(referrer.subscriptionId),
           memberId: referrer._id,
           status: "ACTIVE",
           isDeleted: false
-        } as any,
-        order: { endDate: "DESC" }
-      });
+        });
+      }
+
+      if (!activeSub) {
+        activeSub = await this.subRepo.findOne({
+          where: {
+            memberId: referrer._id,
+            status: "ACTIVE",
+            isDeleted: false
+          } as any,
+          order: { endDate: "DESC" }
+        });
+      }
 
       const isReferrerPurchasedPlan = Boolean(
-        (activeSub && activeSub.endDate && new Date(activeSub.endDate) > now && !activeSub.isTrial) ||
-        (referrer.subscriptionEndDate && new Date(referrer.subscriptionEndDate) > now && referrer.hasUsedTrial)
+        activeSub &&
+        activeSub.endDate &&
+        new Date(activeSub.endDate) > now &&
+        !activeSub.isTrial
       );
 
-      // Only reward subscription extension if referrer is on an active purchased plan
+      // Only reward subscription extension if referrer is on an active purchased (non-trial) plan
       if (!isReferrerPurchasedPlan) {
-        console.log(`[ReferralService] Referrer ${referrer._id} is not on an active purchased plan. Skipping subscription extension.`);
+        console.log(`[ReferralService] Referrer ${referrer._id} is in a trial or free plan. Skipping subscription extension.`);
         return;
       }
 
@@ -516,9 +530,8 @@ export class ReferralService {
   }
 
   /**
-   * Awards subscription plan to a member:
-   * - If member already has an active subscription: extends subscriptionEndDate by X months.
-   * - If member has no active subscription: activates an X-month Basic plan.
+   * Awards subscription extension to a member with an active purchased plan:
+   * Extends active non-trial subscription endDate by X months.
    */
   async awardSubscriptionReward(memberId: string | ObjectId, months: number = 1): Promise<void> {
     const memberOid = new ObjectId(memberId);
@@ -528,96 +541,57 @@ export class ReferralService {
 
       const now = new Date();
 
-      // Check if member already has an active subscription
-      const activeSub = await this.subRepo.findOne({
-        where: {
+      // Check if member already has an active purchased (non-trial) subscription
+      let activeSub: MemberSubscription | null = null;
+      if (member.subscriptionId) {
+        activeSub = await this.subRepo.findOneBy({
+          _id: new ObjectId(member.subscriptionId),
           memberId: member._id,
           status: "ACTIVE",
           isDeleted: false
-        } as any,
-        order: { endDate: "DESC" }
-      });
+        });
+      }
 
-      const hasActiveSub = (activeSub && activeSub.endDate && new Date(activeSub.endDate) > now) ||
-        (member.subscriptionEndDate && new Date(member.subscriptionEndDate) > now);
+      if (!activeSub) {
+        activeSub = await this.subRepo.findOne({
+          where: {
+            memberId: member._id,
+            status: "ACTIVE",
+            isDeleted: false
+          } as any,
+          order: { endDate: "DESC" }
+        });
+      }
 
-      if (hasActiveSub) {
-        // Extend existing active subscription
-        const currentEnd = activeSub?.endDate && new Date(activeSub.endDate) > now
-          ? new Date(activeSub.endDate)
-          : (member.subscriptionEndDate ? new Date(member.subscriptionEndDate) : now);
+      const hasActivePaidSub = Boolean(
+        activeSub &&
+        activeSub.endDate &&
+        new Date(activeSub.endDate) > now &&
+        !activeSub.isTrial
+      );
 
+      if (hasActivePaidSub && activeSub) {
+        // Extend existing active purchased subscription
+        const currentEnd = new Date(activeSub.endDate);
         const newEnd = new Date(currentEnd);
         newEnd.setMonth(newEnd.getMonth() + months);
 
-        if (activeSub) {
-          activeSub.endDate = newEnd;
-          await this.subRepo.save(activeSub);
-        }
+        activeSub.endDate = newEnd;
+        await this.subRepo.save(activeSub);
 
         await this.memberRepo.updateOne(
           { _id: member._id },
           {
             $set: {
               subscriptionEndDate: newEnd,
-              ...(activeSub ? { subscriptionId: activeSub._id, planId: activeSub.planId } : {})
+              subscriptionId: activeSub._id,
+              planId: activeSub.planId
             }
           }
         );
         console.log(`[ReferralService] Extended subscription for member ${member._id} by ${months} month(s) until ${newEnd.toISOString()}`);
       } else {
-        // Find default or basic active plan
-        let defaultPlan = await this.planRepo.findOne({
-          where: { billingType: "basic", status: "active", isDeleted: false } as any,
-          order: { amount: "ASC" }
-        });
-
-        if (!defaultPlan) {
-          defaultPlan = await this.planRepo.findOne({
-            where: { status: "active", isDeleted: false } as any,
-            order: { amount: "ASC" }
-          });
-        }
-
-        if (!defaultPlan) {
-          console.warn("[ReferralService] No active subscription plan found to award.");
-          return;
-        }
-
-        // Expire previous active subscriptions
-        await this.subRepo.updateMany(
-          { memberId: member._id, status: "ACTIVE" },
-          { $set: { status: "EXPIRED" } }
-        );
-
-        const startDate = now;
-        const endDate = new Date(now);
-        endDate.setMonth(endDate.getMonth() + months);
-
-        const newSub = new MemberSubscription();
-        newSub.memberId = member._id;
-        newSub.planId = new ObjectId(defaultPlan._id);
-        newSub.type = defaultPlan.billingType || "BASIC";
-        newSub.status = "ACTIVE";
-        newSub.startDate = startDate;
-        newSub.endDate = endDate;
-        newSub.isTrial = false;
-        newSub.isDeleted = false;
-
-        const savedSub = await this.subRepo.save(newSub);
-
-        await this.memberRepo.updateOne(
-          { _id: member._id },
-          {
-            $set: {
-              planId: new ObjectId(defaultPlan._id),
-              subscriptionId: new ObjectId(savedSub._id),
-              subscriptionStartDate: startDate,
-              subscriptionEndDate: endDate
-            }
-          }
-        );
-        console.log(`[ReferralService] Activated ${months} month(s) subscription (${defaultPlan.title}) for member ${member._id} until ${endDate.toISOString()}`);
+        console.log(`[ReferralService] Member ${member._id} has no active purchased subscription to extend. Skipping.`);
       }
     } catch (err: any) {
       console.error(`[ReferralService] Failed to award subscription reward for member ${memberId}:`, err.message);
