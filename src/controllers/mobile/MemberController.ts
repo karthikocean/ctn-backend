@@ -379,19 +379,33 @@ export class MobileMemberController {
       const subService = new SubscriptionService();
       const subscription = await subService.getActiveSubscription(userId);
 
+      const totalDays = (subscription as any).totalDays ?? (
+        subscription.startDate && subscription.endDate
+          ? Math.max(1, Math.round((new Date(subscription.endDate).getTime() - new Date(subscription.startDate).getTime()) / (1000 * 60 * 60 * 24)))
+          : 0
+      );
+
+      const totalTrialDays = (subscription as any).totalTrialDays ?? (subscription.isTrial ? totalDays : 0);
+
       return res.status(StatusCodes.OK).json({
         success: true,
         data: {
           ...data,
           ...counts,
           contributionSummary,
+          totalDays,
+          totalTrialDays,
           subscription: {
             planId: subscription.planId,
             planName: subscription.planName,
             type: subscription.type,
             status: subscription.status,
+            startDate: subscription.startDate,
             endDate: subscription.endDate,
             daysRemaining: subscription.daysRemaining,
+            totalDays,
+            totalTrialDays,
+            isTrial: subscription.isTrial || false,
             isPaidUser: subscription.status === "ACTIVE" && !subscription.isTrial
           }
         }
