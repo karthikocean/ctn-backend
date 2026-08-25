@@ -66,7 +66,7 @@ export async function seedAdmin() {
 
     adminUser = userRepo.create({
       name: "Super Admin",
-      email: "admin@test.com",
+      email: "admin@trustednetwork.in",
       phoneNumber: "9999999999",
       pin: hashedPin,
 

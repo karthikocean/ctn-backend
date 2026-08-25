@@ -12,6 +12,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Plan } from "../../entity/Plan";
 import { Member } from "../../entity/Member";
+import { UserReferral } from "../../entity/UserReferral";
 import { SubscriptionService } from "../../services/subscription.service";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -87,6 +88,13 @@ export class MobilePlanController {
         if (member) {
           // If member has referredBy present, set refferalUserFlag = true
           refferalUserFlag = Boolean(member.referredBy);
+          if (!refferalUserFlag) {
+            const userReferralRepo = AppDataSource.getMongoRepository(UserReferral);
+            const referralRecord = await userReferralRepo.findOneBy({ referredUserId: new ObjectId(memberId) });
+            if (referralRecord) {
+              refferalUserFlag = true;
+            }
+          }
           hasUsedTrial = member.hasUsedTrial || false;
           const subService = new SubscriptionService();
           const activeSub = await subService.getActiveSubscription(member._id);
@@ -166,7 +174,7 @@ export class MobilePlanController {
    *         description: Plan details retrieved successfully
    *       404:
    *         description: Plan not found
-   */
+   *   */
   @Get("/:id")
   async getOne(@Param("id") id: string, @Req() req: any, @Res() res: any) {
     try {
@@ -190,6 +198,13 @@ export class MobilePlanController {
         const member = await memberRepo.findOneBy({ _id: new ObjectId(memberId), isDeleted: false });
         if (member) {
           refferalUserFlag = Boolean(member.referredBy);
+          if (!refferalUserFlag) {
+            const userReferralRepo = AppDataSource.getMongoRepository(UserReferral);
+            const referralRecord = await userReferralRepo.findOneBy({ referredUserId: new ObjectId(memberId) });
+            if (referralRecord) {
+              refferalUserFlag = true;
+            }
+          }
           hasUsedTrial = member.hasUsedTrial || false;
           const subService = new SubscriptionService();
           const activeSub = await subService.getActiveSubscription(member._id);

@@ -38,7 +38,7 @@ import { Milestone } from "../../entity/Milestone";
 import { SubscriptionService } from "../../services/subscription.service";
 import { PointHistory } from "../../entity/PointHistory";
 import { PostReport } from "../../entity/PostReport";
-import { Conversation } from "../../entity/Conversation";
+// import { Conversation } from "../../entity/Conversation";
 import { ReportedHistory } from "../../entity/ReportedHistory";
 import { ReferralService } from "../../services/referral.service";
 
@@ -55,7 +55,6 @@ export class MobileMemberController {
   private businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
   private historyRepo = AppDataSource.getMongoRepository(PointHistory);
   private postReportRepo = AppDataSource.getMongoRepository(PostReport);
-  private conversationRepo = AppDataSource.getMongoRepository(Conversation);
   private referralService = new ReferralService();
   /**
    * @swagger
@@ -117,7 +116,7 @@ export class MobileMemberController {
       member.dailyScore = 0;
       member.dob = data.dob ? parseDob(data.dob) : undefined;
       member.status = MemberStatus.ACTIVE; // Or PENDING if you have an approval flow
-      member.referralCode = await this.referralService.generateUniqueReferralCode(data.fullName);
+      member.referralCode = await this.referralService.generateUniqueReferralCode("Trusted Network");
       // if (referrerMember) {
       //   member.referredBy = referrerMember._id;
       // }
@@ -379,19 +378,33 @@ export class MobileMemberController {
       const subService = new SubscriptionService();
       const subscription = await subService.getActiveSubscription(userId);
 
+      const totalDays = (subscription as any).totalDays ?? (
+        subscription.startDate && subscription.endDate
+          ? Math.max(1, Math.round((new Date(subscription.endDate).getTime() - new Date(subscription.startDate).getTime()) / (1000 * 60 * 60 * 24)))
+          : 0
+      );
+
+      const totalTrialDays = (subscription as any).totalTrialDays ?? (subscription.isTrial ? totalDays : 0);
+
       return res.status(StatusCodes.OK).json({
         success: true,
         data: {
           ...data,
           ...counts,
           contributionSummary,
+          totalDays,
+          totalTrialDays,
           subscription: {
             planId: subscription.planId,
             planName: subscription.planName,
             type: subscription.type,
             status: subscription.status,
+            startDate: subscription.startDate,
             endDate: subscription.endDate,
             daysRemaining: subscription.daysRemaining,
+            totalDays,
+            totalTrialDays,
+            isTrial: subscription.isTrial || false,
             isPaidUser: subscription.status === "ACTIVE" && !subscription.isTrial
           }
         }
@@ -1983,6 +1996,73 @@ export class MobileMemberController {
    *               comments:
    *                 type: string
    */
+
+  /**
+   * @swagger
+   * /mobile-api/members/{id}/unreport:
+   *   post:
+   *     summary: Unreport a previously reported member
+   *     tags: [Mobile Member]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: Member unreported successfully
+   *       400:
+   *         description: Invalid member ID
+   *       404:
+   *         description: Member not found
+   */
+  @Post("/:id/unreport")
+  @UseBefore(MobileAuthMiddleware)
+  async unreportMember(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Res() res: any
+  ) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid member ID");
+      const reporterUserId = new ObjectId(req.user.userId);
+      const targetUserId = new ObjectId(id);
+
+      const member = await this.memberRepo.findOne({
+        where: { _id: targetUserId, isDeleted: false }
+      });
+      if (!member) throw new NotFoundError("Member not found");
+
+      // 1. Remove profile report history
+      const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+      await reportedHistoryRepo.updateMany(
+        {
+          reporterUserId: reporterUserId,
+          targetUserId: targetUserId,
+          isDeleted: { $ne: true }
+        },
+        {
+          $set: {
+            status: "UNREPORTED",
+            isDeleted: true,
+            unreportedAt: new Date()
+          }
+        }
+      );
+
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Member unreported successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
   @Post("/:id/report")
   @UseBefore(MobileAuthMiddleware)
   async reportMember(

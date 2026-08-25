@@ -133,6 +133,50 @@ export class MailService {
   /**
    * Send Welcome Email to New Registered Member
    */
+  /**
+   * Send Welcome Email with credentials to New Admin User
+   */
+  static async sendAdminUserWelcomeEmail(data: {
+    name: string;
+    email: string;
+    roleName: string;
+    password?: string;
+  }) {
+    const subject = "Your TN Admin Portal Credentials - Trusted Network";
+    const html = `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; padding: 20px; border-radius: 10px; border: 1px solid #e0e0e0;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="color: #14532D; margin: 0;">Trusted Network</h1>
+          <p style="color: #666; font-size: 14px; margin-top: 5px;">Admin Portal Access</p>
+        </div>
+        <div style="background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+          <h2 style="color: #333; margin-top: 0;">Welcome, ${data.name}! 🎉</h2>
+          <p style="color: #666; font-size: 15px; line-height: 1.5;">
+            An administrative account has been created for you on the <strong>TN Admin Portal</strong> with the role of <strong>${data.roleName}</strong>.
+          </p>
+          
+          <div style="background-color: #f0fdf4; border-left: 4px solid #14532D; padding: 18px 20px; margin: 25px 0; border-radius: 6px;">
+            <h3 style="color: #14532D; margin-top: 0; margin-bottom: 12px; font-size: 16px;">Your Login Credentials:</h3>
+            <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Email (Username):</strong> <span style="font-family: monospace; font-weight: bold; color: #1e293b;">${data.email}</span></p>
+            <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Temporary Password:</strong> <span style="font-family: monospace; font-weight: bold; background: #e2e8f0; padding: 3px 8px; border-radius: 4px; color: #0f172a;">${data.password || "Admin@12345"}</span></p>
+            <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Assigned Role:</strong> ${data.roleName}</p>
+          </div>
+
+          <p style="color: #666; font-size: 14px; line-height: 1.5;">
+            Please log in to the admin portal using your email and the temporary password above.
+          </p>
+          <p style="color: #e11d48; font-size: 13px; line-height: 1.5;">
+            🔒 <em>For your security, please update your password after your first login in Profile Settings.</em>
+          </p>
+        </div>
+        <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
+          <p>&copy; 2026 Trusted Network. All rights reserved.</p>
+        </div>
+      </div>
+    `;
+    return this.sendEmail(data.email, subject, html);
+  }
+
   static async sendWelcomeMemberEmail(memberData: {
     fullName: string;
     email: string;

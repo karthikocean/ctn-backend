@@ -29,8 +29,11 @@ export class AdminUser {
   @Column()
     phoneNumber!: string;
 
-  @Column()
-    pin!: string; // 🔐 hashed
+  @Column({ nullable: true })
+    pin?: string; // 🔐 hashed
+
+  @Column({ nullable: true })
+    password?: string; // 🔐 hashed password // 🔐 hashed
 
   @Column({ nullable: true })
     companyName?: string;

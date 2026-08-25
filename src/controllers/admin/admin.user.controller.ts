@@ -1,3 +1,4 @@
+import { MailService } from "../../services/mail.service";
 import {
   JsonController,
   Get,
@@ -322,8 +323,14 @@ export class AdminUserController {
     // Generate userId
     newUser.userId = await generateAdminUserId();
 
-    // Hash PIN
-    newUser.pin = await bcrypt.hash(userData.pin, 10);
+    // Generate secure initial temporary password matching complexity rules (Min 8 chars, 1 uppercase, 1 digit, 1 special char)
+    const generatedPassword = process.env.ADMIN_USER_DEFAULT_PIN;
+    if (!generatedPassword) {
+      throw new BadRequestError("Default password is not defined in .env file");
+    }
+    const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+    newUser.pin = hashedPassword;
+    newUser.password = hashedPassword;
 
     // Convert roleId string to ObjectId
     newUser.roleId = new ObjectId(userData.roleId);
@@ -339,7 +346,29 @@ export class AdminUserController {
     newUser.isActive = userData.isActive !== undefined ? Boolean(userData.isActive) : true;
     newUser.isDeleted = false;
 
-    return await this.adminUserRepo.save(newUser);
+    const savedUser = await this.adminUserRepo.save(newUser);
+
+    // Send credentials email to newly registered admin user
+    if (savedUser.email) {
+      try {
+        const roleRepo = AppDataSource.getMongoRepository(Role);
+        const role = await roleRepo.findOne({ where: { _id: savedUser.roleId } });
+        const roleName = role ? role.name : "Admin";
+
+        console.log(`[AdminRegister] Sending welcome credentials to ${savedUser.email}...`);
+        await MailService.sendAdminUserWelcomeEmail({
+          name: savedUser.name,
+          email: savedUser.email,
+          roleName: roleName,
+          password: generatedPassword,
+        });
+        console.log(`[AdminRegister] Credentials email sent successfully to ${savedUser.email}`);
+      } catch (mailError: any) {
+        console.error(`[AdminRegister] Failed to send welcome credentials to ${savedUser.email}:`, mailError?.message || mailError);
+      }
+    }
+
+    return savedUser;
   }
 
   /**

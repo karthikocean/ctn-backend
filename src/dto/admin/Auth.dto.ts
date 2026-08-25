@@ -5,15 +5,15 @@
  *     LoginDto:
  *       type: object
  *       required:
- *         - phoneNumber
- *         - pin
+ *         - email
+ *         - password
  *       properties:
- *         phoneNumber:
+ *         email:
  *           type: string
- *           example: "9876543210"
- *         pin:
+ *           example: "admin@trustednetwork.in"
+ *         password:
  *           type: string
- *           example: "1234"
+ *           example: "Admin@1234"
  *     ChangePinDto:
  *       type: object
  *       required:
@@ -22,93 +22,94 @@
  *       properties:
  *         oldPin:
  *           type: string
- *           example: "1234"
+ *           example: "Admin@1234"
  *         newPin:
  *           type: string
- *           example: "5678"
+ *           example: "Admin@5678"
  *     ForgotPinDto:
  *       type: object
  *       required:
- *         - phoneNumber
+ *         - email
  *       properties:
- *         phoneNumber:
+ *         email:
  *           type: string
- *           example: "9876543210"
+ *           example: "admin@trustednetwork.in"
  *     VerifyOtpDto:
  *       type: object
  *       required:
- *         - phoneNumber
+ *         - email
  *         - otp
  *       properties:
- *         phoneNumber:
+ *         email:
  *           type: string
- *           example: "9876543210"
+ *           example: "admin@trustednetwork.in"
  *         otp:
  *           type: string
  *           example: "1234"
  *     ResetPinDto:
  *       type: object
  *       required:
- *         - phoneNumber
- *         - newPin
+ *         - email
+ *         - newPassword
  *       properties:
- *         phoneNumber:
+ *         email:
  *           type: string
- *           example: "9876543210"
- *         newPin:
+ *           example: "admin@trustednetwork.in"
+ *         newPassword:
  *           type: string
- *           example: "1234"
+ *           example: "Admin@5678"
  */
-import { IsString, IsNotEmpty, IsPhoneNumber, Length } from "class-validator";
+import { IsString, IsNotEmpty, IsEmail, Matches, Length } from "class-validator";
+
+export const PASSWORD_POLICY_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>_\-+=~`[\]\\;/]).{8,}$/;
 
 export class LoginDto {
-    @IsPhoneNumber("IN")
-    @IsNotEmpty()
-      phoneNumber!: string;
+  @IsEmail({}, { message: "Please enter a valid email address (e.g. admin@trustednetwork.in)" })
+  @IsNotEmpty({ message: "Email address is required" })
+  email!: string;
 
-    @Length(4, 4)
-    @IsString()
-    @IsNotEmpty()
-      pin!: string;
+  @IsString({ message: "Password must be a string" })
+  @IsNotEmpty({ message: "Password is required" })
+  password!: string;
 }
 
 export class ChangePinDto {
-    @Length(4, 4)
-    @IsString()
-    @IsNotEmpty()
-      oldPin!: string;
+  @IsString()
+  @IsNotEmpty({ message: "Current password is required" })
+  oldPin!: string;
 
-    @Length(4, 4)
-    @IsString()
-    @IsNotEmpty()
-      newPin!: string;
+  @Matches(PASSWORD_POLICY_REGEX, {
+    message: "New password must be at least 8 characters long and contain at least one uppercase letter, one number, and one special character"
+  })
+  @IsNotEmpty({ message: "New password is required" })
+  newPin!: string;
 }
 
 export class ForgotPinDto {
-    @IsPhoneNumber("IN")
-    @IsNotEmpty()
-      phoneNumber!: string;
+  @IsEmail({}, { message: "Please enter a valid email address" })
+  @IsNotEmpty({ message: "Email is required" })
+  email!: string;
 }
 
 export class VerifyOtpDto {
-    @IsPhoneNumber("IN")
-    @IsNotEmpty()
-      phoneNumber!: string;
+  @IsEmail({}, { message: "Please enter a valid email address" })
+  @IsNotEmpty({ message: "Email is required" })
+  email!: string;
 
-    @Length(4, 4)
-    @IsString()
-    @IsNotEmpty()
-      otp!: string;
+  @Length(4, 4, { message: "OTP must be exactly 4 digits" })
+  @IsString()
+  @IsNotEmpty({ message: "OTP is required" })
+  otp!: string;
 }
 
 export class ResetPinDto {
-    @IsPhoneNumber("IN")
-    @IsNotEmpty()
-      phoneNumber!: string;
+  @IsEmail({}, { message: "Please enter a valid email address" })
+  @IsNotEmpty({ message: "Email is required" })
+  email!: string;
 
-    @Length(4, 4)
-    @IsString()
-    @IsNotEmpty()
-      newPin!: string;
+  @Matches(PASSWORD_POLICY_REGEX, {
+    message: "Password must be at least 8 characters long and contain at least one uppercase letter, one number, and one special character"
+  })
+  @IsNotEmpty({ message: "New password is required" })
+  newPassword!: string;
 }
-
