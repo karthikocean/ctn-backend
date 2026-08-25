@@ -1,3 +1,4 @@
+import { getIO } from "../../utils/socket";
 import {
   JsonController,
   Get,
@@ -38,7 +39,7 @@ import { Milestone } from "../../entity/Milestone";
 import { SubscriptionService } from "../../services/subscription.service";
 import { PointHistory } from "../../entity/PointHistory";
 import { PostReport } from "../../entity/PostReport";
-// import { Conversation } from "../../entity/Conversation";
+import { Conversation } from "../../entity/Conversation";
 import { ReportedHistory } from "../../entity/ReportedHistory";
 import { ReferralService } from "../../services/referral.service";
 
@@ -55,6 +56,7 @@ export class MobileMemberController {
   private businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
   private historyRepo = AppDataSource.getMongoRepository(PointHistory);
   private postReportRepo = AppDataSource.getMongoRepository(PostReport);
+  private conversationRepo = AppDataSource.getMongoRepository(Conversation);
   private referralService = new ReferralService();
   /**
    * @swagger
@@ -2087,7 +2089,7 @@ export class MobileMemberController {
 
       const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
       const existing = await reportedHistoryRepo.findOne({
-        where: { reporterUserId, targetUserId } as any
+        where: { reporterUserId, targetUserId, isDeleted: { $ne: true } } as any
       });
 
       if (existing) {
@@ -2099,6 +2101,8 @@ export class MobileMemberController {
       report.targetUserId = targetUserId;
       report.moduleName = "MEMBER";
       report.reason = body.reason || body.comments || "Reported User Profile";
+      report.status = "REPORTED";
+      report.isDeleted = false;
 
       await reportedHistoryRepo.save(report);
 

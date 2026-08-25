@@ -16,6 +16,8 @@ export async function seedModules() {
     { name: "Admin Users" },
     { name: "Business Regions" },
     { name: "Franchises" },
+    { name: "Franchise Applications" },
+    { name: "Enquiries" },
 
     { name: "Categories" },
     { name: "Main Categories", parentSlug: "categories" },
