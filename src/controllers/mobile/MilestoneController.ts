@@ -844,49 +844,39 @@ export class MobileMilestoneController {
     return !!(conn1 && conn2);
   }
 
-  // private async isBlocked(userA: ObjectId, userB: ObjectId): Promise<boolean> {
-  //   const connectionRepo = AppDataSource.getMongoRepository(Connection);
-  //   const blockedConnection = await connectionRepo.findOne({
-  //     where: {
-  //       $or: [
-  //         { senderId: userA, receiverId: userB, status: ConnectionStatus.BLOCKED },
-  //         { senderId: userB, receiverId: userA, status: ConnectionStatus.BLOCKED }
-  //       ],
-  //       isDeleted: false
-  //     } as any
-  //   });
-  //   if (blockedConnection) return true;
+    private async isBlocked(userA: ObjectId, userB: ObjectId): Promise<boolean> {
+    const connectionRepo = AppDataSource.getMongoRepository(Connection);
+    const blockedConnection = await connectionRepo.findOne({
+      where: {
+        $or: [
+          { senderId: userA, receiverId: userB, status: ConnectionStatus.BLOCKED },
+          { senderId: userB, receiverId: userA, status: ConnectionStatus.BLOCKED }
+        ],
+        isDeleted: false
+      } as any
+    });
+    if (blockedConnection) return true;
 
-  //   const conversationRepo = AppDataSource.getMongoRepository(Conversation);
-  //   const reportedConversation = await conversationRepo.findOne({
-  //     where: {
-  //       participants: { $all: [userA, userB] },
-  //       status: "REPORTED"
-  //     } as any
-  //   });
-  //   if (reportedConversation) return true;
+    const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+    const reportedHistory = await reportedHistoryRepo.findOne({
+      where: {
+        $or: [
+          { reporterUserId: userA, targetUserId: userB },
+          { reporterUserId: userB, targetUserId: userA }
+        ],
+        isDeleted: { $ne: true }
+      } as any
+    });
+    if (reportedHistory) return true;
 
-  //   const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
-  //   const reportedHistory = await reportedHistoryRepo.findOne({
-  //     where: {
-  //       $or: [
-  //         { reporterUserId: userA, targetUserId: userB },
-  //         { reporterUserId: userB, targetUserId: userA }
-  //       ],
-  //       isDeleted: { $ne: true }
-  //     } as any
-  //   });
-  //   if (reportedHistory) return true;
-
-  //   return false;
-  // }
+    return false;
+  }
 
   private async getBlockedOrReportedUserIds(userId: ObjectId): Promise<Set<string>> {
     const connectionRepo = AppDataSource.getMongoRepository(Connection);
-    const conversationRepo = AppDataSource.getMongoRepository(Conversation);
     const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
 
-    const [blockedConns, reportedHistories, reportedConvs] = await Promise.all([
+    const [blockedConns, reportedHistories] = await Promise.all([
       connectionRepo.find({
         where: {
           $or: [
@@ -904,12 +894,6 @@ export class MobileMilestoneController {
           ],
           isDeleted: { $ne: true }
         } as any
-      }),
-      conversationRepo.find({
-        where: {
-          participants: { $all: [userId] },
-          status: "REPORTED"
-        } as any
       })
     ]);
 
@@ -922,13 +906,7 @@ export class MobileMilestoneController {
       if (r.reporterUserId.equals(userId)) blockedIds.add(r.targetUserId.toString());
       else blockedIds.add(r.reporterUserId.toString());
     });
-    reportedConvs.forEach(c => {
-      c.participants.forEach(p => {
-        if (!p.equals(userId)) blockedIds.add(p.toString());
-      });
-    });
 
     return blockedIds;
   }
-
 }

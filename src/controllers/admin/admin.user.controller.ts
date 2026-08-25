@@ -303,19 +303,31 @@ export class AdminUserController {
   @HttpCode(StatusCodes.CREATED)
   async create(@Body() userData: CreateAdminUserDto) {
     // Check if email or phone already exists
+    const trimmedEmail = userData.email?.trim().toLowerCase();
+    const trimmedPhone = userData.phoneNumber?.trim();
+
     const existingUser = await this.adminUserRepo.findOne({
       where: {
         $or: [
-          { email: userData.email },
-          { phoneNumber: userData.phoneNumber }
+          { email: trimmedEmail },
+          { phoneNumber: trimmedPhone }
         ],
         isDeleted: false
-      }
+      } as any
     });
 
     if (existingUser) {
+      if (existingUser.email?.toLowerCase() === trimmedEmail) {
+        throw new BadRequestError("Email address already exists for another admin user");
+      }
+      if (existingUser.phoneNumber === trimmedPhone) {
+        throw new BadRequestError("Phone number already exists for another admin user");
+      }
       throw new BadRequestError("Email or Phone number already exists");
     }
+
+    userData.email = trimmedEmail;
+    userData.phoneNumber = trimmedPhone;
 
     const newUser = new AdminUser();
     Object.assign(newUser, userData);
@@ -408,6 +420,45 @@ export class AdminUserController {
 
     if (!user) throw new NotFoundError("Admin user not found");
 
+    // Check duplicate email and phoneNumber against other active admin users
+    const targetEmail = userData.email ? userData.email.trim().toLowerCase() : undefined;
+    const targetPhone = userData.phoneNumber ? userData.phoneNumber.trim() : undefined;
+
+    const duplicateChecks: any[] = [];
+    if (targetEmail && targetEmail !== user.email?.toLowerCase()) {
+      duplicateChecks.push({ email: targetEmail });
+    }
+    if (targetPhone && targetPhone !== user.phoneNumber) {
+      duplicateChecks.push({ phoneNumber: targetPhone });
+    }
+
+    if (duplicateChecks.length > 0) {
+      const existingUser = await this.adminUserRepo.findOne({
+        where: {
+          _id: { $ne: user.id },
+          $or: duplicateChecks,
+          isDeleted: false
+        } as any
+      });
+
+      if (existingUser) {
+        if (targetEmail && existingUser.email?.toLowerCase() === targetEmail) {
+          throw new BadRequestError("Email address already exists for another admin user");
+        }
+        if (targetPhone && existingUser.phoneNumber === targetPhone) {
+          throw new BadRequestError("Phone number already exists for another admin user");
+        }
+        throw new BadRequestError("Email or Phone number already exists for another admin user");
+      }
+    }
+
+    if (targetEmail) {
+      userData.email = targetEmail;
+    }
+    if (targetPhone) {
+      userData.phoneNumber = targetPhone;
+    }
+
     if (userData.pin) {
       userData.pin = await bcrypt.hash(userData.pin, 10);
     }
@@ -461,6 +512,26 @@ export class AdminUserController {
     });
 
     if (!user) throw new NotFoundError("Admin user not found");
+
+    // Check if this user is assigned to any active franchise
+    const franchiseRepo = AppDataSource.getMongoRepository(Franchise);
+    const activeFranchises = await franchiseRepo.find({
+      where: { isDeleted: false }
+    });
+
+    const assignedFranchise = activeFranchises.find(f => {
+      if (!f.userId) return false;
+      if (Array.isArray(f.userId)) {
+        return f.userId.some(uid => uid?.toString() === id.toString());
+      }
+      return (f.userId as any)?.toString() === id.toString();
+    });
+
+    if (assignedFranchise) {
+      throw new BadRequestError(
+        `Cannot delete user. This user is currently assigned to the franchise "${assignedFranchise.name}".`
+      );
+    }
 
     user.isDeleted = true;
     await this.adminUserRepo.save(user);

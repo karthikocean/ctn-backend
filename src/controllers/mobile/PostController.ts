@@ -1625,7 +1625,8 @@ export class MobilePostController {
         $or: [
           { reporterUserId: userA, targetUserId: userB },
           { reporterUserId: userB, targetUserId: userA }
-        ]
+        ],
+        isDeleted: { $ne: true }
       } as any
     });
     if (reportedHistory) return true;

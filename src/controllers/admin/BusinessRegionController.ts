@@ -415,6 +415,21 @@ export class BusinessRegionController {
       const region = await this.regionRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!region) throw new NotFoundError("Business region not found");
 
+      // Check if assigned to any active franchise
+      const franchiseRepo = AppDataSource.getMongoRepository(Franchise);
+      const allRegionIds = [region._id, ...(region.areas?.map((a: any) => new ObjectId(a._id)) || [])];
+      const assignedFranchise = await franchiseRepo.findOne({
+        where: {
+          businessRegionId: { $in: allRegionIds },
+          isDeleted: false
+        } as any
+      });
+      if (assignedFranchise) {
+        throw new BadRequestError(
+          `Business region cannot be deleted as it is assigned to the franchise "${assignedFranchise.name}"`
+        );
+      }
+
       if (region.areas && region.areas.length > 0) {
         const regionIds = region.areas.map((r: any) => new ObjectId(r._id));
         const memberCount = await this.memberRepo.countBy({ businessRegion: { $in: regionIds }, isDeleted: false });

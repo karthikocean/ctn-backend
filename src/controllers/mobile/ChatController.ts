@@ -85,22 +85,14 @@ export class MobileChatController {
     });
     if (blockedConnection) return true;
 
-    // Check if there is a reported conversation between them
-    const reportedConversation = await this.conversationRepo.findOne({
-      where: {
-        participants: { $all: [userA, userB] },
-        status: "REPORTED"
-      } as any
-    });
-    if (reportedConversation) return true;
-
     const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
     const reportedHistory = await reportedHistoryRepo.findOne({
       where: {
         $or: [
           { reporterUserId: userA, targetUserId: userB },
           { reporterUserId: userB, targetUserId: userA }
-        ]
+        ],
+        isDeleted: { $ne: true }
       } as any
     });
     if (reportedHistory) return true;
@@ -423,7 +415,8 @@ export class MobileChatController {
           $or: [
             { reporterUserId: userId, targetUserId: { $in: participantIds } },
             { reporterUserId: { $in: participantIds }, targetUserId: userId }
-          ]
+          ],
+          isDeleted: { $ne: true }
         } as any
       }) : [];
       for (const r of reportedHistories) {
@@ -498,8 +491,8 @@ export class MobileChatController {
         const otherUser = otherParticipantId ? memberMap.get(otherParticipantId.toString()) : null;
         const isMutualMember = otherParticipantId ? mutualSet.has(otherParticipantId.toString()) : false;
         const isBlockedUser = otherParticipantId
-          ? (blockedSet.has(otherParticipantId.toString()) || conv.status === "REPORTED")
-          : (conv.status === "REPORTED");
+          ? (blockedSet.has(otherParticipantId.toString()) || (conv.status === "REPORTED" && conv.reportedBy && conv.reportedBy.toString() === userId.toString()))
+          : false;
         const post = conv.postId ? postMap.get(conv.postId.toString()) : null;
         const product = (conv as any).productId ? productMap.get((conv as any).productId.toString()) : null;
 
@@ -549,14 +542,30 @@ export class MobileChatController {
           lastMessage: visibleLastMessage,
           lastMessageTime: visibleLastMessageTime,
           lastMessageSenderId: visibleLastMessageSenderId,
-          otherUser: otherUser ? {
-            _id: otherUser._id,
-            fullName: otherUser.fullName,
-            profilePhoto: otherUser.profilePhoto,
-            categoryName: categoryName,
-            isOnline: isBlockedUser ? false : (otherUser.isOnline || false),
-            lastSeen: isBlockedUser ? null : (otherUser.lastSeen || null)
-          } : null,
+          otherUser: otherUser ? (() => {
+            const reportedByMe = otherParticipantId ? reportedHistories.some(r => r.reporterUserId?.equals(userId) && r.targetUserId?.equals(otherParticipantId)) : false;
+            const reportedByOther = otherParticipantId ? reportedHistories.some(r => r.reporterUserId?.equals(otherParticipantId) && r.targetUserId?.equals(userId)) : false;
+            const isReported = reportedByMe || reportedByOther;
+            let reportStatus = "NONE";
+            if (reportedByMe && reportedByOther) reportStatus = "MUTUAL_REPORTED";
+            else if (reportedByMe) reportStatus = "REPORTED_BY_ME";
+            else if (reportedByOther) reportStatus = "REPORTED_BY_OTHER";
+
+            return {
+              _id: otherUser._id,
+              fullName: otherUser.fullName,
+              profilePhoto: otherUser.profilePhoto,
+              businessName: otherUser.businessName,
+              categoryName: categoryName,
+              isOnline: isBlockedUser ? false : (otherUser.isOnline || false),
+              lastSeen: isBlockedUser ? null : (otherUser.lastSeen || null),
+              isReported,
+              reportedByMe,
+              reportedByOther,
+              reportStatus,
+              status: isReported ? (reportedByOther ? "REPORTED_BY_OTHER" : "REPORTED_BY_ME") : (otherUser.status || "ACTIVE")
+            };
+          })() : null,
           post: post || null,
           product: product || null,
           milestone: conv.milestoneId ? milestoneMap.get(conv.milestoneId.toString()) : null,
@@ -602,9 +611,7 @@ export class MobileChatController {
       if (!conversation) throw new NotFoundError("Conversation not found");
 
       const otherId = conversation.participants.find(p => !p.equals(userId));
-      const isBlockedMember = otherId
-        ? ((conversation.status === "REPORTED") || (await this.isBlocked(userId, otherId)))
-        : false;
+      const isBlockedMember = otherId ? await this.isBlocked(userId, otherId) : false;
 
       // Only mark messages as read if the users are not blocked/reported
       if (!isBlockedMember) {
@@ -693,7 +700,8 @@ export class MobileChatController {
       const otherParticipantId = conversation.participants.find(p => !p.equals(new ObjectId(req.user.userId)));
       let otherUser = null;
       if (otherParticipantId) {
-        const isBlockedMember = (conversation.status === "REPORTED") || (await this.isBlocked(new ObjectId(req.user.userId), otherParticipantId));
+        const myUserId = new ObjectId(req.user.userId);
+        const isBlockedMember = await this.isBlocked(myUserId, otherParticipantId);
         const user = await this.memberRepo.findOneBy({ _id: otherParticipantId });
         if (user) {
           let categoryName = null;
@@ -701,6 +709,32 @@ export class MobileChatController {
             const cat = await this.categoryRepo.findOneBy({ _id: user.businessCategory });
             categoryName = cat ? cat.name : null;
           }
+
+          // Check report status
+          const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+          const reports = await reportedHistoryRepo.find({
+            where: {
+              $or: [
+                { reporterUserId: myUserId, targetUserId: otherParticipantId },
+                { reporterUserId: otherParticipantId, targetUserId: myUserId }
+              ],
+              isDeleted: { $ne: true }
+            } as any
+          });
+
+          const reportedByMe = reports.some(r => r.reporterUserId?.equals(myUserId));
+          const reportedByOther = reports.some(r => r.reporterUserId?.equals(otherParticipantId));
+          const isReported = reportedByMe || reportedByOther;
+
+          let reportStatus = "NONE";
+          if (reportedByMe && reportedByOther) {
+            reportStatus = "MUTUAL_REPORTED";
+          } else if (reportedByMe) {
+            reportStatus = "REPORTED_BY_ME";
+          } else if (reportedByOther) {
+            reportStatus = "REPORTED_BY_OTHER";
+          }
+
           otherUser = {
             _id: user._id,
             fullName: user.fullName,
@@ -708,7 +742,12 @@ export class MobileChatController {
             businessName: user.businessName,
             categoryName: categoryName,
             isOnline: isBlockedMember ? false : (user.isOnline || false),
-            lastSeen: isBlockedMember ? null : (user.lastSeen || null)
+            lastSeen: isBlockedMember ? null : (user.lastSeen || null),
+            isReported,
+            reportedByMe,
+            reportedByOther,
+            reportStatus,
+            status: isReported ? (reportedByOther ? "REPORTED_BY_OTHER" : "REPORTED_BY_ME") : (user.status || "ACTIVE")
           };
         }
       }
@@ -726,9 +765,7 @@ export class MobileChatController {
       const total = filteredMessages.length;
       const messages = filteredMessages.slice(page * limit, (page + 1) * limit);
       const otherParticipant = conversation.participants.find(p => !p.equals(userId));
-      const isBlockedWithOther = otherParticipant
-        ? ((conversation.status === "REPORTED") || (await this.isBlocked(userId, otherParticipant)))
-        : false;
+      const isBlockedWithOther = otherParticipant ? await this.isBlocked(userId, otherParticipant) : false;
 
       // Only consider unread messages that are VISIBLE and NOT BLOCKED for this user
       const unreadVisibleMessageIds = messages
@@ -965,6 +1002,8 @@ export class MobileChatController {
         conversation.status = "ACCEPTED";
         conversation.isDeleted = false;
         delete conversation.deletedBy;
+        delete conversation.reportedBy;
+        delete conversation.reportReason;
         if (!conversation.userStatuses) conversation.userStatuses = {};
         conversation.userStatuses[userId.toString()] = "ACCEPTED";
         delete (conversation as any).statusUpdatedBy;
@@ -986,19 +1025,19 @@ export class MobileChatController {
         if (otherId) {
           const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
           const existingReport = await reportedHistoryRepo.findOne({
-            where: { reporterUserId: userId, targetUserId: otherId } as any
+            where: { reporterUserId: userId, targetUserId: otherId, isDeleted: { $ne: true } } as any
           });
           if (existingReport) {
             throw new BadRequestError("You have already reported this user");
           }
-          if (!existingReport) {
-            const report = new ReportedHistory();
-            report.reporterUserId = userId;
-            report.targetUserId = otherId;
-            report.moduleName = "CONVERSATION";
-            report.reason = reason || "Reported User in Conversation";
-            await reportedHistoryRepo.save(report);
-          }
+          const report = new ReportedHistory();
+          report.reporterUserId = userId;
+          report.targetUserId = otherId;
+          report.moduleName = "CONVERSATION";
+          report.reason = reason || "Reported User in Conversation";
+          report.status = "REPORTED";
+          report.isDeleted = false;
+          await reportedHistoryRepo.save(report);
         }
       } else {
         // Personal categorization (like pinned / folder tag: USEFUL, MAY_BE_LATER, MAYBE_LATER, REJECTED)
@@ -1476,7 +1515,7 @@ export class MobileChatController {
         await this.conversationRepo.save(conversation);
       }
 
-      const isBlockedMember = (conversation.status === "REPORTED") || (await this.isBlocked(senderId, receiverId));
+      const isBlockedMember = await this.isBlocked(senderId, receiverId);
 
       // Auto-generate content for Business Actions if missing
       if (!content) {

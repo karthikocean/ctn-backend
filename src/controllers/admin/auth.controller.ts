@@ -105,7 +105,7 @@ export class AuthController {
 
       const isMatch = await bcrypt.compare(password, credential);
       if (!isMatch) {
-        throw new UnauthorizedError("Invalid email or password");
+        throw new UnauthorizedError("Invalid password");
       }
 
       // Check if the account is active
