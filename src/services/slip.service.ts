@@ -155,7 +155,7 @@ export class SlipService {
   }) {
     try {
       const { currentUserId, senderId, receiverId, detectedType, status, reason, moduleId } = params;
-      if (status === 'REPORTED') {
+      if (status === "REPORTED") {
         return;
       }
       const isSender = senderId?.toString() === currentUserId;

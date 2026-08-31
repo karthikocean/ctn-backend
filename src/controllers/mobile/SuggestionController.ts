@@ -21,6 +21,7 @@ import { pagination } from "../../utils";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { notifyAdminOnSuggestion } from "../../services/pushnotification.service";
+import imageService from "../../utils/upload";
 
 /**
  * @swagger
@@ -263,6 +264,7 @@ export class MobileSuggestionController {
         });
       }
 
+      const oldImage = suggestion.image;
       const updateFields: any = {};
       if (body.title !== undefined) updateFields.title = body.title.trim();
       if (body.description !== undefined) updateFields.description = body.description.trim();
@@ -279,6 +281,11 @@ export class MobileSuggestionController {
         { _id: new ObjectId(id) },
         { $set: updateFields }
       );
+
+      // Clean up replaced S3 image
+      if (body.image !== undefined) {
+        imageService.cleanupReplacedFiles(oldImage, body.image);
+      }
 
       const updated = await this.suggestionRepo.findOne({
         where: { _id: new ObjectId(id) } as any
@@ -341,6 +348,11 @@ export class MobileSuggestionController {
         { _id: new ObjectId(id) },
         { $set: { isDeleted: true } }
       );
+
+      // Clean up S3 image
+      if (suggestion.image) {
+        await imageService.cleanupFiles(suggestion.image);
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,

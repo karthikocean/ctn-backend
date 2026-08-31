@@ -28,6 +28,7 @@ import { OnlineStallProduct } from "../../entity/OnlineStallProduct";
 import { ReportedHistory } from "../../entity/ReportedHistory";
 import { Reminder, ReminderRecipientType } from "../../entity/Reminder";
 import { ReminderService } from "../../services/ReminderService";
+import imageService from "../../utils/upload";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
@@ -1890,10 +1891,16 @@ export class MobileChatController {
       if (!message) throw new NotFoundError("Message not found");
       if (!message.senderId.equals(userId)) throw new BadRequestError("You can only delete your own messages");
 
+      const oldMedia = message.media;
       message.isDeleted = true;
       message.content = "This conversation marked as deleted";
       if ((message as any).media) delete (message as any).media;
       await this.messageRepo.save(message);
+
+      // Clean up S3 media files
+      if (oldMedia && oldMedia.length > 0) {
+        await imageService.cleanupFiles(oldMedia);
+      }
 
       const conversation = await this.conversationRepo.findOneBy({ _id: message.conversationId });
       if (conversation) {

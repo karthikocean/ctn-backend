@@ -23,6 +23,7 @@ import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { canAccess } from "../../middlewares/PermissionMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 import { PostReport } from "../../entity/PostReport";
+import imageService from "../../utils/upload";
 
 @JsonController("/posts")
 @UseBefore(AuthMiddleware, franchiseFilter)
@@ -338,6 +339,11 @@ export class PostController {
 
       post.isDeleted = true;
       await this.postRepo.save(post);
+
+      // Clean up S3 media files for this post
+      if (post.media && post.media.length > 0) {
+        await imageService.cleanupFiles(post.media);
+      }
 
       return res.status(StatusCodes.OK).json({ message: "Post deleted successfully" });
     } catch (error: any) {

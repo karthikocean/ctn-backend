@@ -1,4 +1,3 @@
-import { getIO } from "../../utils/socket";
 import {
   JsonController,
   Get,
@@ -27,6 +26,7 @@ import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import jwt from "jsonwebtoken";
 import handleErrorResponse from "../../utils/commonFunction";
+import imageService from "../../utils/upload";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import bcrypt from "bcryptjs";
 import { UserToken } from "../../entity/UserToken";
@@ -439,6 +439,12 @@ export class MobileMemberController {
       const member = await this.memberRepo.findOneBy({ _id: new ObjectId(userId), isDeleted: false });
       if (!member) throw new NotFoundError("Profile not found");
 
+      const oldProfilePhoto = member.profilePhoto;
+      const oldProfileBanner = member.profileBanner;
+      const oldWorkImages = member.workImages;
+      const oldCertifications = member.certifications;
+      const oldBusinessDocuments = member.businessDocuments;
+
       Object.assign(member, data);
       console.log(JSON.stringify(data), "data");
       if (data.businessCategory) member.businessCategory = new ObjectId(data.businessCategory);
@@ -454,6 +460,24 @@ export class MobileMemberController {
         member.dob = parseDob(data.dob);
       }
       const saved = await this.memberRepo.save(member);
+
+      // Clean up replaced S3 files
+      if (data.profilePhoto !== undefined) {
+        imageService.cleanupReplacedFiles(oldProfilePhoto, data.profilePhoto);
+      }
+      if (data.profileBanner !== undefined) {
+        imageService.cleanupReplacedFiles(oldProfileBanner, data.profileBanner);
+      }
+      if (data.workImages !== undefined) {
+        imageService.cleanupReplacedFiles(oldWorkImages, data.workImages);
+      }
+      if (data.certifications !== undefined) {
+        imageService.cleanupReplacedFiles(oldCertifications, data.certifications);
+      }
+      if (data.businessDocuments !== undefined) {
+        imageService.cleanupReplacedFiles(oldBusinessDocuments, data.businessDocuments);
+      }
+
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Profile updated successfully",
@@ -506,6 +530,17 @@ export class MobileMemberController {
           { receiverId: new ObjectId(userId) }
         ]
       } as any);
+
+      // Clean up member S3 media files
+      const memberMediaFiles = [
+        member.profilePhoto,
+        member.profileBanner,
+        ...(member.workImages || []),
+        ...(member.certifications || []),
+        ...(member.businessDocuments || []),
+        ...(member.productsServices || []).map((p) => p.image)
+      ].filter(Boolean);
+      await imageService.cleanupFiles(memberMediaFiles);
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -1571,11 +1606,11 @@ export class MobileMemberController {
       tySlipsReceived,
       responsedData
     ] = await Promise.all([
-      this.oneToOneRepo.count({ $or: [{ senderId: id }, { receiverId: id }], status: { $ne: 'REPORTED' } } as any),
-      this.referralRepo.count({ senderId: id, status: { $ne: 'REPORTED' } }),
-      this.referralRepo.count({ receiverId: id, status: { $ne: 'REPORTED' } }),
-      this.tySlipRepo.find({ where: { senderId: id, status: { $ne: 'REPORTED' } } }),
-      this.tySlipRepo.find({ where: { receiverId: id, status: { $ne: 'REPORTED' } } }),
+      this.oneToOneRepo.count({ $or: [{ senderId: id }, { receiverId: id }], status: { $ne: "REPORTED" } } as any),
+      this.referralRepo.count({ senderId: id, status: { $ne: "REPORTED" } }),
+      this.referralRepo.count({ receiverId: id, status: { $ne: "REPORTED" } }),
+      this.tySlipRepo.find({ where: { senderId: id, status: { $ne: "REPORTED" } } }),
+      this.tySlipRepo.find({ where: { receiverId: id, status: { $ne: "REPORTED" } } }),
       this.postRepo.find({ memberId: id, isDeleted: false })
     ]);
 
@@ -1610,9 +1645,9 @@ export class MobileMemberController {
 
     console.log(`[PROFILE_COUNTS] Member ID: ${memberId}`);
     console.log(`[PROFILE_COUNTS] Followers count: ${followers.length}`);
-    console.log(`[PROFILE_COUNTS] Follower IDs (senderIds):`, followerIds);
+    console.log("[PROFILE_COUNTS] Follower IDs (senderIds):", followerIds);
     console.log(`[PROFILE_COUNTS] Followings count: ${followings.length}`);
-    console.log(`[PROFILE_COUNTS] Following IDs (receiverIds):`, followingIds);
+    console.log("[PROFILE_COUNTS] Following IDs (receiverIds):", followingIds);
 
     return {
       followersCount: followers.length,
@@ -2054,7 +2089,6 @@ export class MobileMemberController {
           }
         }
       );
-
 
       return res.status(StatusCodes.OK).json({
         success: true,

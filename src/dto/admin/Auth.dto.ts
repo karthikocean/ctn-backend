@@ -66,50 +66,50 @@ export const PASSWORD_POLICY_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{
 export class LoginDto {
   @IsEmail({}, { message: "Please enter a valid email address (e.g. admin@trustednetwork.in)" })
   @IsNotEmpty({ message: "Email address is required" })
-  email!: string;
+    email!: string;
 
   @IsString({ message: "Password must be a string" })
   @IsNotEmpty({ message: "Password is required" })
-  password!: string;
+    password!: string;
 }
 
 export class ChangePinDto {
   @IsString()
   @IsNotEmpty({ message: "Current password is required" })
-  oldPin!: string;
+    oldPin!: string;
 
   @Matches(PASSWORD_POLICY_REGEX, {
     message: "New password must be at least 8 characters long and contain at least one uppercase letter, one number, and one special character"
   })
   @IsNotEmpty({ message: "New password is required" })
-  newPin!: string;
+    newPin!: string;
 }
 
 export class ForgotPinDto {
   @IsEmail({}, { message: "Please enter a valid email address" })
   @IsNotEmpty({ message: "Email is required" })
-  email!: string;
+    email!: string;
 }
 
 export class VerifyOtpDto {
   @IsEmail({}, { message: "Please enter a valid email address" })
   @IsNotEmpty({ message: "Email is required" })
-  email!: string;
+    email!: string;
 
   @Length(4, 4, { message: "OTP must be exactly 4 digits" })
   @IsString()
   @IsNotEmpty({ message: "OTP is required" })
-  otp!: string;
+    otp!: string;
 }
 
 export class ResetPinDto {
   @IsEmail({}, { message: "Please enter a valid email address" })
   @IsNotEmpty({ message: "Email is required" })
-  email!: string;
+    email!: string;
 
   @Matches(PASSWORD_POLICY_REGEX, {
     message: "Password must be at least 8 characters long and contain at least one uppercase letter, one number, and one special character"
   })
   @IsNotEmpty({ message: "New password is required" })
-  newPassword!: string;
+    newPassword!: string;
 }

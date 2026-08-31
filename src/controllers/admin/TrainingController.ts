@@ -26,6 +26,7 @@ import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { canAccess } from "../../middlewares/PermissionMiddleware";
+import imageService from "../../utils/upload";
 
 @JsonController("/trainings")
 @UseBefore(AuthMiddleware)
@@ -223,6 +224,11 @@ export class TrainingController {
       const training = await this.trainingRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
       if (!training) throw new NotFoundError("Training course not found");
 
+      const oldThumbnail = training.thumbnail;
+      const oldBanner = training.banner;
+      const oldAuthorImage = training.authorImage;
+      const oldLessonFiles = (training.lessons || []).flatMap((l) => [l.videoUrl, l.thumbnail]).filter(Boolean);
+
       Object.assign(training, data);
 
       if (data.categoryId !== undefined) {
@@ -245,6 +251,22 @@ export class TrainingController {
       }
 
       const saved = await this.trainingRepo.save(training);
+
+      // Clean up replaced S3 media files
+      if (data.thumbnail !== undefined) {
+        imageService.cleanupReplacedFiles(oldThumbnail, data.thumbnail);
+      }
+      if (data.banner !== undefined) {
+        imageService.cleanupReplacedFiles(oldBanner, data.banner);
+      }
+      if (data.authorImage !== undefined) {
+        imageService.cleanupReplacedFiles(oldAuthorImage, data.authorImage);
+      }
+      if (data.lessons !== undefined) {
+        const newLessonFiles = (data.lessons || []).flatMap((l: any) => [l.videoUrl, l.thumbnail]).filter(Boolean);
+        imageService.cleanupReplacedFiles(oldLessonFiles, newLessonFiles);
+      }
+
       return res.status(StatusCodes.OK).json({
         message: "Training course updated successfully",
         data: saved
@@ -272,6 +294,15 @@ export class TrainingController {
 
       training.isDeleted = true;
       await this.trainingRepo.save(training);
+
+      // Clean up all S3 media files for this training
+      const allFiles = [
+        training.thumbnail,
+        training.banner,
+        training.authorImage,
+        ...(training.lessons || []).flatMap((l) => [l.videoUrl, l.thumbnail])
+      ].filter(Boolean);
+      await imageService.cleanupFiles(allFiles);
 
       return res.status(StatusCodes.OK).json({ message: "Training course deleted successfully" });
     } catch (error: any) {

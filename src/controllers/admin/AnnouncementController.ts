@@ -26,6 +26,7 @@ import { AnnouncementBooking } from "../../entity/AnnouncementBooking";
 import { notifyAnnouncementAudience } from "../../services/pushnotification.service";
 import { StallBooking } from "../../entity/StallBooking";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
+import imageService from "../../utils/upload";
 
 @JsonController("/announcements")
 export class AdminAnnouncementController {
@@ -261,6 +262,8 @@ export class AdminAnnouncementController {
 
       if (!announcement) throw new NotFoundError("Announcement not found");
 
+      const oldImage = announcement.image;
+      const oldVideo = announcement.video;
       const previousStatus = announcement.status;
       Object.assign(announcement, data);
 
@@ -325,7 +328,15 @@ export class AdminAnnouncementController {
       announcement.updatedBy = new ObjectId(req.user.userId);
       const saved = await this.announcementRepo.save(announcement);
 
-      if (saved && saved.status === AnnouncementStatus.PUBLISHED && previousStatus !== AnnouncementStatus.PUBLISHED) {
+      // Clean up replaced S3 media files
+      if (data.image !== undefined) {
+        imageService.cleanupReplacedFiles(oldImage, data.image);
+      }
+      if (data.video !== undefined) {
+        imageService.cleanupReplacedFiles(oldVideo, data.video);
+      }
+
+      if (saved && previousStatus !== AnnouncementStatus.PUBLISHED && data.status === AnnouncementStatus.PUBLISHED) {
         notifyAnnouncementAudience({
           announcementId: saved._id.toString(),
           title: saved.title || "New Announcement",
@@ -367,6 +378,9 @@ export class AdminAnnouncementController {
 
       announcement.isDeleted = true;
       await this.announcementRepo.save(announcement);
+
+      // Clean up S3 image and video
+      await imageService.cleanupFiles([announcement.image, announcement.video].filter(Boolean));
 
       return res.status(StatusCodes.OK).json({
         success: true,
