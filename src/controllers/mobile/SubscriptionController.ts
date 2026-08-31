@@ -153,7 +153,9 @@ export class MobileSubscriptionController {
         }
       }
 
-      // Map plans to include action and isTrial fields
+      const isFirstTimeBuyer = memberId ? await this.subscriptionService.isFirstTimeBuyer(memberId) : true;
+
+      // Map plans to include action, isTrial, isFirstTimeBuyer, and payableAmount
       const mappedPlans = plans.map(p => {
         const effectiveTrialDays = refferalUserFlag ? 10 : (p.trialDays ?? 0);
         let action: string | null = "Get Trial";
@@ -183,11 +185,15 @@ export class MobileSubscriptionController {
           }
         }
 
+        const effectivePrice = isFirstTimeBuyer && p.offerPrice && p.offerPrice > 0 ? p.offerPrice : p.amount;
+
         return {
           ...p,
           trialDays: effectiveTrialDays,
           refferalUserFlag,
           isTrial,
+          isFirstTimeBuyer,
+          payableAmount: effectivePrice,
           action
         };
       });

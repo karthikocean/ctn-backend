@@ -749,6 +749,33 @@ export class SubscriptionService {
     return savedSub;
   }
 
+  async isFirstTimeBuyer(memberId: string | ObjectId): Promise<boolean> {
+    const memberObjectId = new ObjectId(memberId);
+
+    // 1. Check for any completed payments with amount > 0
+    const paidPayment = await this.paymentRepo.findOne({
+      where: {
+        memberId: memberObjectId,
+        status: "COMPLETED",
+        amount: { $gt: 0 },
+        isDeleted: false
+      } as any
+    });
+    if (paidPayment) return false;
+
+    // 2. Check for any previous or active non-trial MemberSubscription
+    const paidSub = await this.subRepo.findOne({
+      where: {
+        memberId: memberObjectId,
+        isTrial: false,
+        isDeleted: false
+      } as any
+    });
+    if (paidSub) return false;
+
+    return true;
+  }
+
   async createSubscriptionPayment(memberId: string | ObjectId, planId: string, paymentMethod: string) {
     const memberObjectId = new ObjectId(memberId);
     const planObjectId = new ObjectId(planId);
@@ -758,12 +785,15 @@ export class SubscriptionService {
       throw new NotFoundError("Subscription plan not found");
     }
 
+    const isFirstTime = await this.isFirstTimeBuyer(memberObjectId);
+    const amountToCharge = isFirstTime && plan.offerPrice && plan.offerPrice > 0 ? plan.offerPrice : plan.amount;
+
     const transactionId = "TXN_" + crypto.randomBytes(8).toString("hex").toUpperCase();
 
     const payment = new Payment();
     payment.memberId = memberObjectId;
     payment.planId = planObjectId;
-    payment.amount = plan.amount;
+    payment.amount = amountToCharge;
     payment.paymentMethod = paymentMethod;
     payment.transactionId = transactionId;
     payment.status = "PENDING";

@@ -176,7 +176,11 @@ export class RazorpayUpgradeService {
       }
     }
 
-    const amountToCharge = plan.amount; // In rupees
+    const isFirstTime = await this.subService.isFirstTimeBuyer(memberId);
+    const amountToCharge = isFirstTime && plan.offerPrice && plan.offerPrice > 0
+      ? plan.offerPrice
+      : plan.amount; // In rupees
+
     if (amountToCharge <= 0) {
       throw new BadRequestError("Invalid plan amount for purchase.");
     }

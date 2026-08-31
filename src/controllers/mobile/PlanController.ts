@@ -114,7 +114,9 @@ export class MobilePlanController {
       // If user has chosen trial (hasUsedTrial or isCurrentSubTrial), show isTrial = true for entire plans
       const userHasChoosedTrial = Boolean(hasUsedTrial || isCurrentSubTrial);
 
-      // Map plans to include action, isTrial, isTrail, refferalUserFlag, and adjust trialDays to 10 if referral user
+      const isFirstTimeBuyer = memberId ? await new SubscriptionService().isFirstTimeBuyer(memberId) : true;
+
+      // Map plans to include action, isTrial, isTrail, refferalUserFlag, isFirstTimeBuyer, payableAmount, and adjust trialDays to 10 if referral user
       const mappedPlans = plans.map(p => {
         const effectiveTrialDays = refferalUserFlag ? 10 : (p.trialDays ?? 0);
         let action: string | null = "Get Trial";
@@ -140,12 +142,16 @@ export class MobilePlanController {
           }
         }
 
+        const effectivePrice = isFirstTimeBuyer && p.offerPrice && p.offerPrice > 0 ? p.offerPrice : p.amount;
+
         return {
           ...p,
           trialDays: effectiveTrialDays,
           refferalUserFlag,
           // isTrial,
           isTrail: isTrial, // support both spellings for client compatibility
+          isFirstTimeBuyer,
+          payableAmount: effectivePrice,
           action
         };
       });
@@ -214,6 +220,8 @@ export class MobilePlanController {
         }
       }
 
+      const isFirstTimeBuyer = memberId ? await new SubscriptionService().isFirstTimeBuyer(memberId) : true;
+      const effectivePrice = isFirstTimeBuyer && plan.offerPrice && plan.offerPrice > 0 ? plan.offerPrice : plan.amount;
       const userHasChoosedTrial = Boolean(hasUsedTrial || isCurrentSubTrial);
       const effectiveTrialDays = refferalUserFlag ? 10 : (plan.trialDays ?? 0);
 
@@ -223,6 +231,8 @@ export class MobilePlanController {
           ...plan,
           trialDays: effectiveTrialDays,
           refferalUserFlag,
+          isFirstTimeBuyer,
+          payableAmount: effectivePrice,
           isTrial: userHasChoosedTrial,
           isTrail: userHasChoosedTrial
         }
