@@ -39,6 +39,7 @@ import { PointConfigType } from "../../entity/PointConfig";
 import { DailyScoreService } from "../../services/dailyScore.service";
 import { notifyPostAudience, notifyGivePostAudience, insertPushNotification } from "../../services/pushnotification.service";
 import { NotificationModule } from "../../entity/PushNotifications";
+import imageService from "../../utils/upload";
 
 const getObjectIdStr = (val: any): string | null => {
   if (!val) return null;
@@ -1553,6 +1554,11 @@ export class MobilePostController {
 
       post.isDeleted = true;
       await this.postRepo.save(post);
+
+      // Clean up S3 media files
+      if (post.media && post.media.length > 0) {
+        await imageService.cleanupFiles(post.media);
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,

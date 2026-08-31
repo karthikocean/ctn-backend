@@ -23,6 +23,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { CreateBlogDto, UpdateBlogDto } from "../../dto/admin/Blog.dto";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
+import imageService from "../../utils/upload";
 
 @JsonController("/blogs")
 @UseBefore(AuthMiddleware, franchiseFilter)
@@ -172,6 +173,7 @@ export class AdminBlogController {
         }
       }
 
+      const oldImages = blog.images;
       const title = data.title || blog.title;
       const slug = data.slug || blog.slug;
 
@@ -202,6 +204,11 @@ export class AdminBlogController {
       Object.assign(blog, data);
       blog.updatedBy = new ObjectId(req.user.userId);
       const saved = await this.blogRepo.save(blog);
+
+      // Clean up replaced S3 images
+      if (data.images !== undefined) {
+        imageService.cleanupReplacedFiles(oldImages, data.images);
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -241,6 +248,9 @@ export class AdminBlogController {
       blog.isDeleted = true;
       blog.updatedBy = new ObjectId(req.user.userId);
       await this.blogRepo.save(blog);
+
+      // Clean up S3 images
+      await imageService.cleanupFiles(blog.images);
 
       return res.status(StatusCodes.OK).json({
         success: true,

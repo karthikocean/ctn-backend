@@ -3,7 +3,6 @@ import { NotifyBy, Reminder, ReminderRecipientType, ReminderStatus, RepeatType }
 import { Message, MessageType } from "../entity/Message";
 import { Conversation } from "../entity/Conversation";
 import { Member } from "../entity/Member";
-import { Contact, ContactType } from "../entity/Contact";
 import { Connection, ConnectionStatus } from "../entity/Connection";
 import { CreateReminderDto } from "../dto/mobile/CreateReminderDto";
 import { UpdateReminderDto } from "../dto/mobile/UpdateReminderDto";

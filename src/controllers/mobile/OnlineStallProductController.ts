@@ -28,6 +28,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { CreateOnlineStallProductDto, UpdateOnlineStallProductDto } from "../../dto/mobile/OnlineStallProduct.dto";
 import { validateModuleUsage } from "../../services/moduleUsage.service";
 import { PointService } from "../../services/point.service";
+import imageService from "../../utils/upload";
 import { PointConfigType } from "../../entity/PointConfig";
 
 @JsonController("/online-stall-products")
@@ -653,6 +654,8 @@ export class MobileOnlineStallProductController {
         });
       }
 
+      const oldImages = product.images;
+
       Object.assign(product, body);
       if (body.price !== undefined) {
         product.price = Number(body.price);
@@ -661,6 +664,11 @@ export class MobileOnlineStallProductController {
         product.marketplaceCategory = new ObjectId(body.marketplaceCategory);
       }
       const saved = await this.productRepo.save(product);
+
+      // Clean up replaced S3 images
+      if (body.images !== undefined) {
+        imageService.cleanupReplacedFiles(oldImages, body.images);
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -717,6 +725,11 @@ export class MobileOnlineStallProductController {
 
       product.isDeleted = true;
       await this.productRepo.save(product);
+
+      // Clean up S3 images
+      if (product.images && product.images.length > 0) {
+        await imageService.cleanupFiles(product.images);
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,

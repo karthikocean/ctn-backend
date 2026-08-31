@@ -6,7 +6,6 @@ import { Member, MemberStatus } from "../entity/Member";
 import { UserReferral, UserReferralStatus } from "../entity/UserReferral";
 import { MemberPoints } from "../entity/MemberPoints";
 import { PointHistory } from "../entity/PointHistory";
-import { REFERRAL_CONFIG } from "../config/referral.config";
 import { DeepLinkFactory } from "./deep-link/deep-link.factory";
 import { Plan } from "../entity/Plan";
 import { MemberSubscription } from "../entity/MemberSubscription";

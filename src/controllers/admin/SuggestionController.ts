@@ -16,6 +16,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import pagination from "../../utils/pagination";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
+import imageService from "../../utils/upload";
 
 /**
  * @swagger
@@ -364,6 +365,11 @@ export class AdminSuggestionController {
       }
 
       await this.suggestionRepo.deleteOne({ _id: new ObjectId(id) });
+
+      // Clean up S3 image
+      if (suggestion.image) {
+        await imageService.cleanupFiles(suggestion.image);
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,

@@ -33,18 +33,24 @@ export class AdminPushNotificationController {
   @UseBefore(AuthMiddleware)
   async getUnreadCount(@Req() req: any, @Res() res: any) {
     try {
-      const adminUserId = req.user?._id ? new ObjectId(req.user._id) : (req.user?.id ? new ObjectId(req.user.id) : null);
+      const rawId = req.user?.userId || req.user?._id || req.user?.id;
+      const adminUserId = rawId && ObjectId.isValid(rawId) ? new ObjectId(rawId) : null;
 
-      const count = await this.pushNotificationRepo.count({
-        where: {
-          $or: [
-            ...(adminUserId ? [{ receiverId: adminUserId }] : []),
-            { moduleName: NotificationModule.SUGGESTION }
-          ],
-          isRead: false,
-          isDeleted: false
-        } as any
-      });
+      const query: any = {
+        isRead: false,
+        isDeleted: false
+      };
+
+      const orConditions = [
+        ...(adminUserId ? [{ receiverId: adminUserId }] : []),
+        { moduleName: NotificationModule.SUGGESTION }
+      ];
+
+      if (orConditions.length > 0) {
+        query.$or = orConditions;
+      }
+
+      const count = await this.pushNotificationRepo.countDocuments(query);
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -74,7 +80,8 @@ export class AdminPushNotificationController {
     @Res() res: any
   ) {
     try {
-      const adminUserId = req.user?._id ? new ObjectId(req.user._id) : (req.user?.id ? new ObjectId(req.user.id) : null);
+      const rawId = req.user?.userId || req.user?._id || req.user?.id;
+      const adminUserId = rawId && ObjectId.isValid(rawId) ? new ObjectId(rawId) : null;
       page = Number(page) || 0;
       limit = Number(limit) || 10;
 

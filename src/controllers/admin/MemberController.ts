@@ -28,6 +28,7 @@ import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import bcrypt from "bcryptjs";
+import imageService from "../../utils/upload";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 import { MailService } from "../../services/mail.service";
@@ -514,6 +515,17 @@ export class AdminMemberController {
           { receiverId: new ObjectId(id) }
         ]
       } as any);
+
+      // Clean up member S3 media files
+      const memberMediaFiles = [
+        member.profilePhoto,
+        member.profileBanner,
+        ...(member.workImages || []),
+        ...(member.certifications || []),
+        ...(member.businessDocuments || []),
+        ...(member.productsServices || []).map((p) => p.image)
+      ].filter(Boolean);
+      await imageService.cleanupFiles(memberMediaFiles);
 
       return res.status(StatusCodes.OK).json({
         success: true,

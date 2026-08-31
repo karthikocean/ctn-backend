@@ -77,6 +77,83 @@ export class AdminMediaController {
       return handleErrorResponse(error, res);
     }
   }
+  /**
+   * @swagger
+   * /api/admin/media/view:
+   *   get:
+   *     summary: Get a full public S3 URL for a stored relative file path
+   *     tags: [Admin Media]
+   *     parameters:
+   *       - in: query
+   *         name: file
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Relative path stored in DB (e.g. /posts/media-xxx.jpg)
+   *     responses:
+   *       200:
+   *         description: Public S3 URL returned
+   */
+  @Get("/view")
+  @HttpCode(StatusCodes.OK)
+  async viewMedia(@QueryParam("file") file: string, @Res() res: any) {
+    try {
+      if (!file) {
+        throw new BadRequestError("Query parameter 'file' is required.");
+      }
+      const url = imageService.getFileUrl(file);
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: { file, url }
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/media/private-view:
+   *   get:
+   *     summary: Generate a pre-signed S3 URL for a private file
+   *     tags: [Admin Media]
+   *     parameters:
+   *       - in: query
+   *         name: file
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Relative path stored in DB (e.g. /trainings/media-xxx.mp4)
+   *       - in: query
+   *         name: expiresIn
+   *         schema:
+   *           type: integer
+   *         description: Expiry in seconds (default 3600)
+   *     responses:
+   *       200:
+   *         description: Pre-signed URL returned
+   */
+  @Get("/private-view")
+  @HttpCode(StatusCodes.OK)
+  async privateView(
+    @QueryParam("file") file: string,
+    @QueryParam("expiresIn") expiresIn: number,
+    @Res() res: any
+  ) {
+    try {
+      if (!file) {
+        throw new BadRequestError("Query parameter 'file' is required.");
+      }
+      const ttl = expiresIn && expiresIn > 0 ? expiresIn : 3600;
+      const url = await imageService.getPrivateFileUrl(file, ttl);
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: { file, url, expiresIn: ttl }
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
 
   /**
    * @swagger

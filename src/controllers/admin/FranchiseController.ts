@@ -2,10 +2,7 @@ import {
   JsonController,
   Get,
   Post,
-  Put,
-  Delete,
   Body,
-  Param,
   QueryParam,
   NotFoundError,
   BadRequestError,
@@ -17,9 +14,9 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Franchise, FranchiseStatus } from "../../entity/Franchise";
 import { BusinessRegion } from "../../entity/BusinessRegion";
-import { resolveRegions, resolveRegion } from "../../utils/region.helper";
+import { resolveRegions } from "../../utils/region.helper";
 import { AdminUser } from "../../entity/AdminUser";
-import { CreateFranchiseDto, UpdateFranchiseDto } from "../../dto/admin/Franchise.dto";
+import { CreateFranchiseDto } from "../../dto/admin/Franchise.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";

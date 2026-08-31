@@ -24,6 +24,8 @@
     "db:migrate-referrals": "ts-node src/scripts/migrateUserReferralCodes.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1121.0",
+    "@aws-sdk/s3-request-presigner": "^3.1121.0",
     "@bull-board/api": "^5.23.0",
     "@bull-board/express": "^5.23.0",
     "axios": "^1.15.2",

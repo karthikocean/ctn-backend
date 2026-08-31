@@ -25,6 +25,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { CreateEventDto, UpdateEventDto } from "../../dto/admin/Event.dto";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
+import imageService from "../../utils/upload";
 
 @JsonController("/events")
 @UseBefore(AuthMiddleware, franchiseFilter)
@@ -177,9 +178,20 @@ export class AdminEventController {
         }
       }
 
+      const oldImage = event.image;
+      const oldVideo = event.video;
+
       Object.assign(event, data);
       event.updatedBy = new ObjectId(req.user.userId);
       const saved = await this.eventRepo.save(event);
+
+      // Clean up replaced S3 files
+      if (data.image !== undefined) {
+        imageService.cleanupReplacedFiles(oldImage, data.image);
+      }
+      if (data.video !== undefined) {
+        imageService.cleanupReplacedFiles(oldVideo, data.video);
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,
@@ -219,6 +231,9 @@ export class AdminEventController {
       event.isDeleted = true;
       event.updatedBy = new ObjectId(req.user.userId);
       await this.eventRepo.save(event);
+
+      // Clean up S3 image and video
+      await imageService.cleanupFiles([event.image, event.video].filter(Boolean));
 
       return res.status(StatusCodes.OK).json({
         success: true,

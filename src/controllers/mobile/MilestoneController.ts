@@ -27,6 +27,7 @@ import { CreateMilestoneDto, UpdateMilestoneDto } from "../../dto/mobile/Milesto
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import handleErrorResponse from "../../utils/commonFunction";
+import imageService from "../../utils/upload";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { pagination } from "../../utils";
 import { getIO, isUserInConversation } from "../../utils/socket";
@@ -802,6 +803,11 @@ export class MobileMilestoneController {
       milestone.isDeleted = true;
       await this.milestoneRepo.save(milestone);
 
+      // Clean up S3 media file
+      if (milestone.mediaUrl) {
+        await imageService.cleanupFiles(milestone.mediaUrl);
+      }
+
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Milestone deleted successfully"
@@ -844,7 +850,7 @@ export class MobileMilestoneController {
     return !!(conn1 && conn2);
   }
 
-    private async isBlocked(userA: ObjectId, userB: ObjectId): Promise<boolean> {
+  private async isBlocked(userA: ObjectId, userB: ObjectId): Promise<boolean> {
     const connectionRepo = AppDataSource.getMongoRepository(Connection);
     const blockedConnection = await connectionRepo.findOne({
       where: {

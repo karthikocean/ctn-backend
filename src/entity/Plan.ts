@@ -46,6 +46,12 @@ export class Plan {
   @Column({ type: "number" })
     amount!: number;
 
+  @Column({ type: "number", nullable: true })
+    percentage?: number;
+
+  @Column({ type: "number", nullable: true })
+    offerPrice?: number;
+
   @Column({ default: "active" })
     status!: "active" | "inactive";
 

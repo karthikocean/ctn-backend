@@ -503,7 +503,7 @@ export class MobileConnectionController {
         });
         targetMemberIds = followings.map(f => f.receiverId);
         console.log(`[RELATIONSHIP_LIST] Type: FOLLOWING, Target User ID: ${targetUserId}`);
-        console.log(`[RELATIONSHIP_LIST] Following IDs from Connection table:`, targetMemberIds.map(id => id?.toString()));
+        console.log("[RELATIONSHIP_LIST] Following IDs from Connection table:", targetMemberIds.map(id => id?.toString()));
       }
       else if (type === "FOLLOWERS") {
         const followers = await this.connectionRepo.find({
@@ -511,7 +511,7 @@ export class MobileConnectionController {
         });
         targetMemberIds = followers.map(f => f.senderId);
         console.log(`[RELATIONSHIP_LIST] Type: FOLLOWERS, Target User ID: ${targetUserId}`);
-        console.log(`[RELATIONSHIP_LIST] Followers IDs from Connection table:`, targetMemberIds.map(id => id?.toString()));
+        console.log("[RELATIONSHIP_LIST] Followers IDs from Connection table:", targetMemberIds.map(id => id?.toString()));
       }
       else if (type === "MUTUAL") {
         // Mutual: Both followings and followers exist
@@ -528,7 +528,7 @@ export class MobileConnectionController {
           .filter(f => followingIds.has(f.senderId.toString()))
           .map(f => f.senderId);
         console.log(`[RELATIONSHIP_LIST] Type: MUTUAL, Target User ID: ${targetUserId}`);
-        console.log(`[RELATIONSHIP_LIST] Mutual IDs from Connection table:`, targetMemberIds.map(id => id?.toString()));
+        console.log("[RELATIONSHIP_LIST] Mutual IDs from Connection table:", targetMemberIds.map(id => id?.toString()));
       }
       else if (type === "ALL") {
         // All: combined, unique list of both followings and followers
@@ -545,7 +545,7 @@ export class MobileConnectionController {
         targetMemberIds = Array.from(new Set([...followingIds, ...followerIds]))
           .map(id => new ObjectId(id));
         console.log(`[RELATIONSHIP_LIST] Type: ALL, Target User ID: ${targetUserId}`);
-        console.log(`[RELATIONSHIP_LIST] All IDs from Connection table:`, targetMemberIds.map(id => id?.toString()));
+        console.log("[RELATIONSHIP_LIST] All IDs from Connection table:", targetMemberIds.map(id => id?.toString()));
       }
 
       if (targetMemberIds.length === 0) {
@@ -592,7 +592,7 @@ export class MobileConnectionController {
       const returnedIds = new Set(members.map(m => m._id.toString()));
       const missingIds = targetMemberIds.map(id => id.toString()).filter(id => !returnedIds.has(id));
       if (missingIds.length > 0) {
-        console.log(`[RELATIONSHIP_LIST] Missing / Inactive / Deleted / Filtered Member IDs:`, missingIds);
+        console.log("[RELATIONSHIP_LIST] Missing / Inactive / Deleted / Filtered Member IDs:", missingIds);
       }
 
       const paginatedMemberIds = members.map(m => m._id);
