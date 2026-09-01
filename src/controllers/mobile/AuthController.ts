@@ -53,6 +53,9 @@ export class MobileAuthController {
       if (!member) {
         throw new UnauthorizedError("User Account not found!!");
       }
+      if (member.status === MemberStatus.BLOCKED) {
+        throw new UnauthorizedError("Account is blocked. Please contact administrator.");
+      }
       if (!member.pin) {
         throw new BadRequestError(
           "PIN not configured. Please set your PIN to proceed."
@@ -62,6 +65,12 @@ export class MobileAuthController {
       if (!isMatch) {
         throw new UnauthorizedError("Invalid credentials");
       }
+
+      member.lastLoggedIn = new Date();
+      if (member.status === MemberStatus.INACTIVE) {
+        member.status = MemberStatus.ACTIVE;
+      }
+      await this.memberRepo.save(member);
 
       const token = await this.generateToken(member);
 
@@ -112,8 +121,8 @@ export class MobileAuthController {
           "Member not found with this " + (type === "phone" ? "phone number" : type)
         );
       }
-      if (member.status !== MemberStatus.ACTIVE) {
-        throw new BadRequestError("Account is not active. Please contact administrator.");
+      if (member.status === MemberStatus.BLOCKED) {
+        throw new BadRequestError("Account is blocked. Please contact administrator.");
       }
 
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
@@ -175,7 +184,7 @@ export class MobileAuthController {
   async verifyOtpLogin(@Body() body: MobileVerifyOtpLoginDto, @Res() res: any) {
     try {
       const { identifier, type, otp, fcmToken } = body;
-      console.log(body, "body");
+      // console.log(body, "body");
       // if (!fcmToken) {
       //   throw new BadRequestError("FCM token is required");
       // }
@@ -204,13 +213,17 @@ export class MobileAuthController {
       if (!member) {
         throw new UnauthorizedError("User not found");
       }
-      if (member.status !== MemberStatus.ACTIVE) {
-        throw new BadRequestError("Account is not active. Please contact administrator.");
+      if (member.status === MemberStatus.BLOCKED) {
+        throw new BadRequestError("Account is blocked. Please contact administrator.");
       }
+      if (member.status === MemberStatus.INACTIVE) {
+        member.status = MemberStatus.ACTIVE;
+      }
+      member.lastLoggedIn = new Date();
       if (fcmToken) {
         member.fcmToken = fcmToken;
-        await this.memberRepo.save(member);
       }
+      await this.memberRepo.save(member);
 
       const token = await this.generateToken(member);
 

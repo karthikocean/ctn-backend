@@ -118,6 +118,7 @@ export class MobileMemberController {
       member.dailyScore = 0;
       member.dob = data.dob ? parseDob(data.dob) : undefined;
       member.status = MemberStatus.ACTIVE; // Or PENDING if you have an approval flow
+      member.lastLoggedIn = new Date();
       member.referralCode = await this.referralService.generateUniqueReferralCode("Trusted Network");
       // if (referrerMember) {
       //   member.referredBy = referrerMember._id;
@@ -202,6 +203,7 @@ export class MobileMemberController {
       if (!member) throw new NotFoundError("Member not found");
 
       member.pin = await bcrypt.hash(pin, 10);
+      member.lastLoggedIn = new Date();
       await this.memberRepo.save(member);
 
       const token = await this.getOrRefreshMemberToken(member);
@@ -252,6 +254,12 @@ export class MobileMemberController {
       if (!isMatch) {
         throw new BadRequestError("Invalid PIN");
       }
+
+      member.lastLoggedIn = new Date();
+      if (member.status === MemberStatus.INACTIVE) {
+        member.status = MemberStatus.ACTIVE;
+      }
+      await this.memberRepo.save(member);
 
       const token = await this.getOrRefreshMemberToken(member);
 

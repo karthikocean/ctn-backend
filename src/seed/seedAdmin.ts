@@ -69,14 +69,10 @@ export async function seedAdmin() {
       email: "admin@trustednetwork.in",
       phoneNumber: "9999999999",
       pin: hashedPin,
-
       userId: "US001",
-
       roleId: adminRole._id,
-
       createdBy: adminRole._id,
       updatedBy: adminRole._id,
-
       isActive: true,
       isDeleted: false
     });

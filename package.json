@@ -21,13 +21,15 @@
     "format": "prettier --write \"src/**/*.{ts,js,json}\"",
     "db:clean": "ts-node src/scripts/cleanup.ts",
     "db:migrate-marketplace": "ts-node src/scripts/migrateMarketplaceCategories.ts",
-    "db:migrate-referrals": "ts-node src/scripts/migrateUserReferralCodes.ts"
+    "db:migrate-referrals": "ts-node src/scripts/migrateUserReferralCodes.ts",
+    "db:migrate-purchased": "ts-node src/scripts/migrateMembersToPurchased.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",
     "@aws-sdk/s3-request-presigner": "^3.1121.0",
     "@bull-board/api": "^5.23.0",
     "@bull-board/express": "^5.23.0",
+    "@types/pdfkit": "^0.17.6",
     "axios": "^1.15.2",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.81.3",
@@ -50,6 +52,7 @@
     "morgan": "^1.10.1",
     "node-cron": "^4.6.0",
     "nodemailer": "^9.0.5",
+    "pdfkit": "^0.20.2",
     "rate-limit-redis": "^6.0.1",
     "razorpay": "^2.9.6",
     "reflect-metadata": "^0.2.2",
