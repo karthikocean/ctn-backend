@@ -226,6 +226,9 @@ export class Member {
   @Column({ nullable: true })
     lastSeen?: Date;
 
+  @Column({ nullable: true })
+    lastLoggedIn?: Date;
+
   @CreateDateColumn()
     createdAt!: Date;
 
