@@ -34,6 +34,8 @@ export interface ServiceLocation {
 @Index(["referredBy"])
 @Index(["status"])
 @Index(["isDeleted"])
+@Index(["businessRegion", "isDeleted"])
+@Index(["businessRegion"])
 export class Member {
   @ObjectIdColumn()
     _id!: ObjectId;

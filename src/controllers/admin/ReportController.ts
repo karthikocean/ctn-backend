@@ -118,9 +118,12 @@ export class AdminReportController {
       };
 
       let finalMemberIds = filteredMemberIds;
-      if (req.isFranchise && req.franchiseMemberIds && Array.isArray(req.franchiseMemberIds)) {
-        const franchiseIdStrs = new Set(req.franchiseMemberIds.map((id: any) => id.toString()));
-        finalMemberIds = finalMemberIds.filter(id => franchiseIdStrs.has(id.toString()));
+      if (req.isFranchise) {
+        if (req.franchiseAreaIds && req.franchiseAreaIds.length > 0) {
+          matchFilter.businessRegion = { $in: req.franchiseAreaIds };
+        } else {
+          matchFilter.businessRegion = new ObjectId();
+        }
       }
 
       if (finalMemberIds.length === 0) {
@@ -354,9 +357,12 @@ export class AdminReportController {
       };
 
       let finalMemberIds = filteredMemberIds;
-      if (req.isFranchise && req.franchiseMemberIds && Array.isArray(req.franchiseMemberIds)) {
-        const franchiseIdStrs = new Set(req.franchiseMemberIds.map((id: any) => id.toString()));
-        finalMemberIds = finalMemberIds.filter(id => franchiseIdStrs.has(id.toString()));
+      if (req.isFranchise) {
+        if (req.franchiseAreaIds && req.franchiseAreaIds.length > 0) {
+          matchFilter.businessRegion = { $in: req.franchiseAreaIds };
+        } else {
+          matchFilter.businessRegion = new ObjectId();
+        }
       }
 
       if (finalMemberIds.length === 0) {

@@ -9,7 +9,8 @@ import {
   HttpCode,
   QueryParam,
   BadRequestError,
-  NotFoundError
+  NotFoundError,
+  ForbiddenError
 } from "routing-controllers";
 import { StatusCodes } from "http-status-codes";
 import { AppDataSource } from "../../data-source";
@@ -23,6 +24,7 @@ import { SubscriptionFeatureUsage } from "../../entity/SubscriptionFeatureUsage"
 import { SubscriptionService } from "../../services/subscription.service";
 import { RazorpayUpgradeService, RazorpayVerificationService } from "../../services/razorpay.service";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
+import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { StartTrialDto, UpgradeSubscriptionDto, BuySubscriptionDto, DowngradeSubscriptionDto, VerifyRazorpayPaymentDto, CancelRazorpayPaymentDto } from "../../dto/mobile/Subscription.dto";
 import handleErrorResponse from "../../utils/commonFunction";
 import pagination from "../../utils/pagination";
@@ -36,11 +38,21 @@ export class MobileSubscriptionController {
   private subscriptionService = new SubscriptionService();
   private razorpayUpgradeService = new RazorpayUpgradeService();
   private razorpayVerificationService = new RazorpayVerificationService();
-  private planRepo = AppDataSource.getMongoRepository(Plan);
-  private subRepo = AppDataSource.getMongoRepository(MemberSubscription);
-  private paymentRepo = AppDataSource.getMongoRepository(Payment);
-  private memberRepo = AppDataSource.getMongoRepository(Member);
-  private usageRepo = AppDataSource.getMongoRepository(SubscriptionFeatureUsage);
+  private get planRepo() {
+    return AppDataSource.getMongoRepository(Plan);
+  }
+  private get subRepo() {
+    return AppDataSource.getMongoRepository(MemberSubscription);
+  }
+  private get paymentRepo() {
+    return AppDataSource.getMongoRepository(Payment);
+  }
+  private get memberRepo() {
+    return AppDataSource.getMongoRepository(Member);
+  }
+  private get usageRepo() {
+    return AppDataSource.getMongoRepository(SubscriptionFeatureUsage);
+  }
 
   /**
    * @swagger
@@ -534,9 +546,20 @@ export class MobileSubscriptionController {
    *         description: Razorpay signature verification and activation results
    */
   @Post("/verify-payment")
-  async verifyPayment(@Body() body: VerifyRazorpayPaymentDto, @Res() res: any) {
+  @UseBefore(MobileAuthMiddleware)
+  async verifyPayment(@Req() req: any, @Body() body: VerifyRazorpayPaymentDto, @Res() res: any) {
     try {
       const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = body;
+      const payment = await this.paymentRepo.findOneBy({ transactionId: razorpayOrderId });
+      if (!payment) {
+        throw new NotFoundError("Payment transaction not found");
+      }
+
+      // IDOR / Ownership check: Ensure the authenticated user owns this payment order
+      if (req.user?.userId && payment.memberId && payment.memberId.toString() !== req.user.userId.toString()) {
+        throw new ForbiddenError("You are not authorized to verify this payment transaction");
+      }
+
       const result = await this.razorpayVerificationService.verifyUpgradePayment(
         razorpayOrderId,
         razorpayPaymentId,
@@ -565,12 +588,18 @@ export class MobileSubscriptionController {
    *         description: Payment transaction cancelled successfully
    */
   @Post("/cancel-payment")
-  async cancelPayment(@Body() body: CancelRazorpayPaymentDto, @Res() res: any) {
+  @UseBefore(MobileAuthMiddleware)
+  async cancelPayment(@Req() req: any, @Body() body: CancelRazorpayPaymentDto, @Res() res: any) {
     try {
       const { razorpayOrderId } = body;
       const payment = await this.paymentRepo.findOneBy({ transactionId: razorpayOrderId });
       if (!payment) {
         throw new NotFoundError("Payment transaction not found");
+      }
+
+      // IDOR / Ownership check: Ensure the authenticated user owns this payment order
+      if (req.user?.userId && payment.memberId && payment.memberId.toString() !== req.user.userId.toString()) {
+        throw new ForbiddenError("You are not authorized to cancel this payment transaction");
       }
 
       if (payment.status === "COMPLETED") {
@@ -729,6 +758,7 @@ export class MobileSubscriptionController {
    *         description: Platform subscription metrics
    */
   @Get("/analytics")
+  @UseBefore(AuthMiddleware)
   async getAnalytics(@Res() res: any) {
     try {
       const trialUsers = await this.subRepo.count({ type: "TRIAL", status: "ACTIVE", isDeleted: false });

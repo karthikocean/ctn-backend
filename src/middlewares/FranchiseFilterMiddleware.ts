@@ -69,32 +69,44 @@ export const franchiseFilter = async (req: any, res: Response, next: NextFunctio
         areaIds.push(new ObjectId(franchise.businessRegionId));
       }
 
-      // Fetch matching member IDs in these assigned areas
-      const memberRepo = AppDataSource.getMongoRepository(Member);
-      const members = await memberRepo.find({
-        where: {
-          businessRegion: { $in: areaIds },
-          isDeleted: false
-        } as any,
-        select: ["_id"]
-      });
-
-      const memberIds = members.map(m => m._id);
-
       req.isFranchise = true;
       req.franchise = franchise;
       req.franchiseAreaIds = areaIds;
-      req.franchiseMemberIds = memberIds;
+
+      // Optimization: Do NOT eagerly load all member IDs into memory on every request.
+      // Instead, provide a lazy, request-scoped memoized getter for endpoints that specifically need IDs.
+      let cachedMemberIds: ObjectId[] | null = null;
+      req.getFranchiseMemberIds = async (): Promise<ObjectId[]> => {
+        if (cachedMemberIds !== null) return cachedMemberIds;
+        if (areaIds.length === 0) {
+          cachedMemberIds = [];
+          return cachedMemberIds;
+        }
+        const memberRepo = AppDataSource.getMongoRepository(Member);
+        const members = await memberRepo.find({
+          where: {
+            businessRegion: { $in: areaIds },
+            isDeleted: false
+          } as any,
+          select: ["_id"]
+        });
+        cachedMemberIds = members.map(m => m._id);
+        return cachedMemberIds;
+      };
+
+      req.franchiseMemberIds = [];
     } else if (isFranchiseRole) {
       req.isFranchise = true;
       req.franchise = null;
       req.franchiseAreaIds = [];
       req.franchiseMemberIds = [];
+      req.getFranchiseMemberIds = async () => [];
     } else {
       req.isFranchise = false;
       req.franchise = null;
       req.franchiseAreaIds = [];
       req.franchiseMemberIds = [];
+      req.getFranchiseMemberIds = async () => [];
     }
 
     next();
