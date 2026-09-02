@@ -177,34 +177,14 @@ export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => v
     }
 
     // 2. Verify Session (UserToken) in database
-    console.log(`[SocketAuth] Querying UserToken in DB for userOid: ${userOid}`);
     const tokenRepo = AppDataSource.getMongoRepository(UserToken);
-    let activeTokenRecord = await tokenRepo.findOneBy({
+    const activeTokenRecord = await tokenRepo.findOneBy({
       userId: userOid,
       token: cleanToken
     });
 
     if (!activeTokenRecord) {
-      console.log("[SocketAuth] Token not found in DB. Checking older token...");
-      // Handle concurrent/rotation grace period
-      const dbRecord = await tokenRepo.findOneBy({ userId: userOid });
-      if (dbRecord) {
-        try {
-          const decodedDb = jwt.decode(dbRecord.token) as any;
-          const decodedClient = jwt.decode(cleanToken) as any;
-          if (decodedDb && decodedClient && (decodedClient.iat || 0) <= (decodedDb.iat || 0)) {
-            activeTokenRecord = dbRecord;
-            socket.data.newToken = dbRecord.token;
-            console.log("[SocketAuth] Accepted valid older token.");
-          }
-        } catch (e) {
-          console.error("[SocketAuth] Error during older token verification:", e);
-        }
-      }
-    }
-
-    if (!activeTokenRecord) {
-      console.log("[SocketAuth] Rejecting: Session expired (Token not found in DB)");
+      console.log(`[SocketAuth] Rejecting: Session expired (Token not found in DB for user ${userId})`);
       return next(new Error("Authentication error: Session expired"));
     }
 

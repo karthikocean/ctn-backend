@@ -369,6 +369,86 @@ export class MobileAuthController {
     }
   }
 
+  /**
+   * @swagger
+   * /mobile-api/auth/logout:
+   *   post:
+   *     summary: Member logout (invalidates current session token)
+   *     tags: [Mobile Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Logout successful
+   */
+  @Post("/logout")
+  @HttpCode(StatusCodes.OK)
+  @UseBefore(MobileAuthMiddleware)
+  async logout(@Req() req: any, @Res() res: any) {
+    try {
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.replace(/^Bearer\s+/i, "");
+      const memberId = req.user.userId;
+
+      if (token) {
+        await this.tokenRepo.deleteMany({
+          userId: new ObjectId(memberId),
+          token: token
+        } as any);
+      }
+
+      // Clear FCM token on logout so push notifications stop arriving for this device
+      await this.memberRepo.updateOne(
+        { _id: new ObjectId(memberId) },
+        { $unset: { fcmToken: "" } } as any
+      );
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Logout successful"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/auth/logout-all:
+   *   post:
+   *     summary: Logout from all devices (invalidates all sessions for this member)
+   *     tags: [Mobile Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Logged out from all devices successfully
+   */
+  @Post("/logout-all")
+  @HttpCode(StatusCodes.OK)
+  @UseBefore(MobileAuthMiddleware)
+  async logoutAll(@Req() req: any, @Res() res: any) {
+    try {
+      const memberId = req.user.userId;
+
+      await this.tokenRepo.deleteMany({
+        userId: new ObjectId(memberId)
+      } as any);
+
+      await this.memberRepo.updateOne(
+        { _id: new ObjectId(memberId) },
+        { $unset: { fcmToken: "" } } as any
+      );
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Logged out from all devices successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
   private async generateToken(member: Member): Promise<string> {
     const jwtSecret = process.env.JWT_SECRET as string;
     const jwtExpiresIn = (process.env.JWT_EXPIRES_IN || "30d") as any;
