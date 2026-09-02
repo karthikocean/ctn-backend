@@ -38,6 +38,10 @@ import { IsNotEmpty, IsString, Length, IsOptional, IsBoolean } from "class-valid
 export class SendOtpDto {
   @IsString()
   @IsOptional()
+    name?: string;
+
+  @IsString()
+  @IsOptional()
     phone?: string;
 
   @IsString()

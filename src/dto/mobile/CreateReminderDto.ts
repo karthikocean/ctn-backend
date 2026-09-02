@@ -1,6 +1,5 @@
 import { IsString, IsNotEmpty, IsOptional, IsNumber, IsEnum } from "class-validator";
 import { ReminderRecipientType } from "../../entity/Reminder";
-// import { RepeatType, NotifyBy } from "../../entity/Reminder";
 
 /**
  * @swagger
@@ -39,14 +38,6 @@ export class CreateReminderDto {
   @IsString()
   @IsOptional()
     description?: string;
-
-  // @IsString()
-  // @IsNotEmpty()
-  //   module!: string;
-
-  // @IsString()
-  // @IsOptional()
-  //   moduleId?: string;
 
   @IsString()
   @IsNotEmpty()

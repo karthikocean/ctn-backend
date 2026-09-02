@@ -5,11 +5,15 @@ import { insertPushNotification } from "./pushnotification.service";
 import { MailService } from "./mail.service";
 import cron from "node-cron";
 import { NotificationModule } from "../entity/PushNotifications";
+import { ObjectId } from "mongodb";
 
 export class SubscriptionCronService {
-  private static memberRepo = AppDataSource.getMongoRepository(Member);
-  private static subRepo = AppDataSource.getMongoRepository(MemberSubscription);
-  // private static planRepo = AppDataSource.getMongoRepository(Plan);
+  private static get memberRepo() {
+    return AppDataSource.getMongoRepository(Member);
+  }
+  private static get subRepo() {
+    return AppDataSource.getMongoRepository(MemberSubscription);
+  }
 
   /**
    * Initializes the cron jobs for subscription expiration & trial plan notifications
@@ -43,6 +47,23 @@ export class SubscriptionCronService {
   }
 
   /**
+   * Helper: Bulk fetch members by an array of member IDs (O(1) database query)
+   */
+  private static async getMembersMap(memberIds: (ObjectId | string)[]): Promise<Map<string, Member>> {
+    const validOids = memberIds
+      .filter((id): id is ObjectId | string => Boolean(id) && ObjectId.isValid(id.toString()))
+      .map(id => (typeof id === "string" ? new ObjectId(id) : id));
+
+    if (validOids.length === 0) return new Map();
+
+    const members = await this.memberRepo.find({
+      where: { _id: { $in: validOids }, isDeleted: false } as any
+    });
+
+    return new Map(members.map(m => [m._id.toString(), m]));
+  }
+
+  /**
    * Main job execution logic (can be triggered manually as well)
    */
   static async runDailySubscriptionJob() {
@@ -61,45 +82,53 @@ export class SubscriptionCronService {
 
     console.log(`[Cron] Found ${expiredSubscriptions.length} expired subscriptions.`);
 
-    for (const sub of expiredSubscriptions) {
-      try {
-        // Expire subscription
-        sub.status = "EXPIRED";
-        await this.subRepo.save(sub);
+    if (expiredSubscriptions.length > 0) {
+      const expiredSubIds = expiredSubscriptions.map(s => s._id);
+      const expiredMemberIds = expiredSubscriptions.map(s => s.memberId);
 
-        // Fetch Member
-        const member = await this.memberRepo.findOneBy({ _id: sub.memberId, isDeleted: false });
-        if (!member) continue;
+      // Bulk fetch all relevant members in 1 single query (eliminates N+1)
+      const memberMap = await this.getMembersMap(expiredMemberIds);
 
-        // Downgrade member to Guest access by clearing subscriptionId and planId
-        member.subscriptionId = null as any;
-        member.planId = null as any;
-        await this.memberRepo.save(member);
+      // Bulk update expired subscriptions to EXPIRED
+      await this.subRepo.updateMany(
+        { _id: { $in: expiredSubIds } } as any,
+        { $set: { status: "EXPIRED" } } as any
+      );
 
-        // Notify member
-        const messageText = `Your ${sub.type} subscription expired today and has been downgraded to Guest Access. Upgrade to continue enjoying premium benefits!`;
+      // Bulk downgrade members to Guest access
+      await this.memberRepo.updateMany(
+        { _id: { $in: expiredMemberIds } } as any,
+        { $set: { subscriptionId: null, planId: null } } as any
+      );
 
-        // Email
-        if (member.email) {
-          await MailService.sendEmail(
-            member.email,
-            "Your Subscription Has Expired - Trusted Network",
-            `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-          );
+      // Send notifications
+      for (const sub of expiredSubscriptions) {
+        try {
+          const member = memberMap.get(sub.memberId.toString());
+          if (!member) continue;
+
+          const messageText = `Your ${sub.type} subscription expired today and has been downgraded to Guest Access. Upgrade to continue enjoying premium benefits!`;
+
+          if (member.email) {
+            MailService.sendEmail(
+              member.email,
+              "Your Subscription Has Expired - Trusted Network",
+              `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
+            ).catch(e => console.error(`[Cron] Email error for ${member.email}:`, e.message));
+          }
+
+          if (member.fcmToken) {
+            insertPushNotification({
+              token: member.fcmToken,
+              subject: "Subscription Expired",
+              content: messageText,
+              moduleName: NotificationModule.PLAN_EXPIRY,
+              receiverId: member._id.toString()
+            }).catch(e => console.error(`[Cron] Push error for member ${member._id}:`, e.message));
+          }
+        } catch (err: any) {
+          console.error(`[Cron] Error processing expired sub ${sub._id}:`, err.message);
         }
-
-        // Push
-        if (member.fcmToken) {
-          await insertPushNotification({
-            token: member.fcmToken,
-            subject: "Subscription Expired",
-            content: messageText,
-            moduleName: NotificationModule.PLAN_EXPIRY,
-            receiverId: member._id.toString()
-          });
-        }
-      } catch (err: any) {
-        console.error(`[Cron] Error processing expired sub ${sub._id}:`, err.message);
       }
     }
 
@@ -127,36 +156,37 @@ export class SubscriptionCronService {
 
     console.log(`[Cron] Found ${expiringIn30DaysSubs.length} subscriptions ending in 30 days.`);
 
-    for (const sub of expiringIn30DaysSubs) {
-      if (sub.type === "FREE") continue;
+    if (expiringIn30DaysSubs.length > 0) {
+      const nonFreeSubs = expiringIn30DaysSubs.filter(s => s.type !== "FREE");
+      const memberMap = await this.getMembersMap(nonFreeSubs.map(s => s.memberId));
 
-      try {
-        const member = await this.memberRepo.findOneBy({ _id: sub.memberId, isDeleted: false });
-        if (!member) continue;
+      for (const sub of nonFreeSubs) {
+        try {
+          const member = memberMap.get(sub.memberId.toString());
+          if (!member) continue;
 
-        const messageText = "Your subscription plan will expire in 30 days. Renew your plan to continue enjoying Trusted Network benefits.";
+          const messageText = "Your subscription plan will expire in 30 days. Renew your plan to continue enjoying Trusted Network benefits.";
 
-        // Email
-        if (member.email) {
-          await MailService.sendEmail(
-            member.email,
-            "Plan Expiring Soon",
-            `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-          );
+          if (member.email) {
+            MailService.sendEmail(
+              member.email,
+              "Plan Expiring Soon",
+              `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
+            ).catch(e => console.error(`[Cron 30d] Email error:`, e.message));
+          }
+
+          if (member.fcmToken) {
+            insertPushNotification({
+              token: member.fcmToken,
+              subject: "Plan Expiring Soon",
+              content: messageText,
+              moduleName: NotificationModule.PLAN_EXPIRY,
+              receiverId: member._id.toString()
+            }).catch(e => console.error(`[Cron 30d] Push error:`, e.message));
+          }
+        } catch (err: any) {
+          console.error(`[Cron] Error sending 30 days notification for sub ${sub._id}:`, err.message);
         }
-
-        // Push Notification
-        if (member.fcmToken) {
-          await insertPushNotification({
-            token: member.fcmToken,
-            subject: "Plan Expiring Soon",
-            content: messageText,
-            moduleName: NotificationModule.PLAN_EXPIRY,
-            receiverId: member._id.toString()
-          });
-        }
-      } catch (err: any) {
-        console.error(`[Cron] Error sending 30 days notification for sub ${sub._id}:`, err.message);
       }
     }
 
@@ -184,41 +214,42 @@ export class SubscriptionCronService {
 
     console.log(`[Cron] Found ${expiringIn15DaysSubs.length} subscriptions ending in 15 days.`);
 
-    for (const sub of expiringIn15DaysSubs) {
-      if (sub.type === "FREE") continue;
+    if (expiringIn15DaysSubs.length > 0) {
+      const nonFreeSubs = expiringIn15DaysSubs.filter(s => s.type !== "FREE");
+      const memberMap = await this.getMembersMap(nonFreeSubs.map(s => s.memberId));
 
-      try {
-        const member = await this.memberRepo.findOneBy({ _id: sub.memberId, isDeleted: false });
-        if (!member) continue;
+      for (const sub of nonFreeSubs) {
+        try {
+          const member = memberMap.get(sub.memberId.toString());
+          if (!member) continue;
 
-        const messageText = "Your subscription plan will expire in 15 days. Renew your plan to continue enjoying Trusted Network benefits.";
+          const messageText = "Your subscription plan will expire in 15 days. Renew your plan to continue enjoying Trusted Network benefits.";
 
-        // Email
-        if (member.email) {
-          await MailService.sendEmail(
-            member.email,
-            "Plan Expiring Soon",
-            `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-          );
+          if (member.email) {
+            MailService.sendEmail(
+              member.email,
+              "Plan Expiring Soon",
+              `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
+            ).catch(e => console.error(`[Cron 15d] Email error:`, e.message));
+          }
+
+          if (member.fcmToken) {
+            insertPushNotification({
+              token: member.fcmToken,
+              subject: "Plan Expiring Soon",
+              content: messageText,
+              moduleName: NotificationModule.PLAN_EXPIRY,
+              receiverId: member._id.toString()
+            }).catch(e => console.error(`[Cron 15d] Push error:`, e.message));
+          }
+        } catch (err: any) {
+          console.error(`[Cron] Error sending 15 days notification for sub ${sub._id}:`, err.message);
         }
-
-        // Push Notification
-        if (member.fcmToken) {
-          await insertPushNotification({
-            token: member.fcmToken,
-            subject: "Plan Expiring Soon",
-            content: messageText,
-            moduleName: NotificationModule.PLAN_EXPIRY,
-            receiverId: member._id.toString()
-          });
-        }
-      } catch (err: any) {
-        console.error(`[Cron] Error sending 15 days notification for sub ${sub._id}:`, err.message);
       }
     }
 
     // ==========================================
-    // 3. PROCESS SUBSCRIPTIONS ENDING SOON (IN 3 DAYS)
+    // 4. PROCESS SUBSCRIPTIONS ENDING SOON (IN 3 DAYS)
     // ==========================================
     const threeDaysFromNowStart = new Date();
     threeDaysFromNowStart.setDate(threeDaysFromNowStart.getDate() + 3);
@@ -241,37 +272,37 @@ export class SubscriptionCronService {
 
     console.log(`[Cron] Found ${expiringSoonSubs.length} subscriptions ending in 3 days.`);
 
-    for (const sub of expiringSoonSubs) {
-      // Do not remind FREE plans
-      if (sub.type === "FREE") continue;
+    if (expiringSoonSubs.length > 0) {
+      const nonFreeSubs = expiringSoonSubs.filter(s => s.type !== "FREE");
+      const memberMap = await this.getMembersMap(nonFreeSubs.map(s => s.memberId));
 
-      try {
-        const member = await this.memberRepo.findOneBy({ _id: sub.memberId, isDeleted: false });
-        if (!member) continue;
+      for (const sub of nonFreeSubs) {
+        try {
+          const member = memberMap.get(sub.memberId.toString());
+          if (!member) continue;
 
-        const messageText = "Your subscription plan will expire in 3 days. Renew your plan to continue enjoying Trusted Network benefits.";
+          const messageText = "Your subscription plan will expire in 3 days. Renew your plan to continue enjoying Trusted Network benefits.";
 
-        // Email
-        if (member.email) {
-          await MailService.sendEmail(
-            member.email,
-            "Plan Expiring Soon",
-            `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-          );
+          if (member.email) {
+            MailService.sendEmail(
+              member.email,
+              "Plan Expiring Soon",
+              `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
+            ).catch(e => console.error(`[Cron 3d] Email error:`, e.message));
+          }
+
+          if (member.fcmToken) {
+            insertPushNotification({
+              token: member.fcmToken,
+              subject: "Plan Expiring Soon",
+              content: messageText,
+              moduleName: NotificationModule.PLAN_EXPIRY,
+              receiverId: member._id.toString()
+            }).catch(e => console.error(`[Cron 3d] Push error:`, e.message));
+          }
+        } catch (err: any) {
+          console.error(`[Cron] Error sending ending soon notification for sub ${sub._id}:`, err.message);
         }
-
-        // Push
-        if (member.fcmToken) {
-          await insertPushNotification({
-            token: member.fcmToken,
-            subject: "Plan Expiring Soon",
-            content: messageText,
-            moduleName: NotificationModule.PLAN_EXPIRY,
-            receiverId: member._id.toString()
-          });
-        }
-      } catch (err: any) {
-        console.error(`[Cron] Error sending ending soon notification for sub ${sub._id}:`, err.message);
       }
     }
   }
@@ -293,6 +324,10 @@ export class SubscriptionCronService {
 
     console.log(`[Cron 10:00 AM] Found ${activeTrialSubs.length} active TRIAL subscription(s).`);
 
+    if (activeTrialSubs.length === 0) return;
+
+    const memberMap = await this.getMembersMap(activeTrialSubs.map(s => s.memberId));
+
     for (const sub of activeTrialSubs) {
       try {
         if (!sub.endDate) continue;
@@ -303,30 +338,28 @@ export class SubscriptionCronService {
 
         if (remainingDays <= 0) continue;
 
-        const member = await this.memberRepo.findOneBy({ _id: sub.memberId, isDeleted: false });
+        const member = memberMap.get(sub.memberId.toString());
         if (!member) continue;
 
         const dayString = `${remainingDays} day${remainingDays > 1 ? "s" : ""} left`;
         const messageText = `Your Trial plan has ${dayString}. Upgrade now to retain all your premium benefits!`;
 
-        // Send Push Notification
         if (member.fcmToken) {
-          await insertPushNotification({
+          insertPushNotification({
             token: member.fcmToken,
             subject: `Trial Plan: ${dayString}`,
             content: messageText,
             moduleName: NotificationModule.TRIAL,
             receiverId: member._id.toString()
-          });
+          }).catch(e => console.error(`[Cron Trial] Push error:`, e.message));
         }
 
-        // Send Email notification
         if (member.email) {
-          await MailService.sendEmail(
+          MailService.sendEmail(
             member.email,
             `Trial Expiry Notice: ${dayString}`,
             `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-          );
+          ).catch(e => console.error(`[Cron Trial] Email error:`, e.message));
         }
       } catch (err: any) {
         console.error(`[Cron 10:00 AM] Error sending trial remaining days notification for sub ${sub._id}:`, err.message);

@@ -3,6 +3,7 @@ import {
   Middleware,
   BadRequestError
 } from "routing-controllers";
+import { logger } from "../utils/logger";
 
 @Middleware({ type: "after" })
 export class ErrorLogger implements ExpressErrorMiddlewareInterface {
@@ -28,7 +29,7 @@ export class ErrorLogger implements ExpressErrorMiddlewareInterface {
       }
     }
 
-    console.error("Unhandled error:", error);
+    logger.error("Unhandled error in routing-controller", error, "ErrorLogger");
 
     const httpCode = (error as any)?.httpCode || 500;
 

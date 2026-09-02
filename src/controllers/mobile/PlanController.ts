@@ -142,10 +142,14 @@ export class MobilePlanController {
           }
         }
 
+        const effectiveOfferPrice = isFirstTimeBuyer ? (p.offerPrice ?? 0) : 0;
+        const effectivePercentage = isFirstTimeBuyer ? (p.percentage ?? 0) : 0;
         const effectivePrice = isFirstTimeBuyer && p.offerPrice && p.offerPrice > 0 ? p.offerPrice : p.amount;
 
         return {
           ...p,
+          offerPrice: effectiveOfferPrice,
+          percentage: effectivePercentage,
           trialDays: effectiveTrialDays,
           refferalUserFlag,
           // isTrial,
@@ -221,6 +225,8 @@ export class MobilePlanController {
       }
 
       const isFirstTimeBuyer = memberId ? await new SubscriptionService().isFirstTimeBuyer(memberId) : true;
+      const effectiveOfferPrice = isFirstTimeBuyer ? (plan.offerPrice ?? 0) : 0;
+      const effectivePercentage = isFirstTimeBuyer ? (plan.percentage ?? 0) : 0;
       const effectivePrice = isFirstTimeBuyer && plan.offerPrice && plan.offerPrice > 0 ? plan.offerPrice : plan.amount;
       const userHasChoosedTrial = Boolean(hasUsedTrial || isCurrentSubTrial);
       const effectiveTrialDays = refferalUserFlag ? 10 : (plan.trialDays ?? 0);
@@ -229,6 +235,8 @@ export class MobilePlanController {
         success: true,
         data: {
           ...plan,
+          offerPrice: effectiveOfferPrice,
+          percentage: effectivePercentage,
           trialDays: effectiveTrialDays,
           refferalUserFlag,
           isFirstTimeBuyer,

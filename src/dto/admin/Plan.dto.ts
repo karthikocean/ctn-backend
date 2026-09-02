@@ -26,30 +26,47 @@ export class ModuleConfigDto {
 
 export class FeatureConfigDto {
   @IsBoolean()
-    monthlyMeeting!: boolean;
+  @IsOptional()
+    monthlyMeeting?: boolean;
 
   @IsBoolean()
-    eventVisitor!: boolean;
+  @IsOptional()
+    eventVisitor?: boolean;
 
   @IsBoolean()
-    eventStall!: boolean;
+  @IsOptional()
+    eventStall?: boolean;
 
   @IsBoolean()
-    spotlights!: boolean;
+  @IsOptional()
+    spotlights?: boolean;
 }
 
 export class BenefitConfigDto {
   @IsNumber()
-    requirementResponseLimit!: number;
+  @IsOptional()
+  @Type(() => Number)
+    marketplaceProductLimit?: number;
 
   @IsNumber()
-    pointMultiplier!: number;
+  @IsOptional()
+  @Type(() => Number)
+    requirementResponseLimit?: number;
 
   @IsNumber()
-    trainingDiscountPercentage!: number;
+  @IsOptional()
+  @Type(() => Number)
+    pointMultiplier?: number;
 
   @IsNumber()
-    referralBonusMonths!: number;
+  @IsOptional()
+  @Type(() => Number)
+    trainingDiscountPercentage?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+    referralBonusMonths?: number;
 }
 
 export class CreatePlanDto {

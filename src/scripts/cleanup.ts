@@ -82,16 +82,40 @@ async function runCleanup() {
   }
 }
 
+/**
+ * Validates whether database cleanup execution is permitted.
+ * Unconditionally blocks execution if NODE_ENV is production.
+ * Requires explicit CONFIRM_DELETE_DATABASE=true in non-production.
+ */
+export function validateCleanupExecution(
+  nodeEnv: string = process.env.NODE_ENV || "development",
+  confirmDelete: string = process.env.CONFIRM_DELETE_DATABASE || ""
+): { allowed: boolean; reason?: string } {
+  if (nodeEnv === "production") {
+    return {
+      allowed: false,
+      reason: "Database cleanup is strictly forbidden in production (NODE_ENV=production)."
+    };
+  }
+
+  if (confirmDelete !== "true") {
+    return {
+      allowed: false,
+      reason: "Database cleanup requires explicit confirmation: CONFIRM_DELETE_DATABASE=true."
+    };
+  }
+
+  return { allowed: true };
+}
+
 // Safety Requirements:
 // 1. The script must NEVER execute automatically.
-// 4. If the script is imported anywhere else in the project, it must not execute.
-// 5. The cleanup should only start when the file is executed directly.
+// 2. If the script is imported anywhere else in the project, it must not execute.
+// 3. The cleanup should only start when the file is executed directly.
 if (require.main === module) {
-  // 3. Additionally, require an environment variable: CONFIRM_DELETE_DATABASE=true
-  // If this variable is missing or not equal to "true", immediately exit.
-  if (process.env.CONFIRM_DELETE_DATABASE !== "true") {
-    console.error("❌ Database cleanup aborted.");
-    console.error("Set CONFIRM_DELETE_DATABASE=true to continue.");
+  const validation = validateCleanupExecution(process.env.NODE_ENV, process.env.CONFIRM_DELETE_DATABASE);
+  if (!validation.allowed) {
+    console.error(`❌ Fatal: ${validation.reason}`);
     process.exit(1);
   }
 

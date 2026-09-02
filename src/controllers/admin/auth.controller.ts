@@ -23,6 +23,7 @@ import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { UseBefore } from "routing-controllers";
 import { MailService } from "../../services/mail.service";
 import { Role } from "../../entity/Role.Permission";
+import { generateSecureOtp } from "../../utils";
 import { Franchise, FranchiseStatus } from "../../entity/Franchise";
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
@@ -298,7 +299,7 @@ export class AuthController {
       }
 
       const targetEmail = (user.email || email).toLowerCase().trim();
-      const otp = Math.floor(1000 + Math.random() * 9000).toString();
+      const otp = generateSecureOtp(4);
       const expiresAt = new Date();
       expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 

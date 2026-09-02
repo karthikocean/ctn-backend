@@ -3,13 +3,15 @@ import {
   Get,
   Post,
   Body,
+  Param,
   Res,
   Req,
   UseBefore,
   HttpCode,
   QueryParam,
   BadRequestError,
-  NotFoundError
+  NotFoundError,
+  ForbiddenError
 } from "routing-controllers";
 import { StatusCodes } from "http-status-codes";
 import { AppDataSource } from "../../data-source";
@@ -22,7 +24,9 @@ import { UserToken } from "../../entity/UserToken";
 import { SubscriptionFeatureUsage } from "../../entity/SubscriptionFeatureUsage";
 import { SubscriptionService } from "../../services/subscription.service";
 import { RazorpayUpgradeService, RazorpayVerificationService } from "../../services/razorpay.service";
+import { InvoiceService } from "../../services/invoice.service";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
+import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { StartTrialDto, UpgradeSubscriptionDto, BuySubscriptionDto, DowngradeSubscriptionDto, VerifyRazorpayPaymentDto, CancelRazorpayPaymentDto } from "../../dto/mobile/Subscription.dto";
 import handleErrorResponse from "../../utils/commonFunction";
 import pagination from "../../utils/pagination";
@@ -36,11 +40,22 @@ export class MobileSubscriptionController {
   private subscriptionService = new SubscriptionService();
   private razorpayUpgradeService = new RazorpayUpgradeService();
   private razorpayVerificationService = new RazorpayVerificationService();
-  private planRepo = AppDataSource.getMongoRepository(Plan);
-  private subRepo = AppDataSource.getMongoRepository(MemberSubscription);
-  private paymentRepo = AppDataSource.getMongoRepository(Payment);
-  private memberRepo = AppDataSource.getMongoRepository(Member);
-  private usageRepo = AppDataSource.getMongoRepository(SubscriptionFeatureUsage);
+  private invoiceService = new InvoiceService();
+  private get planRepo() {
+    return AppDataSource.getMongoRepository(Plan);
+  }
+  private get subRepo() {
+    return AppDataSource.getMongoRepository(MemberSubscription);
+  }
+  private get paymentRepo() {
+    return AppDataSource.getMongoRepository(Payment);
+  }
+  private get memberRepo() {
+    return AppDataSource.getMongoRepository(Member);
+  }
+  private get usageRepo() {
+    return AppDataSource.getMongoRepository(SubscriptionFeatureUsage);
+  }
 
   /**
    * @swagger
@@ -185,10 +200,14 @@ export class MobileSubscriptionController {
           }
         }
 
+        const effectiveOfferPrice = isFirstTimeBuyer ? (p.offerPrice ?? 0) : 0;
+        const effectivePercentage = isFirstTimeBuyer ? (p.percentage ?? 0) : 0;
         const effectivePrice = isFirstTimeBuyer && p.offerPrice && p.offerPrice > 0 ? p.offerPrice : p.amount;
 
         return {
           ...p,
+          offerPrice: effectiveOfferPrice,
+          percentage: effectivePercentage,
           trialDays: effectiveTrialDays,
           refferalUserFlag,
           isTrial,
@@ -534,9 +553,20 @@ export class MobileSubscriptionController {
    *         description: Razorpay signature verification and activation results
    */
   @Post("/verify-payment")
-  async verifyPayment(@Body() body: VerifyRazorpayPaymentDto, @Res() res: any) {
+  @UseBefore(MobileAuthMiddleware)
+  async verifyPayment(@Req() req: any, @Body() body: VerifyRazorpayPaymentDto, @Res() res: any) {
     try {
       const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = body;
+      const payment = await this.paymentRepo.findOneBy({ transactionId: razorpayOrderId });
+      if (!payment) {
+        throw new NotFoundError("Payment transaction not found");
+      }
+
+      // IDOR / Ownership check: Ensure the authenticated user owns this payment order
+      if (req.user?.userId && payment.memberId && payment.memberId.toString() !== req.user.userId.toString()) {
+        throw new ForbiddenError("You are not authorized to verify this payment transaction");
+      }
+
       const result = await this.razorpayVerificationService.verifyUpgradePayment(
         razorpayOrderId,
         razorpayPaymentId,
@@ -565,12 +595,18 @@ export class MobileSubscriptionController {
    *         description: Payment transaction cancelled successfully
    */
   @Post("/cancel-payment")
-  async cancelPayment(@Body() body: CancelRazorpayPaymentDto, @Res() res: any) {
+  @UseBefore(MobileAuthMiddleware)
+  async cancelPayment(@Req() req: any, @Body() body: CancelRazorpayPaymentDto, @Res() res: any) {
     try {
       const { razorpayOrderId } = body;
       const payment = await this.paymentRepo.findOneBy({ transactionId: razorpayOrderId });
       if (!payment) {
         throw new NotFoundError("Payment transaction not found");
+      }
+
+      // IDOR / Ownership check: Ensure the authenticated user owns this payment order
+      if (req.user?.userId && payment.memberId && payment.memberId.toString() !== req.user.userId.toString()) {
+        throw new ForbiddenError("You are not authorized to cancel this payment transaction");
       }
 
       if (payment.status === "COMPLETED") {
@@ -729,6 +765,7 @@ export class MobileSubscriptionController {
    *         description: Platform subscription metrics
    */
   @Get("/analytics")
+  @UseBefore(AuthMiddleware)
   async getAnalytics(@Res() res: any) {
     try {
       const trialUsers = await this.subRepo.count({ type: "TRIAL", status: "ACTIVE", isDeleted: false });
@@ -873,8 +910,12 @@ export class MobileSubscriptionController {
         const newSub = sub || getSubForPlan(p.planId, p.createdAt);
         const oldSub = getSubForPlan(p.previousPlanId, p.createdAt, p.subscriptionId);
 
+        const invoiceNo = `OSINV-${p._id.toString().slice(-6).toUpperCase()}`;
+
         return {
           ...p,
+          invoiceNo,
+          invoiceUrl: `/mobile-api/subscription/invoice/${p._id.toString()}`,
           planName: plan ? plan.title : "Unknown Plan",
           action: p.action || "payment",
           oldPlanDetails: previousPlan ? {
@@ -907,6 +948,108 @@ export class MobileSubscriptionController {
       });
 
       return pagination(total, data, limitNum, pageNum, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/subscription/invoice/{paymentId}:
+   *   get:
+   *     summary: Download/view dynamic PDF invoice for a subscription payment record (Mobile)
+   *     tags: [Mobile Subscription]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: paymentId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The Payment ID, Transaction ID, or Invoice Number (e.g. OSINV-97FCEB)
+   *     responses:
+   *       200:
+   *         description: Invoice PDF stream
+   *         content:
+   *           application/pdf:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *       404:
+   *         description: Payment record or member not found
+   *       403:
+   *         description: Unauthorized to access this invoice
+   */
+  @Get("/invoice/:paymentId")
+  @UseBefore(MobileAuthMiddleware)
+  async generateInvoice(
+    @Param("paymentId") paymentId: string,
+    @Req() req: any,
+    @Res() res: any
+  ) {
+    try {
+      if (!paymentId || typeof paymentId !== "string") {
+        throw new BadRequestError("Invalid payment identifier");
+      }
+
+      const memberId = req.user.userId;
+      let payment: Payment | null = null;
+
+      if (ObjectId.isValid(paymentId)) {
+        payment = await this.paymentRepo.findOneBy({
+          _id: new ObjectId(paymentId),
+          isDeleted: false
+        });
+      }
+
+      if (!payment) {
+        payment = await this.paymentRepo.findOneBy({
+          transactionId: paymentId,
+          isDeleted: false
+        });
+      }
+
+      if (!payment) {
+        const cleanSuffix = paymentId.replace(/^OSINV-?/i, "").toLowerCase();
+        if (cleanSuffix.length === 6) {
+          const payments = await this.paymentRepo.find({
+            where: { memberId: new ObjectId(memberId), isDeleted: false },
+            order: { createdAt: "DESC" },
+            take: 100
+          });
+          payment = payments.find(p => p._id.toString().toLowerCase().endsWith(cleanSuffix)) || null;
+        }
+      }
+
+      if (!payment) {
+        throw new NotFoundError("Payment record not found");
+      }
+
+      // Ensure user only accesses their own invoice
+      if (payment.memberId.toString() !== memberId.toString()) {
+        throw new ForbiddenError("You are not authorized to view this invoice");
+      }
+
+      const member = await this.memberRepo.findOneBy({
+        _id: new ObjectId(memberId),
+        isDeleted: false
+      });
+      if (!member) {
+        throw new NotFoundError("Member record not found");
+      }
+
+      const plan = payment.planId
+        ? await this.planRepo.findOneBy({ _id: new ObjectId(payment.planId) })
+        : null;
+
+      const pdfBuffer = await this.invoiceService.generateInvoicePdf(payment, member, plan);
+      const invoiceFileName = `OSINV-${payment._id.toString().slice(-6).toUpperCase()}.pdf`;
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${invoiceFileName}"`);
+      res.setHeader("Content-Length", pdfBuffer.length);
+      return res.send(pdfBuffer);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

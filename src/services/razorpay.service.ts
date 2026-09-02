@@ -32,9 +32,15 @@ const getRazorpayInstance = () => {
 };
 
 export class RazorpayUpgradeService {
-  private memberRepo = AppDataSource.getMongoRepository(Member);
-  private planRepo = AppDataSource.getMongoRepository(Plan);
-  private paymentRepo = AppDataSource.getMongoRepository(Payment);
+  private get memberRepo() {
+    return AppDataSource.getMongoRepository(Member);
+  }
+  private get planRepo() {
+    return AppDataSource.getMongoRepository(Plan);
+  }
+  private get paymentRepo() {
+    return AppDataSource.getMongoRepository(Payment);
+  }
   private subService = new SubscriptionService();
 
   async getUpgradeBreakdown(memberId: string, newPlanId: string) {
@@ -46,14 +52,20 @@ export class RazorpayUpgradeService {
 
     const activeSub = await this.subService.getActiveSubscription(memberId);
 
+    // Target plan price for upgrade uses offerPrice if available:
+    const newPlanPrice = (newPlan.offerPrice && newPlan.offerPrice > 0) ? newPlan.offerPrice : newPlan.amount;
+
     // Default values if no active sub or trial/free sub
     let currentPlanName = "None";
     let currentPlanPrice = 0;
     let totalDays = 0;
     let daysRemaining = 0;
     let daysUsed = 0;
-    let proratedCredit = 0;
-    let amountToCharge = newPlan.amount;
+    let currentPerDayCost = 0;
+    let newPerDayCost = 0;
+    let newPlanRemainingCost = 0;
+    let unusedCredit = 0;
+    let amountToCharge = newPlanPrice;
 
     if (activeSub && activeSub.subscriptionId && !activeSub.isTrial) {
       // Fetch current plan price
@@ -62,8 +74,8 @@ export class RazorpayUpgradeService {
       currentPlanName = currentPlan ? currentPlan.title : "Unknown";
       currentPlanPrice = currentPrice;
 
-      if (newPlan.amount <= currentPrice) {
-        throw new BadRequestError("Cannot upgrade to a lower or equal value plan. Use the buy API to downgrade.");
+      if (newPlanPrice <= currentPrice) {
+        throw new BadRequestError("Cannot upgrade to a lower or equal value plan. Use the downgrade option to switch.");
       }
 
       const start = new Date(activeSub.startDate);
@@ -78,22 +90,32 @@ export class RazorpayUpgradeService {
       const totalDuration = end.getTime() - start.getTime();
 
       if (totalDuration > 0) {
-        totalDays = Math.max(0, Math.round(totalDuration / (1000 * 60 * 60 * 24)));
-        const daysUsedRaw = Math.round((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        totalDays = Math.max(1, Math.round(totalDuration / (1000 * 60 * 60 * 24)));
+        const daysUsedRaw = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
         daysUsed = Math.min(totalDays, Math.max(1, daysUsedRaw + 1));
         daysRemaining = Math.max(0, totalDays - daysUsed);
 
         if (daysRemaining > 0) {
-          const cycle = currentPlan?.billingCycle || "yearly";
-          const daysInCycle = cycle === "monthly" ? 30 : 365;
-          const perDayCost = currentPrice / daysInCycle;
-          proratedCredit = Math.round((perDayCost * daysRemaining) * 100) / 100; // Keep 2 decimal places
-          amountToCharge = Math.max(0, newPlan.amount - proratedCredit);
+          // Calculate per-day cost for current plan and new upgrade plan
+          currentPerDayCost = currentPrice / totalDays;
+          newPerDayCost = newPlanPrice / totalDays;
+
+          // Cost of new plan for remaining days only
+          newPlanRemainingCost = newPerDayCost * daysRemaining;
+
+          // Deduct current plan value for unused remaining days
+          unusedCredit = currentPerDayCost * daysRemaining;
+
+          // Pay for remaining days only (new plan remaining cost minus unused credit from current plan)
+          amountToCharge = Math.max(0, Math.round((newPlanRemainingCost - unusedCredit) * 100) / 100);
+        } else {
+          amountToCharge = newPlanPrice;
         }
       }
     } else if (activeSub && activeSub.isTrial) {
       currentPlanName = `${activeSub.planName} (Trial)`;
       currentPlanPrice = 0;
+      amountToCharge = newPlanPrice;
     }
 
     return {
@@ -105,14 +127,20 @@ export class RazorpayUpgradeService {
       newPlan: {
         id: newPlan._id.toString(),
         title: newPlan.title,
-        amount: newPlan.amount,
+        amount: newPlanPrice,
+        originalAmount: newPlan.amount,
+        offerPrice: newPlan.offerPrice || null,
       },
       durationDetails: {
         totalDays,
         daysRemaining,
         daysUsed,
       },
-      proratedCredit,
+      currentPerDayCost: Math.round(currentPerDayCost * 100) / 100,
+      newPerDayCost: Math.round(newPerDayCost * 100) / 100,
+      newPlanRemainingCost: Math.round(newPlanRemainingCost * 100) / 100,
+      unusedCredit: Math.round(unusedCredit * 100) / 100,
+      proratedCredit: Math.round(unusedCredit * 100) / 100,
       amountToPay: amountToCharge,
     };
   }
@@ -216,17 +244,33 @@ export class RazorpayUpgradeService {
     };
   }
 
-  private validateDowngradeConstraints(currentPlanTitle: string, newPlanTitle: string, startDate: Date) {
-    const currentLower = currentPlanTitle.toLowerCase();
-    const newLower = newPlanTitle.toLowerCase();
+  private getPlanTier(plan?: Plan | null): "basic" | "standard" | "premium" | "unknown" {
+    if (!plan) return "unknown";
+    const type = (plan.billingType || "").toLowerCase().trim();
+    if (type === "basic") return "basic";
+    if (type === "advance" || type === "standard") return "standard";
+    if (type === "ultimate" || type === "premium" || type === "enterprise") return "premium";
+
+    // Graceful fallback for legacy records missing billingType
+    const title = (plan.title || "").toLowerCase().trim();
+    if (title.includes("basic")) return "basic";
+    if (title.includes("advance") || title.includes("standard")) return "standard";
+    if (title.includes("ultimate") || title.includes("premium") || title.includes("enterprise")) return "premium";
+
+    return "unknown";
+  }
+
+  private validateDowngradeConstraints(currentPlan: Plan | null, newPlan: Plan, startDate: Date) {
+    const currentTier = this.getPlanTier(currentPlan);
+    const newTier = this.getPlanTier(newPlan);
 
     // 1. Block Premium to Basic directly
-    if (currentLower === "premium" && newLower === "basic") {
+    if (currentTier === "premium" && newTier === "basic") {
       throw new BadRequestError("Direct downgrade from Premium to Basic is not allowed. You must first downgrade to Standard.");
     }
 
     // 2. Block Standard to Basic if stayed less than 30 days (1 month)
-    if (currentLower === "standard" && newLower === "basic") {
+    if (currentTier === "standard" && newTier === "basic") {
       const daysElapsed = (Date.now() - startDate.getTime()) / (1000 * 60 * 60 * 24);
       if (daysElapsed < 30) {
         const remaining = Math.ceil(30 - daysElapsed);
@@ -256,7 +300,7 @@ export class RazorpayUpgradeService {
     }
 
     // Validate constraints (Premium -> Basic direct block, Standard -> Basic 30-day block)
-    this.validateDowngradeConstraints(currentPlanTitle, newPlan.title, activeSub.startDate);
+    this.validateDowngradeConstraints(currentPlan, newPlan, activeSub.startDate);
 
     // Calculate remaining days of the current plan
     const timeRemaining = activeSub.endDate.getTime() - Date.now();
@@ -359,17 +403,18 @@ export class RazorpayUpgradeService {
 }
 
 export class RazorpayVerificationService {
-  private paymentRepo = AppDataSource.getMongoRepository(Payment);
-  private memberRepo = AppDataSource.getMongoRepository(Member);
-  private planRepo = AppDataSource.getMongoRepository(Plan);
+  private get paymentRepo() {
+    return AppDataSource.getMongoRepository(Payment);
+  }
+  private get memberRepo() {
+    return AppDataSource.getMongoRepository(Member);
+  }
+  private get planRepo() {
+    return AppDataSource.getMongoRepository(Plan);
+  }
   private subService = new SubscriptionService();
 
   async verifyUpgradePayment(razorpayOrderId: string, razorpayPaymentId: string, razorpaySignature: string) {
-    const razorpay = getRazorpayInstance();
-
-    const paymentDetails = await razorpay.payments.fetch(razorpayPaymentId);
-
-    console.log(paymentDetails);
     // 1. Signature validation using HMAC-SHA256
     const secret = process.env.RAZORPAY_KEY_SECRET || "";
     const generatedSignature = crypto

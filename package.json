@@ -20,6 +20,7 @@
     "lint:fix": "eslint src --ext .ts,.js --fix",
     "format": "prettier --write \"src/**/*.{ts,js,json}\"",
     "db:clean": "ts-node src/scripts/cleanup.ts",
+    "db:ensure-indexes": "ts-node src/scripts/ensureIndexes.ts",
     "db:migrate-marketplace": "ts-node src/scripts/migrateMarketplaceCategories.ts",
     "db:migrate-referrals": "ts-node src/scripts/migrateUserReferralCodes.ts",
     "db:migrate-purchased": "ts-node src/scripts/migrateMembersToPurchased.ts"

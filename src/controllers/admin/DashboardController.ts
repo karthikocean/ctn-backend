@@ -22,6 +22,7 @@ import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
+import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 
 export function getDashboardDateRange(preset?: string, startDateParam?: string, endDateParam?: string): { startDate: Date | null; endDate: Date } {
   const now = new Date();
@@ -81,7 +82,7 @@ export function getDashboardDateRange(preset?: string, startDateParam?: string, 
 }
 
 @JsonController("/dashboard")
-@UseBefore(AuthMiddleware)
+@UseBefore(AuthMiddleware, franchiseFilter)
 export class AdminDashboardController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private postRepo = AppDataSource.getMongoRepository(PostModel);

@@ -12,6 +12,8 @@ import { sendOTPSMS } from "../../utils/sms";
 import bcrypt from "bcryptjs";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { ObjectId } from "mongodb";
+import { isStoreTestOtpValid, isStoreTestMobileNumber } from "../../config/storeTest.config";
+import { generateSecureOtp } from "../../utils";
 @JsonController("/auth")
 export class MobileAuthController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
@@ -125,7 +127,7 @@ export class MobileAuthController {
         throw new BadRequestError("Account is blocked. Please contact administrator.");
       }
 
-      const otp = Math.floor(1000 + Math.random() * 9000).toString();
+      const otp = generateSecureOtp(4);
       const expiresAt = new Date();
       expiresAt.setMinutes(expiresAt.getMinutes() + 5);
 
@@ -151,7 +153,7 @@ export class MobileAuthController {
       if (type === "email") {
         await MailService.sendVerificationOTP(identifier, otp);
       } else {
-        await sendOTPSMS(identifier, otp);
+        await sendOTPSMS(identifier, otp, member.fullName || "customer");
       }
 
       return res.status(StatusCodes.OK).json({
@@ -184,17 +186,40 @@ export class MobileAuthController {
   async verifyOtpLogin(@Body() body: MobileVerifyOtpLoginDto, @Res() res: any) {
     try {
       const { identifier, type, otp, fcmToken } = body;
-      // console.log(body, "body");
-      // if (!fcmToken) {
-      //   throw new BadRequestError("FCM token is required");
-      // }
-      if (otp !== "1234") {
 
+      // Resolve the member first so we can check the mobile number for
+      // store-test eligibility BEFORE touching the verification record.
+      const member = await this.memberRepo.findOne({
+        where: type === "email" ? { email: identifier, isDeleted: false } : { mobileNumber: identifier, isDeleted: false }
+      });
+
+      if (!member) {
+        throw new UnauthorizedError("User not found");
+      }
+
+      // ── OTP verification ─────────────────────────────────────────────────
+      // The store-test OTP is allowed ONLY when:
+      //   • STORE_TEST_OTP_ENABLED=true in env
+      //   • The member's mobileNumber is in STORE_TEST_MOBILE_NUMBERS
+      //   • The supplied OTP matches STORE_TEST_OTP exactly
+      // All other accounts (and any wrong OTP) go through the normal flow.
+      const storeTestBypassed = isStoreTestOtpValid(member.mobileNumber, otp);
+
+      if (storeTestBypassed) {
+        // Log that the controlled test path was used — without exposing the OTP or the number
+        console.log("[StoreTestOTP] Controlled store-review login path used.");
+      } else {
+        // Normal OTP verification path
         const verification = await this.verificationRepo.findOne({
           where: { identifier, type, otp, isVerified: false }
         });
 
         if (!verification) {
+          // If the identifier is a configured test number attempting a wrong OTP,
+          // give the same generic error to avoid leaking which numbers are configured.
+          if (isStoreTestMobileNumber(member.mobileNumber)) {
+            console.log("[StoreTestOTP] Test number attempted with incorrect OTP.");
+          }
           throw new BadRequestError("Invalid or expired verification code");
         }
 
@@ -205,14 +230,10 @@ export class MobileAuthController {
         verification.isVerified = true;
         await this.verificationRepo.save(verification);
       }
+      // ─────────────────────────────────────────────────────────────────────
 
-      const member = await this.memberRepo.findOne({
-        where: type === "email" ? { email: identifier, isDeleted: false } : { mobileNumber: identifier, isDeleted: false }
-      });
-
-      if (!member) {
-        throw new UnauthorizedError("User not found");
-      }
+      // All account-status, session, and token-creation checks run unconditionally
+      // regardless of which OTP path was taken.
       if (member.status === MemberStatus.BLOCKED) {
         throw new BadRequestError("Account is blocked. Please contact administrator.");
       }
@@ -343,6 +364,86 @@ export class MobileAuthController {
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "PIN changed successfully"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/auth/logout:
+   *   post:
+   *     summary: Member logout (invalidates current session token)
+   *     tags: [Mobile Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Logout successful
+   */
+  @Post("/logout")
+  @HttpCode(StatusCodes.OK)
+  @UseBefore(MobileAuthMiddleware)
+  async logout(@Req() req: any, @Res() res: any) {
+    try {
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.replace(/^Bearer\s+/i, "");
+      const memberId = req.user.userId;
+
+      if (token) {
+        await this.tokenRepo.deleteMany({
+          userId: new ObjectId(memberId),
+          token: token
+        } as any);
+      }
+
+      // Clear FCM token on logout so push notifications stop arriving for this device
+      await this.memberRepo.updateOne(
+        { _id: new ObjectId(memberId) },
+        { $unset: { fcmToken: "" } } as any
+      );
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Logout successful"
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/auth/logout-all:
+   *   post:
+   *     summary: Logout from all devices (invalidates all sessions for this member)
+   *     tags: [Mobile Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Logged out from all devices successfully
+   */
+  @Post("/logout-all")
+  @HttpCode(StatusCodes.OK)
+  @UseBefore(MobileAuthMiddleware)
+  async logoutAll(@Req() req: any, @Res() res: any) {
+    try {
+      const memberId = req.user.userId;
+
+      await this.tokenRepo.deleteMany({
+        userId: new ObjectId(memberId)
+      } as any);
+
+      await this.memberRepo.updateOne(
+        { _id: new ObjectId(memberId) },
+        { $unset: { fcmToken: "" } } as any
+      );
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Logged out from all devices successfully"
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

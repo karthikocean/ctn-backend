@@ -26,6 +26,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { CreateBillingDto, UpdateBillingDto } from "../../dto/admin/Billing.dto";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
+import { InvoiceService } from "../../services/invoice.service";
 
 @JsonController("/billings")
 @UseBefore(AuthMiddleware, franchiseFilter)
@@ -33,6 +34,7 @@ export class AdminBillingController {
   private paymentRepo = AppDataSource.getMongoRepository(Payment);
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private planRepo = AppDataSource.getMongoRepository(Plan);
+  private invoiceService = new InvoiceService();
 
   /**
    * @swagger
@@ -346,6 +348,96 @@ export class AdminBillingController {
         success: true,
         message: "Billing record deleted successfully"
       });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/billings/{id}/invoice:
+   *   get:
+   *     summary: Download/view dynamic PDF invoice for a billing payment record (Admin)
+   *     tags: [Admin Billing]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The Payment/Billing record ID
+   *     responses:
+   *       200:
+   *         description: Invoice PDF binary stream
+   *         content:
+   *           application/pdf:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *       404:
+   *         description: Billing record or member not found
+   */
+  @Get("/:id/invoice")
+  async getInvoice(@Param("id") id: string, @Req() _req: any, @Res() res: any) {
+    try {
+      if (!id || typeof id !== "string") {
+        throw new BadRequestError("Invalid billing ID or invoice number format");
+      }
+
+      let payment: Payment | null = null;
+
+      if (ObjectId.isValid(id)) {
+        payment = await this.paymentRepo.findOneBy({
+          _id: new ObjectId(id),
+          isDeleted: false
+        });
+      }
+
+      if (!payment) {
+        payment = await this.paymentRepo.findOneBy({
+          transactionId: id,
+          isDeleted: false
+        });
+      }
+
+      if (!payment) {
+        const cleanSuffix = id.replace(/^OSINV-?/i, "").toLowerCase();
+        if (cleanSuffix.length === 6) {
+          const payments = await this.paymentRepo.find({
+            where: { isDeleted: false },
+            order: { createdAt: "DESC" },
+            take: 200
+          });
+          payment = payments.find(p => p._id.toString().toLowerCase().endsWith(cleanSuffix)) || null;
+        }
+      }
+
+      if (!payment) {
+        throw new NotFoundError("Billing record not found");
+      }
+
+      const member = await this.memberRepo.findOneBy({
+        _id: new ObjectId(payment.memberId),
+        isDeleted: false
+      });
+
+      if (!member) {
+        throw new NotFoundError("Member record not found");
+      }
+
+      const plan = payment.planId
+        ? await this.planRepo.findOneBy({ _id: new ObjectId(payment.planId) })
+        : null;
+
+      const pdfBuffer = await this.invoiceService.generateInvoicePdf(payment, member, plan);
+      const invoiceFileName = `OSINV-${payment._id.toString().slice(-6).toUpperCase()}.pdf`;
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${invoiceFileName}"`);
+      res.setHeader("Content-Length", pdfBuffer.length);
+      return res.send(pdfBuffer);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

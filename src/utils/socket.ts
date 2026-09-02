@@ -177,34 +177,14 @@ export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => v
     }
 
     // 2. Verify Session (UserToken) in database
-    console.log(`[SocketAuth] Querying UserToken in DB for userOid: ${userOid}`);
     const tokenRepo = AppDataSource.getMongoRepository(UserToken);
-    let activeTokenRecord = await tokenRepo.findOneBy({
+    const activeTokenRecord = await tokenRepo.findOneBy({
       userId: userOid,
       token: cleanToken
     });
 
     if (!activeTokenRecord) {
-      console.log("[SocketAuth] Token not found in DB. Checking older token...");
-      // Handle concurrent/rotation grace period
-      const dbRecord = await tokenRepo.findOneBy({ userId: userOid });
-      if (dbRecord) {
-        try {
-          const decodedDb = jwt.decode(dbRecord.token) as any;
-          const decodedClient = jwt.decode(cleanToken) as any;
-          if (decodedDb && decodedClient && (decodedClient.iat || 0) <= (decodedDb.iat || 0)) {
-            activeTokenRecord = dbRecord;
-            socket.data.newToken = dbRecord.token;
-            console.log("[SocketAuth] Accepted valid older token.");
-          }
-        } catch (e) {
-          console.error("[SocketAuth] Error during older token verification:", e);
-        }
-      }
-    }
-
-    if (!activeTokenRecord) {
-      console.log("[SocketAuth] Rejecting: Session expired (Token not found in DB)");
+      console.log(`[SocketAuth] Rejecting: Session expired (Token not found in DB for user ${userId})`);
       return next(new Error("Authentication error: Session expired"));
     }
 
@@ -235,11 +215,68 @@ export const socketAuthMiddleware = async (socket: any, next: (err?: Error) => v
   }
 };
 
+/**
+ * Returns a dynamic CORS origin validator for Socket.io
+ */
+export function getSocketCorsOrigin(): (
+  origin: string | undefined,
+  callback: (err: Error | null, allow?: boolean | string) => void
+) => void {
+  const envOrigins = (process.env.SOCKET_ALLOWED_ORIGINS || process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  const defaultDevOrigins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:4000",
+    "http://localhost:8080",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:4000",
+    "http://127.0.0.1:8080"
+  ];
+
+  const defaultProdOrigins = [
+    "https://admin.trustednetwork.in",
+    "https://trustednetwork.in",
+    "https://web.trustednetwork.in",
+    "https://app.trustednetwork.in",
+    "https://api.trustednetwork.in"
+  ];
+
+  const allowedOrigins = new Set<string>([
+    ...envOrigins,
+    ...(process.env.NODE_ENV === "production" ? defaultProdOrigins : defaultDevOrigins)
+  ]);
+
+  return (origin: string | undefined, callback: (err: Error | null, allow?: boolean | string) => void) => {
+    // 1. Native mobile apps and non-browser clients do not send Origin header
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    // 2. Explicit wildcard allowed only in non-production environments if explicitly configured
+    if (process.env.NODE_ENV !== "production" && envOrigins.includes("*")) {
+      return callback(null, true);
+    }
+
+    // 3. Exact origin match against configured and default allowlists
+    if (allowedOrigins.has(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`Origin ${origin} not allowed by Socket.io CORS policy`), false);
+  };
+}
+
 export const initSocket = (server: HttpServer) => {
   io = new SocketServer(server, {
     cors: {
-      origin: "*",
-      methods: ["GET", "POST"]
+      origin: getSocketCorsOrigin(),
+      methods: ["GET", "POST"],
+      credentials: true
     },
     pingInterval: 10000,
     pingTimeout: 20000,
