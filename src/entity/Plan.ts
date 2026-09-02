@@ -19,17 +19,18 @@ export interface PlanModuleConfig {
 }
 
 export interface PlanFeatureConfig {
-  monthlyMeeting: boolean;
-  eventVisitor: boolean;
-  eventStall: boolean;
-  spotlights: boolean;
+  monthlyMeeting?: boolean;
+  eventVisitor?: boolean;
+  eventStall?: boolean;
+  spotlights?: boolean;
 }
 
 export interface PlanBenefitConfig {
-  requirementResponseLimit: number;
-  pointMultiplier: number; // e.g. 1, 2
-  trainingDiscountPercentage: number;
-  referralBonusMonths: number;
+  marketplaceProductLimit?: number;
+  requirementResponseLimit?: number;
+  pointMultiplier?: number; // e.g. 1, 2
+  trainingDiscountPercentage?: number;
+  referralBonusMonths?: number;
 }
 
 @Entity("plans")
@@ -88,4 +89,3 @@ export class Plan {
   @UpdateDateColumn()
     updatedAt!: Date;
 }
-

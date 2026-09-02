@@ -11,6 +11,7 @@ import { OneToOne } from "../../entity/OneToOne";
 import { Referral } from "../../entity/Referral";
 import { PostModel, PostType } from "../../entity/Post";
 import { ThankYouSlip } from "../../entity/ThankYouSlip";
+import { Connection, ConnectionStatus } from "../../entity/Connection";
 import { StatusCodes } from "http-status-codes";
 import handleErrorResponse from "../../utils/commonFunction";
 
@@ -30,6 +31,7 @@ export class WebsiteCommonController {
   private referralRepo = AppDataSource.getMongoRepository(Referral);
   private postRepo = AppDataSource.getMongoRepository(PostModel);
   private tySlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
+  private connectionRepo = AppDataSource.getMongoRepository(Connection);
 
   /**
    * @swagger
@@ -81,6 +83,9 @@ export class WebsiteCommonController {
    *                     businessAmount:
    *                       type: string
    *                       example: "5M"
+   *                     activeFollowingCount:
+   *                       type: integer
+   *                       example: 350
    */
   @Get("/stats")
   async getWebsiteStats(@Res() res: any) {
@@ -132,6 +137,12 @@ export class WebsiteCommonController {
 
       const businessDoneAmount = formatCompactNumber(rawBusinessDoneAmount);
 
+      // 8. Active Total Following / Connections Count
+      const activeFollowingCount = await this.connectionRepo.count({
+        isDeleted: false,
+        status: ConnectionStatus.ACCEPTED
+      });
+
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Website statistics retrieved successfully",
@@ -145,7 +156,11 @@ export class WebsiteCommonController {
           businessDoneCount,
           businessDoneAmount: businessDoneAmount,
           businessAmount: businessDoneAmount,
-          businessDoneAmountRaw: rawBusinessDoneAmount
+          businessDoneAmountRaw: rawBusinessDoneAmount,
+          activeFollowingCount,
+          totalFollowingCount: activeFollowingCount,
+          followingCount: activeFollowingCount,
+          followingCountFormatted: formatCompactNumber(activeFollowingCount)
         }
       });
     } catch (error: any) {

@@ -55,6 +55,7 @@ describe("SMS Security & Credential Protection (P2-6)", () => {
 
     const result = await sendOTPSMS("9876543210", "123456");
     expect(result).toBeNull();
+    expect(mockedAxios.get).not.toHaveBeenCalled();
     expect(mockedAxios.post).not.toHaveBeenCalled();
   });
 
@@ -66,6 +67,14 @@ describe("SMS Security & Credential Protection (P2-6)", () => {
     const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
     // Mock axios failure with sensitive config
+    mockedAxios.get.mockRejectedValueOnce({
+      message: "Gateway Timeout (key: test_key_xyz)",
+      config: {
+        params: {
+          apikey: "test_key_xyz"
+        }
+      }
+    });
     mockedAxios.post.mockRejectedValueOnce({
       message: "Gateway Timeout (key: test_key_xyz)",
       config: {
@@ -89,23 +98,22 @@ describe("SMS Security & Credential Protection (P2-6)", () => {
 
   test("5. sendForgotPinSMS succeeds with valid response data", async () => {
     process.env.SMS_API_KEY = "test_key_xyz";
-    process.env.SMS_SENDER_ID = "NALSUV";
-    process.env.SMS_FORGOT_PIN_TEMPLATE_ID = "TMPL002";
+    process.env.SMS_SENDER_ID = "TXSTEC";
+    process.env.SMS_FORGOT_PIN_TEMPLATE_ID = "1707177814715077216";
 
-    mockedAxios.post.mockResolvedValueOnce({
+    mockedAxios.get.mockResolvedValueOnce({
       data: { status: "success", msgid: "12345678" }
     });
 
-    const result = await sendForgotPinSMS("9876543210", "998877");
+    const result = await sendForgotPinSMS("9876543210", "998877", "John");
     expect(result).toEqual({ status: "success", msgid: "12345678" });
-    expect(mockedAxios.post).toHaveBeenCalledWith(
+    expect(mockedAxios.get).toHaveBeenCalledWith(
       expect.any(String),
-      {},
       expect.objectContaining({
         params: expect.objectContaining({
           apikey: "test_key_xyz",
-          senderid: "NALSUV",
-          templateid: "TMPL002",
+          senderid: "TXSTEC",
+          templateid: "1707177814715077216",
           number: "9876543210"
         })
       })

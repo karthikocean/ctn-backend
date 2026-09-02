@@ -2,7 +2,7 @@ import axios from "axios";
 import dotenv from "dotenv";
 dotenv.config({ quiet: true });
 
-const SMS_URL = process.env.SMS_GATEWAY_URL || "https://sms.textspeed.in/vb/apikey.php";
+const SMS_URL = process.env.SMS_GATEWAY_URL || "https://cpaaslink.com/api/sms/public/apikey";
 
 /**
  * Redacts sensitive credentials from log strings/messages
@@ -21,7 +21,7 @@ export function getSafeSmsErrorMessage(error: any, apiKey?: string): string {
   return sanitizeSmsLogMessage(rawMsg, apiKey);
 }
 
-export const sendOTPSMS = async (phoneNumber: string, otp: string): Promise<any> => {
+export const sendOTPSMS = async (phoneNumber: string, otp: string, name: string = "customer"): Promise<any> => {
   const apiKey = process.env.SMS_API_KEY;
   const senderId = process.env.SMS_SENDER_ID;
   const welcomeTemplateId = process.env.SMS_WELCOME_TEMPLATE_ID;
@@ -32,22 +32,24 @@ export const sendOTPSMS = async (phoneNumber: string, otp: string): Promise<any>
       return null;
     }
 
-    const response = await axios.post(
-      SMS_URL,
-      {}, // TextSpeed gateway parses query parameters on endpoint
-      {
-        params: {
-          apikey: apiKey,
-          senderid: senderId,
-          templateid: welcomeTemplateId,
-          number: phoneNumber,
-          message: `Dear customer, the OTP For Nalsuvai Agro Foods is ${otp}. This OTP will expire in 5 minutes. Thank you.`,
-        },
-        timeout: 10000,
-      }
-    );
+    const recipientName = name || "customer";
 
-    console.log("[SMS Service] OTP SMS dispatched successfully");
+    const params = {
+      apikey: apiKey,
+      senderid: senderId,
+      templateid: welcomeTemplateId,
+      number: phoneNumber,
+      message: `Dear ${recipientName}, Your Password Reset OTP code: ${otp} This code is valid for 5 minutes. Please do not share your OTP with anyone. Textspeed Team.`,
+    };
+
+    let response;
+    try {
+      response = await axios.get(SMS_URL, { params, timeout: 10000 });
+    } catch {
+      response = await axios.post(SMS_URL, {}, { params, timeout: 10000 });
+    }
+
+    console.log("[SMS Service] OTP SMS dispatched successfully", response.data);
     return response.data;
   } catch (error: any) {
     const safeError = getSafeSmsErrorMessage(error, apiKey);
@@ -56,7 +58,7 @@ export const sendOTPSMS = async (phoneNumber: string, otp: string): Promise<any>
   }
 };
 
-export const sendForgotPinSMS = async (phoneNumber: string, otp: string): Promise<any> => {
+export const sendForgotPinSMS = async (phoneNumber: string, otp: string, name: string = "customer"): Promise<any> => {
   const apiKey = process.env.SMS_API_KEY;
   const senderId = process.env.SMS_SENDER_ID;
   const forgotPinTemplateId = process.env.SMS_FORGOT_PIN_TEMPLATE_ID;
@@ -67,22 +69,24 @@ export const sendForgotPinSMS = async (phoneNumber: string, otp: string): Promis
       return null;
     }
 
-    const response = await axios.post(
-      SMS_URL,
-      {}, // TextSpeed gateway parses query parameters on endpoint
-      {
-        params: {
-          apikey: apiKey,
-          senderid: senderId,
-          templateid: forgotPinTemplateId,
-          number: phoneNumber,
-          message: `Dear customer, the OTP For Nalsuvai Agro Foods is ${otp}. This OTP will expire in 5 minutes. Thank you.`,
-        },
-        timeout: 10000,
-      }
-    );
+    const recipientName = name || "customer";
 
-    console.log("[SMS Service] Forgot PIN SMS dispatched successfully");
+    const params = {
+      apikey: apiKey,
+      senderid: senderId,
+      templateid: forgotPinTemplateId,
+      number: phoneNumber,
+      message: `Dear ${recipientName}, Your Password Reset OTP code: ${otp} This code is valid for 5 minutes. Please do not share your OTP with anyone. Textspeed Team.`,
+    };
+
+    let response;
+    try {
+      response = await axios.get(SMS_URL, { params, timeout: 10000 });
+    } catch {
+      response = await axios.post(SMS_URL, {}, { params, timeout: 10000 });
+    }
+
+    console.log("[SMS Service] Forgot PIN SMS dispatched successfully", response.data);
     return response.data;
   } catch (error: any) {
     const safeError = getSafeSmsErrorMessage(error, apiKey);

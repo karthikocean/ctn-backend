@@ -35,11 +35,13 @@ export class VerificationController {
   @HttpCode(StatusCodes.OK)
   async sendOtp(@Body() body: SendOtpDto, @Res() res: any) {
     try {
-      const { phone, email, isRegister } = body;
+      const { phone, email, isRegister, name } = body;
 
       if (!phone && !email) {
         throw new BadRequestError("At least phone or email must be provided");
       }
+
+      let memberName = name;
 
       // Validate member
       const validateMember = async (
@@ -61,6 +63,9 @@ export class VerificationController {
 
           if (member.status !== MemberStatus.ACTIVE) {
             throw new BadRequestError("Member account is not active");
+          }
+          if (member.fullName && !memberName) {
+            memberName = member.fullName;
           }
         } else {
           if (member) {
@@ -114,7 +119,7 @@ export class VerificationController {
         await this.verificationRepo.save(verification);
 
         if (type === "phone") {
-          await sendOTPSMS(identifier, otp);
+          await sendOTPSMS(identifier, otp, memberName || "customer");
         } else {
           await MailService.sendVerificationOTP(identifier, otp);
         }

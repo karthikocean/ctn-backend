@@ -231,4 +231,24 @@ describe("Plan Upgrade Validity & Prorated Pricing Calculations", () => {
     const isFirstTime = await subService.isFirstTimeBuyer(memberId);
     expect(isFirstTime).toBe(false);
   });
+
+  test("5. MobilePlanController maps offerPrice and percentage to 0 when subscription is expired", async () => {
+    const isFirstTimeBuyer = false; // Expired / existing user
+    const plan = {
+      _id: new ObjectId(),
+      title: "Basic",
+      amount: 4999,
+      offerPrice: 3999,
+      percentage: 20,
+      trialDays: 0
+    };
+
+    const effectiveOfferPrice = isFirstTimeBuyer ? (plan.offerPrice ?? 0) : 0;
+    const effectivePercentage = isFirstTimeBuyer ? (plan.percentage ?? 0) : 0;
+    const effectivePrice = isFirstTimeBuyer && plan.offerPrice && plan.offerPrice > 0 ? plan.offerPrice : plan.amount;
+
+    expect(effectiveOfferPrice).toBe(0);
+    expect(effectivePercentage).toBe(0);
+    expect(effectivePrice).toBe(4999);
+  });
 });

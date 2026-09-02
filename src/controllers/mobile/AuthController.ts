@@ -153,7 +153,7 @@ export class MobileAuthController {
       if (type === "email") {
         await MailService.sendVerificationOTP(identifier, otp);
       } else {
-        await sendOTPSMS(identifier, otp);
+        await sendOTPSMS(identifier, otp, member.fullName || "customer");
       }
 
       return res.status(StatusCodes.OK).json({

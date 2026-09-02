@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Body,
+  Param,
   Res,
   Req,
   UseBefore,
@@ -23,6 +24,7 @@ import { UserToken } from "../../entity/UserToken";
 import { SubscriptionFeatureUsage } from "../../entity/SubscriptionFeatureUsage";
 import { SubscriptionService } from "../../services/subscription.service";
 import { RazorpayUpgradeService, RazorpayVerificationService } from "../../services/razorpay.service";
+import { InvoiceService } from "../../services/invoice.service";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { StartTrialDto, UpgradeSubscriptionDto, BuySubscriptionDto, DowngradeSubscriptionDto, VerifyRazorpayPaymentDto, CancelRazorpayPaymentDto } from "../../dto/mobile/Subscription.dto";
@@ -38,6 +40,7 @@ export class MobileSubscriptionController {
   private subscriptionService = new SubscriptionService();
   private razorpayUpgradeService = new RazorpayUpgradeService();
   private razorpayVerificationService = new RazorpayVerificationService();
+  private invoiceService = new InvoiceService();
   private get planRepo() {
     return AppDataSource.getMongoRepository(Plan);
   }
@@ -197,10 +200,14 @@ export class MobileSubscriptionController {
           }
         }
 
+        const effectiveOfferPrice = isFirstTimeBuyer ? (p.offerPrice ?? 0) : 0;
+        const effectivePercentage = isFirstTimeBuyer ? (p.percentage ?? 0) : 0;
         const effectivePrice = isFirstTimeBuyer && p.offerPrice && p.offerPrice > 0 ? p.offerPrice : p.amount;
 
         return {
           ...p,
+          offerPrice: effectiveOfferPrice,
+          percentage: effectivePercentage,
           trialDays: effectiveTrialDays,
           refferalUserFlag,
           isTrial,
@@ -903,8 +910,12 @@ export class MobileSubscriptionController {
         const newSub = sub || getSubForPlan(p.planId, p.createdAt);
         const oldSub = getSubForPlan(p.previousPlanId, p.createdAt, p.subscriptionId);
 
+        const invoiceNo = `OSINV-${p._id.toString().slice(-6).toUpperCase()}`;
+
         return {
           ...p,
+          invoiceNo,
+          invoiceUrl: `/mobile-api/subscription/invoice/${p._id.toString()}`,
           planName: plan ? plan.title : "Unknown Plan",
           action: p.action || "payment",
           oldPlanDetails: previousPlan ? {
@@ -937,6 +948,108 @@ export class MobileSubscriptionController {
       });
 
       return pagination(total, data, limitNum, pageNum, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/subscription/invoice/{paymentId}:
+   *   get:
+   *     summary: Download/view dynamic PDF invoice for a subscription payment record (Mobile)
+   *     tags: [Mobile Subscription]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: paymentId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The Payment ID, Transaction ID, or Invoice Number (e.g. OSINV-97FCEB)
+   *     responses:
+   *       200:
+   *         description: Invoice PDF stream
+   *         content:
+   *           application/pdf:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *       404:
+   *         description: Payment record or member not found
+   *       403:
+   *         description: Unauthorized to access this invoice
+   */
+  @Get("/invoice/:paymentId")
+  @UseBefore(MobileAuthMiddleware)
+  async generateInvoice(
+    @Param("paymentId") paymentId: string,
+    @Req() req: any,
+    @Res() res: any
+  ) {
+    try {
+      if (!paymentId || typeof paymentId !== "string") {
+        throw new BadRequestError("Invalid payment identifier");
+      }
+
+      const memberId = req.user.userId;
+      let payment: Payment | null = null;
+
+      if (ObjectId.isValid(paymentId)) {
+        payment = await this.paymentRepo.findOneBy({
+          _id: new ObjectId(paymentId),
+          isDeleted: false
+        });
+      }
+
+      if (!payment) {
+        payment = await this.paymentRepo.findOneBy({
+          transactionId: paymentId,
+          isDeleted: false
+        });
+      }
+
+      if (!payment) {
+        const cleanSuffix = paymentId.replace(/^OSINV-?/i, "").toLowerCase();
+        if (cleanSuffix.length === 6) {
+          const payments = await this.paymentRepo.find({
+            where: { memberId: new ObjectId(memberId), isDeleted: false },
+            order: { createdAt: "DESC" },
+            take: 100
+          });
+          payment = payments.find(p => p._id.toString().toLowerCase().endsWith(cleanSuffix)) || null;
+        }
+      }
+
+      if (!payment) {
+        throw new NotFoundError("Payment record not found");
+      }
+
+      // Ensure user only accesses their own invoice
+      if (payment.memberId.toString() !== memberId.toString()) {
+        throw new ForbiddenError("You are not authorized to view this invoice");
+      }
+
+      const member = await this.memberRepo.findOneBy({
+        _id: new ObjectId(memberId),
+        isDeleted: false
+      });
+      if (!member) {
+        throw new NotFoundError("Member record not found");
+      }
+
+      const plan = payment.planId
+        ? await this.planRepo.findOneBy({ _id: new ObjectId(payment.planId) })
+        : null;
+
+      const pdfBuffer = await this.invoiceService.generateInvoicePdf(payment, member, plan);
+      const invoiceFileName = `OSINV-${payment._id.toString().slice(-6).toUpperCase()}.pdf`;
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${invoiceFileName}"`);
+      res.setHeader("Content-Length", pdfBuffer.length);
+      return res.send(pdfBuffer);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
