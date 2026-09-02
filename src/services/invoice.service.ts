@@ -229,19 +229,6 @@ export class InvoiceService {
           currSumY += summaryRowH;
         });
 
-        // ==========================================
-        // 6. Bank Details Footer (Matching Template)
-        // ==========================================
-        const footerY = pageHeight - 65;
-        doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#0f172a");
-        doc.text(
-          "BANK DETAILS: NAME: OCEAN SOFTWARES, AC: 8111929159, IFSC: KKBK0008479, BRANCH: ASHOK NAGAR BRANCH",
-          margin,
-          footerY,
-          { width: tableWidth }
-        );
-        doc.text("CHENNAI-83, KOTAK MAHINDRA BANK", margin, footerY + 12, { width: tableWidth });
-
         doc.end();
       } catch (error) {
         reject(error);
