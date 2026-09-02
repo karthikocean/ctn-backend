@@ -45,16 +45,25 @@ export class InvoiceService {
         // ==========================================
         // 2. Header Logo & Invoice Title
         // ==========================================
-        const logoPath = path.join(process.cwd(), "public", "general", "ocean_softwares_logo.png");
-        if (fs.existsSync(logoPath)) {
+        const candidateLogoPaths = [
+          path.join(__dirname, "..", "views", "ocean_softwares_logo.png"),
+          path.join(__dirname, "..", "..", "src", "views", "ocean_softwares_logo.png"),
+          path.join(process.cwd(), "src", "views", "ocean_softwares_logo.png"),
+          path.join(process.cwd(), "views", "ocean_softwares_logo.png"),
+          path.join(process.cwd(), "dist", "views", "ocean_softwares_logo.png"),
+          path.join(process.cwd(), "public", "general", "ocean_softwares_logo.png"),
+        ];
+
+        let logoPath: string | null = null;
+        for (const p of candidateLogoPaths) {
+          if (fs.existsSync(p)) {
+            logoPath = p;
+            break;
+          }
+        }
+
+        if (logoPath) {
           doc.image(logoPath, margin, 35, { width: 175 });
-        } else {
-          // Fallback vector drawing if image file not on disk
-          doc.circle(margin + 20, 52, 18).fill("#d81b60");
-          doc.fillColor("#ffffff").fontSize(16).font("Helvetica-Bold").text("OS", margin + 8, 44);
-          doc.font("Helvetica-Bold").fontSize(18).fillColor("#d81b60").text("OCEAN ", margin + 46, 38, { continued: true });
-          doc.fillColor("#1e293b").text("SOFTWARES");
-          doc.font("Helvetica").fontSize(8).fillColor("#64748b").text("Technology for Innovators Dreams", margin + 46, 58);
         }
 
         // Right-aligned Invoice Title & Number
