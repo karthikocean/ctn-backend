@@ -48,3 +48,34 @@ export function parseAndValidateDob(dobInput: any): { date: Date | null; error?:
 
   return { date };
 }
+
+/**
+ * Standard Indian Standard Time (IST) offset in milliseconds (UTC+5:30)
+ */
+export const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/**
+ * Returns a new Date object shifted to IST timezone
+ */
+export function getIstDate(date: Date = new Date()): Date {
+  return new Date(date.getTime() + IST_OFFSET_MS);
+}
+
+/**
+ * Calculates full calendar years between two dates
+ */
+export function calculateYearsBetween(start: Date, end: Date): number {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+
+  let years = endDate.getFullYear() - startDate.getFullYear();
+
+  const anniversary = new Date(startDate);
+  anniversary.setFullYear(startDate.getFullYear() + years);
+
+  if (endDate < anniversary) {
+    years -= 1;
+  }
+
+  return Math.max(years, 1);
+}

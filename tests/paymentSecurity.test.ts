@@ -4,7 +4,9 @@
 
 import { ObjectId } from "mongodb";
 import { MobileSubscriptionController } from "../src/controllers/mobile/SubscriptionController";
+import { RazorpayVerificationService } from "../src/services/razorpay.service";
 import { AppDataSource } from "../src/data-source";
+import crypto from "crypto";
 
 describe("Payment & Subscription Analytics Security", () => {
   let controller: MobileSubscriptionController;
@@ -137,5 +139,76 @@ describe("Payment & Subscription Analytics Security", () => {
         message: "Payment transaction cancelled successfully"
       })
     );
+  });
+
+  test("4. verifyUpgradePayment does not log sensitive payment details to console.log", async () => {
+    process.env.RAZORPAY_KEY_SECRET = "test_secret_123";
+    const service = new RazorpayVerificationService();
+
+    const orderId = "order_safe_1";
+    const paymentId = "pay_safe_1";
+    const signature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(`${orderId}|${paymentId}`)
+      .digest("hex");
+
+    const memberId = new ObjectId();
+    const planId = new ObjectId();
+
+    const paymentRecord = {
+      _id: new ObjectId(),
+      transactionId: orderId,
+      memberId,
+      planId,
+      status: "PENDING"
+    };
+
+    const planRecord = {
+      _id: planId,
+      title: "Gold Plan",
+      amount: 5000,
+      durationInMonths: 12,
+      type: "PREMIUM"
+    };
+
+    const memberRecord = {
+      _id: memberId,
+      fullName: "Test Member",
+      fcmToken: "token_123"
+    };
+
+    const subRecord = {
+      _id: new ObjectId(),
+      memberId,
+      planId,
+      status: "ACTIVE"
+    };
+
+    jest.spyOn(AppDataSource, "getMongoRepository").mockImplementation((entity: any) => {
+      if (entity.name === "Payment") {
+        return { findOneBy: jest.fn().mockResolvedValue(paymentRecord), save: jest.fn(), update: jest.fn() } as any;
+      }
+      if (entity.name === "Plan") {
+        return { findOneBy: jest.fn().mockResolvedValue(planRecord) } as any;
+      }
+      if (entity.name === "Member") {
+        return { findOneBy: jest.fn().mockResolvedValue(memberRecord), update: jest.fn() } as any;
+      }
+      if (entity.name === "MemberSubscription") {
+        return { updateMany: jest.fn(), save: jest.fn().mockResolvedValue(subRecord) } as any;
+      }
+      return { findOneBy: jest.fn().mockResolvedValue(null) } as any;
+    });
+
+    const consoleLogSpy = jest.spyOn(console, "log").mockImplementation();
+
+    const result = await service.verifyUpgradePayment(orderId, paymentId, signature);
+
+    expect(result.success).toBe(true);
+    // Ensure no raw payment objects or card details were logged
+    expect(consoleLogSpy).not.toHaveBeenCalledWith(expect.objectContaining({ card: expect.anything() }));
+    expect(consoleLogSpy).not.toHaveBeenCalledWith(expect.objectContaining({ vpa: expect.anything() }));
+
+    consoleLogSpy.mockRestore();
   });
 });

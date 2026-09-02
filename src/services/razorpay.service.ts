@@ -32,9 +32,15 @@ const getRazorpayInstance = () => {
 };
 
 export class RazorpayUpgradeService {
-  private memberRepo = AppDataSource.getMongoRepository(Member);
-  private planRepo = AppDataSource.getMongoRepository(Plan);
-  private paymentRepo = AppDataSource.getMongoRepository(Payment);
+  private get memberRepo() {
+    return AppDataSource.getMongoRepository(Member);
+  }
+  private get planRepo() {
+    return AppDataSource.getMongoRepository(Plan);
+  }
+  private get paymentRepo() {
+    return AppDataSource.getMongoRepository(Payment);
+  }
   private subService = new SubscriptionService();
 
   async getUpgradeBreakdown(memberId: string, newPlanId: string) {
@@ -216,17 +222,33 @@ export class RazorpayUpgradeService {
     };
   }
 
-  private validateDowngradeConstraints(currentPlanTitle: string, newPlanTitle: string, startDate: Date) {
-    const currentLower = currentPlanTitle.toLowerCase();
-    const newLower = newPlanTitle.toLowerCase();
+  private getPlanTier(plan?: Plan | null): "basic" | "standard" | "premium" | "unknown" {
+    if (!plan) return "unknown";
+    const type = (plan.billingType || "").toLowerCase().trim();
+    if (type === "basic") return "basic";
+    if (type === "advance" || type === "standard") return "standard";
+    if (type === "ultimate" || type === "premium" || type === "enterprise") return "premium";
+
+    // Graceful fallback for legacy records missing billingType
+    const title = (plan.title || "").toLowerCase().trim();
+    if (title.includes("basic")) return "basic";
+    if (title.includes("advance") || title.includes("standard")) return "standard";
+    if (title.includes("ultimate") || title.includes("premium") || title.includes("enterprise")) return "premium";
+
+    return "unknown";
+  }
+
+  private validateDowngradeConstraints(currentPlan: Plan | null, newPlan: Plan, startDate: Date) {
+    const currentTier = this.getPlanTier(currentPlan);
+    const newTier = this.getPlanTier(newPlan);
 
     // 1. Block Premium to Basic directly
-    if (currentLower === "premium" && newLower === "basic") {
+    if (currentTier === "premium" && newTier === "basic") {
       throw new BadRequestError("Direct downgrade from Premium to Basic is not allowed. You must first downgrade to Standard.");
     }
 
     // 2. Block Standard to Basic if stayed less than 30 days (1 month)
-    if (currentLower === "standard" && newLower === "basic") {
+    if (currentTier === "standard" && newTier === "basic") {
       const daysElapsed = (Date.now() - startDate.getTime()) / (1000 * 60 * 60 * 24);
       if (daysElapsed < 30) {
         const remaining = Math.ceil(30 - daysElapsed);
@@ -256,7 +278,7 @@ export class RazorpayUpgradeService {
     }
 
     // Validate constraints (Premium -> Basic direct block, Standard -> Basic 30-day block)
-    this.validateDowngradeConstraints(currentPlanTitle, newPlan.title, activeSub.startDate);
+    this.validateDowngradeConstraints(currentPlan, newPlan, activeSub.startDate);
 
     // Calculate remaining days of the current plan
     const timeRemaining = activeSub.endDate.getTime() - Date.now();
@@ -359,17 +381,18 @@ export class RazorpayUpgradeService {
 }
 
 export class RazorpayVerificationService {
-  private paymentRepo = AppDataSource.getMongoRepository(Payment);
-  private memberRepo = AppDataSource.getMongoRepository(Member);
-  private planRepo = AppDataSource.getMongoRepository(Plan);
+  private get paymentRepo() {
+    return AppDataSource.getMongoRepository(Payment);
+  }
+  private get memberRepo() {
+    return AppDataSource.getMongoRepository(Member);
+  }
+  private get planRepo() {
+    return AppDataSource.getMongoRepository(Plan);
+  }
   private subService = new SubscriptionService();
 
   async verifyUpgradePayment(razorpayOrderId: string, razorpayPaymentId: string, razorpaySignature: string) {
-    const razorpay = getRazorpayInstance();
-
-    const paymentDetails = await razorpay.payments.fetch(razorpayPaymentId);
-
-    console.log(paymentDetails);
     // 1. Signature validation using HMAC-SHA256
     const secret = process.env.RAZORPAY_KEY_SECRET || "";
     const generatedSignature = crypto

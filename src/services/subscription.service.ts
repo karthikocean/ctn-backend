@@ -137,10 +137,18 @@ export const MODULE_USAGE_CONFIG: Record<string, ModuleUsageConfig> = {
 };
 
 export class SubscriptionService {
-  private memberRepo = AppDataSource.getMongoRepository(Member);
-  private planRepo = AppDataSource.getMongoRepository(Plan);
-  private subRepo = AppDataSource.getMongoRepository(MemberSubscription);
-  private paymentRepo = AppDataSource.getMongoRepository(Payment);
+  private get memberRepo() {
+    return AppDataSource.getMongoRepository(Member);
+  }
+  private get planRepo() {
+    return AppDataSource.getMongoRepository(Plan);
+  }
+  private get subRepo() {
+    return AppDataSource.getMongoRepository(MemberSubscription);
+  }
+  private get paymentRepo() {
+    return AppDataSource.getMongoRepository(Payment);
+  }
 
   /**
    * Helper: Normalize module name strings (e.g. "Milestones" -> "milestone")

@@ -51,18 +51,4 @@ export async function hasPermission(
   return Boolean(permission?.actions?.map(a => a.toLowerCase()).includes(checkAction));
 }
 
-export function calculateYearsBetween(start: Date, end: Date): number {
-  const startDate = new Date(start);
-  const endDate = new Date(end);
-
-  let years = endDate.getFullYear() - startDate.getFullYear();
-
-  const anniversary = new Date(startDate);
-  anniversary.setFullYear(startDate.getFullYear() + years);
-
-  if (endDate < anniversary) {
-    years -= 1;
-  }
-
-  return Math.max(years, 1);
-}
+export { calculateYearsBetween } from "./dateUtils";
