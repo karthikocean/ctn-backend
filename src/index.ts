@@ -173,41 +173,13 @@ try {
   console.warn("⚠️ Bull Board initialization skipped:", err.message);
 }
 
-registerGracefulShutdown();
-
 const server = httpServer.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT} (starting up...)`);
   console.log(`📄 Swagger: http://localhost:${PORT}/api-docs`);
 });
 
-// ─────────────────────────────────────────────────────────
-// ✅ Graceful Shutdown
-// ─────────────────────────────────────────────────────────
-const closeServer = async () => {
-  console.log("Shutting down server...");
-  try {
-    const io = getIO();
-    if (io) {
-      console.log("Closing Socket.io server and disconnecting clients...");
-      io.close();
-      await waitForDisconnects(2000);
-    }
-  } catch (err) {
-    console.log("Socket.io server was not initialized or already closed.", err);
-  }
-  server.close(async () => {
-    console.log("Server closed.");
-    if (AppDataSource.isInitialized) {
-      await AppDataSource.destroy();
-      console.log("Database connection closed.");
-    }
-    process.exit(0);
-  });
-};
-
-process.on("SIGINT", closeServer);
-process.on("SIGTERM", closeServer);
-process.on("SIGUSR2", closeServer); // For nodemon restarts
+// ✅ Register single, consolidated graceful shutdown handler for all termination signals
+registerGracefulShutdown(server);
 
 // ─────────────────────────────────────────────────────────
 // 🔄 STEP 3: Connect DB & register routes in the background
