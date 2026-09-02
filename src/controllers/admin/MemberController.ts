@@ -32,8 +32,6 @@ import imageService from "../../utils/upload";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 import { MailService } from "../../services/mail.service";
-import { WhatsAppService } from "../../services/whatsapp.service";
-import { MemberPdfService } from "../../services/pdf.service";
 
 @JsonController("/members")
 @UseBefore(AuthMiddleware, franchiseFilter)
@@ -539,94 +537,4 @@ export class AdminMemberController {
     }
   }
 
-  /**
-   * @swagger
-   * /api/admin/members/{id}/whatsapp:
-   *   post:
-   *     summary: Send member PDF profile document via WhatsApp (Admin)
-   *     tags: [Admin Member]
-   */
-  @Post("/:id/whatsapp")
-  async sendMemberPdfWhatsApp(@Req() req: any, @Param("id") id: string, @Res() res: any) {
-    try {
-      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid member ID");
-
-      const member = await this.memberRepo.findOne({
-        where: { _id: new ObjectId(id), isDeleted: false }
-      });
-
-      if (!member) throw new NotFoundError("Member not found");
-
-      if (req.isFranchise) {
-        const regionId = member.businessRegion;
-        if (!regionId || !req.franchiseAreaIds.some((areaId: ObjectId) => areaId.toString() === regionId.toString())) {
-          throw new NotFoundError("Member not found");
-        }
-      }
-
-      if (!member.mobileNumber) {
-        throw new BadRequestError("Mobile number is not available for this member");
-      }
-
-      // Populate Categories & Region for comprehensive PDF
-      const populatedMember: any = { ...member };
-      if (member.businessCategory) {
-        const cat = await this.categoryRepo.findOneBy({ _id: member.businessCategory });
-        populatedMember.businessCategory = cat ? cat.name : null;
-      }
-      if (member.subCategory) {
-        const subCat = await this.categoryRepo.findOneBy({ _id: member.subCategory });
-        populatedMember.subCategory = subCat ? subCat.name : null;
-      }
-      if (member.businessRegion && member.state && member.city) {
-        const stateRepo = AppDataSource.getMongoRepository(State);
-        const cityRepo = AppDataSource.getMongoRepository(City);
-        const stateDoc = await stateRepo.findOne({
-          where: { name: { $regex: new RegExp(`^${member.state}$`, "i") }, isDeleted: false }
-        });
-        if (stateDoc) {
-          const cityDoc = await cityRepo.findOne({
-            where: { name: { $regex: new RegExp(`^${member.city}$`, "i") }, stateId: stateDoc._id, isDeleted: false }
-          });
-          if (cityDoc) {
-            const region = await this.businessRegionRepo.findOne({
-              where: { state: stateDoc._id, city: cityDoc._id, isDeleted: false }
-            });
-            const matchedArea = region?.areas?.find((a: any) => a._id?.toString() === member.businessRegion!.toString());
-            populatedMember.businessRegion = matchedArea ? matchedArea.name : null;
-          }
-        }
-      }
-
-      // Generate PDF buffer
-      const pdfBuffer = await MemberPdfService.generateMemberPdf(populatedMember);
-
-      // Clean mobile number (format as international: 91XXXXXXXXXX)
-      let phone = member.mobileNumber.toString().replace(/\D/g, "");
-      if (phone.length === 10) {
-        phone = "91" + phone;
-      }
-
-      const safeFilename = `${(member.fullName || "Member").replace(/[^a-zA-Z0-9]/g, "_")}_Profile.pdf`;
-
-      // Send through WhatsApp Cloud API
-      const whatsappResult = await WhatsAppService.sendPdfDocument({
-        to: phone,
-        filename: safeFilename,
-        caption: `Hi ${member.fullName},\n\nPlease find your document attached.\n\nThank you.`,
-        pdfBuffer
-      });
-
-      console.log(`[WhatsApp] PDF successfully sent to member: ${member._id} (Recipient: ${phone.slice(0, 4)}****${phone.slice(-2)})`);
-
-      return res.status(StatusCodes.OK).json({
-        success: true,
-        message: "PDF sent successfully via WhatsApp",
-        data: whatsappResult
-      });
-    } catch (error: any) {
-      console.error(`[WhatsApp] Error sending PDF to member:`, error.response?.data || error.message);
-      return handleErrorResponse(error, res);
-    }
-  }
 }

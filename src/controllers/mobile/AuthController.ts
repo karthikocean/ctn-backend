@@ -12,6 +12,7 @@ import { sendOTPSMS } from "../../utils/sms";
 import bcrypt from "bcryptjs";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { ObjectId } from "mongodb";
+import { isStoreTestOtpValid, isStoreTestMobileNumber } from "../../config/storeTest.config";
 @JsonController("/auth")
 export class MobileAuthController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
@@ -184,17 +185,40 @@ export class MobileAuthController {
   async verifyOtpLogin(@Body() body: MobileVerifyOtpLoginDto, @Res() res: any) {
     try {
       const { identifier, type, otp, fcmToken } = body;
-      // console.log(body, "body");
-      // if (!fcmToken) {
-      //   throw new BadRequestError("FCM token is required");
-      // }
-      if (otp !== "1234") {
 
+      // Resolve the member first so we can check the mobile number for
+      // store-test eligibility BEFORE touching the verification record.
+      const member = await this.memberRepo.findOne({
+        where: type === "email" ? { email: identifier, isDeleted: false } : { mobileNumber: identifier, isDeleted: false }
+      });
+
+      if (!member) {
+        throw new UnauthorizedError("User not found");
+      }
+
+      // ── OTP verification ─────────────────────────────────────────────────
+      // The store-test OTP is allowed ONLY when:
+      //   • STORE_TEST_OTP_ENABLED=true in env
+      //   • The member's mobileNumber is in STORE_TEST_MOBILE_NUMBERS
+      //   • The supplied OTP matches STORE_TEST_OTP exactly
+      // All other accounts (and any wrong OTP) go through the normal flow.
+      const storeTestBypassed = isStoreTestOtpValid(member.mobileNumber, otp);
+
+      if (storeTestBypassed) {
+        // Log that the controlled test path was used — without exposing the OTP or the number
+        console.log("[StoreTestOTP] Controlled store-review login path used.");
+      } else {
+        // Normal OTP verification path
         const verification = await this.verificationRepo.findOne({
           where: { identifier, type, otp, isVerified: false }
         });
 
         if (!verification) {
+          // If the identifier is a configured test number attempting a wrong OTP,
+          // give the same generic error to avoid leaking which numbers are configured.
+          if (isStoreTestMobileNumber(member.mobileNumber)) {
+            console.log("[StoreTestOTP] Test number attempted with incorrect OTP.");
+          }
           throw new BadRequestError("Invalid or expired verification code");
         }
 
@@ -205,14 +229,10 @@ export class MobileAuthController {
         verification.isVerified = true;
         await this.verificationRepo.save(verification);
       }
+      // ─────────────────────────────────────────────────────────────────────
 
-      const member = await this.memberRepo.findOne({
-        where: type === "email" ? { email: identifier, isDeleted: false } : { mobileNumber: identifier, isDeleted: false }
-      });
-
-      if (!member) {
-        throw new UnauthorizedError("User not found");
-      }
+      // All account-status, session, and token-creation checks run unconditionally
+      // regardless of which OTP path was taken.
       if (member.status === MemberStatus.BLOCKED) {
         throw new BadRequestError("Account is blocked. Please contact administrator.");
       }

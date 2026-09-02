@@ -7,6 +7,7 @@ import { MailService } from "../../services/mail.service";
 import { SendOtpDto, VerifyOtpDto } from "../../dto/mobile/Verification.dto";
 import handleErrorResponse from "../../utils/commonFunction";
 import { sendOTPSMS } from "../../utils/sms";
+import { isStoreTestOtpValid } from "../../config/storeTest.config";
 
 @JsonController("/verification")
 export class VerificationController {
@@ -174,35 +175,44 @@ export class VerificationController {
         });
       }
 
-      if (otp !== "1234") {
-        const verification = await this.verificationRepo.findOne({
-          where: { identifier, type, otp, isVerified: false }
-        });
-
-        if (!verification) {
-          return res.status(StatusCodes.BAD_REQUEST).json({
-            message: "Invalid or expired verification code"
-          });
-        }
-        console.log(new Date() > verification.expiresAt, new Date(), verification.expiresAt);
-        if (new Date() > verification.expiresAt) {
-          return res.status(StatusCodes.BAD_REQUEST).json({
-            message: "Verification code has expired"
-          });
-        }
-
-        verification.isVerified = true;
-        await this.verificationRepo.save(verification);
-
+      // ── Store-test OTP shortcut ────────────────────────────────────────────
+      // Only applies when:
+      //   • type === "phone"  (test accounts are phone-based)
+      //   • STORE_TEST_OTP_ENABLED=true
+      //   • identifier is in STORE_TEST_MOBILE_NUMBERS
+      //   • otp matches STORE_TEST_OTP exactly
+      // In all other cases the normal verification-record check runs.
+      if (type === "phone" && isStoreTestOtpValid(identifier, otp)) {
+        console.log("[StoreTestOTP] Controlled store-review phone-verification path used.");
         return res.status(StatusCodes.OK).json({
-          message: `${type === "email" ? "Email" : "Phone"} verified successfully`
-        });
-      } else {
-
-        return res.status(StatusCodes.OK).json({
-          message: `${type === "email" ? "Email" : "Phone"} verified successfully`
+          message: "Phone verified successfully"
         });
       }
+      // ──────────────────────────────────────────────────────────────────────
+
+      // Normal verification path
+      const verification = await this.verificationRepo.findOne({
+        where: { identifier, type, otp, isVerified: false }
+      });
+
+      if (!verification) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          message: "Invalid or expired verification code"
+        });
+      }
+
+      if (new Date() > verification.expiresAt) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          message: "Verification code has expired"
+        });
+      }
+
+      verification.isVerified = true;
+      await this.verificationRepo.save(verification);
+
+      return res.status(StatusCodes.OK).json({
+        message: `${type === "email" ? "Email" : "Phone"} verified successfully`
+      });
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
