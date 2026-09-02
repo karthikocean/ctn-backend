@@ -52,14 +52,20 @@ export class RazorpayUpgradeService {
 
     const activeSub = await this.subService.getActiveSubscription(memberId);
 
+    // Target plan price for upgrade uses offerPrice if available:
+    const newPlanPrice = (newPlan.offerPrice && newPlan.offerPrice > 0) ? newPlan.offerPrice : newPlan.amount;
+
     // Default values if no active sub or trial/free sub
     let currentPlanName = "None";
     let currentPlanPrice = 0;
     let totalDays = 0;
     let daysRemaining = 0;
     let daysUsed = 0;
-    let proratedCredit = 0;
-    let amountToCharge = newPlan.amount;
+    let currentPerDayCost = 0;
+    let newPerDayCost = 0;
+    let newPlanRemainingCost = 0;
+    let unusedCredit = 0;
+    let amountToCharge = newPlanPrice;
 
     if (activeSub && activeSub.subscriptionId && !activeSub.isTrial) {
       // Fetch current plan price
@@ -68,8 +74,8 @@ export class RazorpayUpgradeService {
       currentPlanName = currentPlan ? currentPlan.title : "Unknown";
       currentPlanPrice = currentPrice;
 
-      if (newPlan.amount <= currentPrice) {
-        throw new BadRequestError("Cannot upgrade to a lower or equal value plan. Use the buy API to downgrade.");
+      if (newPlanPrice <= currentPrice) {
+        throw new BadRequestError("Cannot upgrade to a lower or equal value plan. Use the downgrade option to switch.");
       }
 
       const start = new Date(activeSub.startDate);
@@ -84,22 +90,32 @@ export class RazorpayUpgradeService {
       const totalDuration = end.getTime() - start.getTime();
 
       if (totalDuration > 0) {
-        totalDays = Math.max(0, Math.round(totalDuration / (1000 * 60 * 60 * 24)));
-        const daysUsedRaw = Math.round((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        totalDays = Math.max(1, Math.round(totalDuration / (1000 * 60 * 60 * 24)));
+        const daysUsedRaw = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
         daysUsed = Math.min(totalDays, Math.max(1, daysUsedRaw + 1));
         daysRemaining = Math.max(0, totalDays - daysUsed);
 
         if (daysRemaining > 0) {
-          const cycle = currentPlan?.billingCycle || "yearly";
-          const daysInCycle = cycle === "monthly" ? 30 : 365;
-          const perDayCost = currentPrice / daysInCycle;
-          proratedCredit = Math.round((perDayCost * daysRemaining) * 100) / 100; // Keep 2 decimal places
-          amountToCharge = Math.max(0, newPlan.amount - proratedCredit);
+          // Calculate per-day cost for current plan and new upgrade plan
+          currentPerDayCost = currentPrice / totalDays;
+          newPerDayCost = newPlanPrice / totalDays;
+
+          // Cost of new plan for remaining days only
+          newPlanRemainingCost = newPerDayCost * daysRemaining;
+
+          // Deduct current plan value for unused remaining days
+          unusedCredit = currentPerDayCost * daysRemaining;
+
+          // Pay for remaining days only (new plan remaining cost minus unused credit from current plan)
+          amountToCharge = Math.max(0, Math.round((newPlanRemainingCost - unusedCredit) * 100) / 100);
+        } else {
+          amountToCharge = newPlanPrice;
         }
       }
     } else if (activeSub && activeSub.isTrial) {
       currentPlanName = `${activeSub.planName} (Trial)`;
       currentPlanPrice = 0;
+      amountToCharge = newPlanPrice;
     }
 
     return {
@@ -111,14 +127,20 @@ export class RazorpayUpgradeService {
       newPlan: {
         id: newPlan._id.toString(),
         title: newPlan.title,
-        amount: newPlan.amount,
+        amount: newPlanPrice,
+        originalAmount: newPlan.amount,
+        offerPrice: newPlan.offerPrice || null,
       },
       durationDetails: {
         totalDays,
         daysRemaining,
         daysUsed,
       },
-      proratedCredit,
+      currentPerDayCost: Math.round(currentPerDayCost * 100) / 100,
+      newPerDayCost: Math.round(newPerDayCost * 100) / 100,
+      newPlanRemainingCost: Math.round(newPlanRemainingCost * 100) / 100,
+      unusedCredit: Math.round(unusedCredit * 100) / 100,
+      proratedCredit: Math.round(unusedCredit * 100) / 100,
       amountToPay: amountToCharge,
     };
   }

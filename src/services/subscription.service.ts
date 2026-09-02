@@ -781,6 +781,33 @@ export class SubscriptionService {
     });
     if (paidSub) return false;
 
+    // 3. If any subscription has ended (status EXPIRED or CANCELLED or endDate in past)
+    const endedSub = await this.subRepo.findOne({
+      where: {
+        memberId: memberObjectId,
+        isDeleted: false
+      } as any
+    });
+    if (endedSub) {
+      if (endedSub.status === "EXPIRED" || endedSub.status === "CANCELLED" || (endedSub.endDate && new Date() > new Date(endedSub.endDate))) {
+        return false;
+      }
+    }
+
+    // 4. Check member record (hasUsedTrial or subscriptionEndDate in past)
+    const member = await this.memberRepo.findOneBy({ _id: memberObjectId, isDeleted: false });
+    if (member) {
+      if (member.subscriptionEndDate && new Date() >= new Date(member.subscriptionEndDate)) {
+        return false;
+      }
+      if (member.hasUsedTrial) {
+        const activeSub = await this.getActiveSubscription(memberObjectId);
+        if (!activeSub || activeSub.status !== "ACTIVE" || (activeSub.endDate && new Date() > new Date(activeSub.endDate))) {
+          return false;
+        }
+      }
+    }
+
     return true;
   }
 
@@ -865,26 +892,47 @@ export class SubscriptionService {
       throw new NotFoundError("Plan not found");
     }
 
+    const payment = await this.paymentRepo.findOneBy({ _id: paymentId });
+    const isUpgrade = payment?.action === "upgrade";
+
+    // Capture active subscription before marking expired
+    let previousSub: any = null;
+    if (typeof this.subRepo.findOneBy === "function") {
+      previousSub = await this.subRepo.findOneBy({ memberId, status: "ACTIVE", isDeleted: false });
+    } else if (typeof this.subRepo.findOne === "function") {
+      previousSub = await this.subRepo.findOne({ where: { memberId, status: "ACTIVE", isDeleted: false } as any });
+    }
+
     await this.subRepo.updateMany(
       { memberId, status: "ACTIVE" },
       { $set: { status: "EXPIRED" } }
     );
 
     const now = new Date();
-    const end = new Date();
-    if (plan.billingCycle === "yearly") {
-      end.setFullYear(end.getFullYear() + 1);
+    let start = now;
+    let end = new Date();
+
+    if (isUpgrade && previousSub && previousSub.endDate && new Date(previousSub.endDate) > now) {
+      // In plan upgrade, no need to extend validity: retain original purchased start & end dates
+      start = previousSub.startDate ? new Date(previousSub.startDate) : now;
+      end = new Date(previousSub.endDate);
     } else {
-      end.setMonth(end.getMonth() + 1);
+      // New buy / full cycle purchase
+      if (plan.billingCycle === "yearly") {
+        end.setFullYear(end.getFullYear() + 1);
+      } else {
+        end.setMonth(end.getMonth() + 1);
+      }
     }
 
     const newSub = new MemberSubscription();
     newSub.memberId = memberId;
     newSub.planId = new ObjectId(planId);
-    newSub.type = plan.billingType || "FREE";
+    newSub.type = plan.billingType || "PREMIUM";
     newSub.status = "ACTIVE";
-    newSub.startDate = now;
+    newSub.startDate = start;
     newSub.endDate = end;
+    newSub.isTrial = false;
     newSub.isDeleted = false;
 
     const savedSub = await this.subRepo.save(newSub);
@@ -894,7 +942,7 @@ export class SubscriptionService {
     await this.memberRepo.update(memberId, {
       subscriptionId: new ObjectId(savedSub._id),
       planId: new ObjectId(planId),
-      subscriptionStartDate: now,
+      subscriptionStartDate: start,
       subscriptionEndDate: end
     });
 

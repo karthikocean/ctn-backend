@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Tests for Payment and Subscription Analytics security & ownership verification.
  */
 
@@ -195,7 +195,7 @@ describe("Payment & Subscription Analytics Security", () => {
         return { findOneBy: jest.fn().mockResolvedValue(memberRecord), update: jest.fn() } as any;
       }
       if (entity.name === "MemberSubscription") {
-        return { updateMany: jest.fn(), save: jest.fn().mockResolvedValue(subRecord) } as any;
+        return { findOne: jest.fn().mockResolvedValue(subRecord), findOneBy: jest.fn().mockResolvedValue(subRecord), updateMany: jest.fn(), save: jest.fn().mockResolvedValue(subRecord) } as any;
       }
       return { findOneBy: jest.fn().mockResolvedValue(null) } as any;
     });
