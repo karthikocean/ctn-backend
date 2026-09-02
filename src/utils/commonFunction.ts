@@ -1,7 +1,8 @@
 import ApiError from "./error";
+import { logger } from "./logger";
 
 function handleErrorResponse(error: any, res: any) {
-  console.error("Error handler caught error:", error);
+  logger.error("Error handler caught error", error, "ErrorHandler");
 
   if (res.headersSent) {
     return;
@@ -64,8 +65,14 @@ function handleErrorResponse(error: any, res: any) {
       .json(error.toResponse());
   }
 
-  if (error && (typeof error.httpCode === "number" || typeof error.statusCode === "number")) {
-    const statusCode = error.httpCode || error.statusCode;
+  if (error && (typeof error.httpCode === "number" || typeof error.statusCode === "number" || typeof error.status === "number")) {
+    const statusCode = error.httpCode || error.statusCode || error.status;
+    if (statusCode === 413 || error.type === "entity.too.large") {
+      return res.status(413).json({
+        status: "error",
+        message: "Payload Too Large: Request body exceeds maximum allowed limit."
+      });
+    }
     return res.status(statusCode).json({
       status: "error",
       message: error.message || "An error occurred"

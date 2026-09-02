@@ -29,7 +29,7 @@ export class MemberInactivityCronService {
     });
 
     // 2. 09:00 AM - Send daily reminder push notification to members inactive for 5+ days
-    cron.schedule("0 9 * * *", async () => {
+    cron.schedule("* * * * *", async () => {
       try {
         console.log("🕒 Running Member Inactivity Reminder Notification Cron (09:00 AM)...");
         await this.sendInactivityReminders();

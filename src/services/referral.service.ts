@@ -11,12 +11,24 @@ import { Plan } from "../entity/Plan";
 import { MemberSubscription } from "../entity/MemberSubscription";
 
 export class ReferralService {
-  private memberRepo = AppDataSource.getMongoRepository(Member);
-  private userReferralRepo = AppDataSource.getMongoRepository(UserReferral);
-  private memberPointsRepo = AppDataSource.getMongoRepository(MemberPoints);
-  private historyRepo = AppDataSource.getMongoRepository(PointHistory);
-  private planRepo = AppDataSource.getMongoRepository(Plan);
-  private subRepo = AppDataSource.getMongoRepository(MemberSubscription);
+  private get memberRepo() {
+    return AppDataSource.getMongoRepository(Member);
+  }
+  private get userReferralRepo() {
+    return AppDataSource.getMongoRepository(UserReferral);
+  }
+  private get memberPointsRepo() {
+    return AppDataSource.getMongoRepository(MemberPoints);
+  }
+  private get historyRepo() {
+    return AppDataSource.getMongoRepository(PointHistory);
+  }
+  private get planRepo() {
+    return AppDataSource.getMongoRepository(Plan);
+  }
+  private get subRepo() {
+    return AppDataSource.getMongoRepository(MemberSubscription);
+  }
 
   /**
    * Normalizes referral codes (trims, uppercase, removes disallowed characters)
@@ -30,7 +42,7 @@ export class ReferralService {
    * Generates a unique, collision-free, user-friendly referral code (e.g., ANBU8F42)
    * Avoids ambiguous characters like 0, O, 1, I, L.
    */
-  async generateUniqueReferralCode(prefixName?: string): Promise<string> {
+  async generateUniqueReferralCode(prefixName?: string, maxAttempts: number = 20): Promise<string> {
     const cleanChars = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"; // No 0, O, 1, I, L
 
     let prefix = "REF";
@@ -43,7 +55,7 @@ export class ReferralService {
       }
     }
 
-    // Try generating with prefix + 4 random clean chars
+    // Try generating with prefix + 4 random clean chars (10 attempts)
     for (let attempt = 0; attempt < 10; attempt++) {
       let randomSuffix = "";
       const randomBytes = crypto.randomBytes(4);
@@ -61,8 +73,8 @@ export class ReferralService {
       }
     }
 
-    // Fallback: 8 clean random characters
-    while (true) {
+    // Fallback: 8 clean random characters with bounded attempts (default 20 attempts)
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       let code = "";
       const randomBytes = crypto.randomBytes(8);
       for (let i = 0; i < 8; i++) {
@@ -75,6 +87,8 @@ export class ReferralService {
         return code;
       }
     }
+
+    throw new Error("Unable to generate a unique referral code after maximum attempts");
   }
 
   /**

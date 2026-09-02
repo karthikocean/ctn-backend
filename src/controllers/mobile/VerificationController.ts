@@ -8,6 +8,7 @@ import { SendOtpDto, VerifyOtpDto } from "../../dto/mobile/Verification.dto";
 import handleErrorResponse from "../../utils/commonFunction";
 import { sendOTPSMS } from "../../utils/sms";
 import { isStoreTestOtpValid } from "../../config/storeTest.config";
+import { generateSecureOtp } from "../../utils";
 
 @JsonController("/verification")
 export class VerificationController {
@@ -87,7 +88,7 @@ export class VerificationController {
         identifier: string,
         type: "phone" | "email"
       ) => {
-        const otp = Math.floor(1000 + Math.random() * 9000).toString();
+        const otp = generateSecureOtp(4);
 
         let verification = await this.verificationRepo.findOne({
           where: {

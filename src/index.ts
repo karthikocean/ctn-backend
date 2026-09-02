@@ -27,11 +27,9 @@ import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
 import { seedAdmin } from "./seed/seedAdmin";
 import { seedModules } from "./seed/seedModules";
-// import { migrateRegions } from "./migrations/migrateRegions";
 import { createServer } from "http";
-import { initSocket, getIO, waitForDisconnects } from "./utils/socket";
+import { initSocket } from "./utils/socket";
 import { SubscriptionCronService } from "./services/subscriptionCron.service";
-// import { DailyScoreCronService } from "./services/dailyScoreCron.service";
 import { SpotlightCronService } from "./services/spotlightCron.service";
 import { OnlineStallCronService } from "./services/onlineStallCron.service";
 import { AnnouncementCronService } from "./services/announcementCron.service";
@@ -45,7 +43,8 @@ import { MilestoneCronService } from "./services/milestoneCron.service";
 import { MemberInactivityCronService } from "./services/memberInactivityCron.service";
 import { DataRetentionCronService } from "./services/dataRetentionCron.service";
 import { ensureMongoIndexes } from "./utils/ensureIndexes";
-// import { migrateRegions } from "./migrations/migrateRegions";
+import { logger } from "./utils/logger";
+import { checkRedisHealth } from "./config/appRedis";
 
 // ─────────────────────────────────────────────────────────
 // 🚀 STEP 1: Create app & HTTP server IMMEDIATELY
@@ -56,11 +55,20 @@ let isReady = false;
 const app = express();
 // Enable trust proxy for reverse proxies / PM2 / Nginx / ALBs (correct client IP extraction)
 app.set("trust proxy", 1);
+app.disable("x-powered-by");
 
 const PORT = process.env.PORT || 4000;
 const httpServer = createServer(app);
 
-// Request Logger: Logs incoming API requests and endpoints in the terminal
+// 🛡️ Security Headers (Helmet) registered first so all responses (including 503, 400, 404) carry security headers
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Disabled for API & Swagger UI compatibility
+    crossOriginEmbedderPolicy: false
+  })
+);
+
+// Request Logger: Structured logs for incoming API requests
 app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
   const { method, originalUrl } = req;
@@ -68,8 +76,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     const statusCode = res.statusCode;
-    const icon = statusCode >= 400 ? "❌" : "🌐";
-    console.log(`${icon} [API] ${method} ${originalUrl} -> ${statusCode} (${duration}ms)`);
+    const isError = statusCode >= 400;
+    const msg = `${method} ${originalUrl} -> ${statusCode} (${duration}ms)`;
+    if (isError) {
+      logger.warn(msg, "API", { method, path: originalUrl, statusCode, durationMs: duration });
+    } else {
+      logger.info(msg, "API", { method, path: originalUrl, statusCode, durationMs: duration });
+    }
   });
 
   next();
@@ -86,8 +99,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-app.use(express.json());
-
 app.use(
   cors({
     origin: "*",  // ✅ Allow all domains
@@ -97,6 +108,12 @@ app.use(
   })
 );
 
+const jsonBodyLimit = process.env.JSON_BODY_LIMIT || "10mb";
+const urlencodedBodyLimit = process.env.URLENCODED_BODY_LIMIT || "10mb";
+
+app.use(express.json({ limit: jsonBodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: urlencodedBodyLimit }));
+
 app.use(
   fileUpload({
     limits: { fileSize: 50 * 1024 * 1024 },
@@ -105,21 +122,30 @@ app.use(
   })
 );
 app.use(express.static("public"));
-app.use(helmet());
 
 // Health & root always respond instantly (bypasses rate limiters & 503 gate)
-app.get("/api/health", (_req: Request, res: Response) => {
+app.get("/api/health", async (_req: Request, res: Response) => {
+  const redisHealth = await checkRedisHealth();
+  const dbStatus = AppDataSource.isInitialized ? "connected" : "connecting";
+
   res.status(200).json({
     status: isReady ? "ready" : "starting",
-    database: AppDataSource.isInitialized ? "connected" : "connecting"
+    database: dbStatus,
+    redis: redisHealth.status,
+    services: {
+      database: dbStatus,
+      redis: redisHealth.status
+    }
   });
 });
 
-app.get("/", (_req: Request, res: Response) => {
+app.get("/", async (_req: Request, res: Response) => {
+  const redisHealth = await checkRedisHealth();
   res.status(200).json({
     status: isReady ? "ok" : "starting",
     timestamp: new Date().toISOString(),
     database: AppDataSource.isInitialized ? "connected" : "disconnected",
+    redis: redisHealth.status,
     nodeVersion: process.version,
     uptime: process.uptime()
   });
@@ -175,7 +201,9 @@ try {
 
 const server = httpServer.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT} (starting up...)`);
-  console.log(`📄 Swagger: http://localhost:${PORT}/api-docs`);
+  if (process.env.NODE_ENV !== "production" || process.env.ENABLE_SWAGGER_IN_PROD === "true") {
+    console.log(`📄 Swagger: http://localhost:${PORT}/api-docs`);
+  }
 });
 
 // ✅ Register single, consolidated graceful shutdown handler for all termination signals
@@ -196,8 +224,8 @@ AppDataSource.initialize()
       console.warn("⚠️ Failed to ensure MongoDB indexes on startup:", indexErr);
     }
 
-    // ✅ Swagger route — only available in non-production environments
-    if (process.env.NODE_ENV !== "production") {
+    // ✅ Swagger route — enabled in non-production or when explicitly requested via ENABLE_SWAGGER_IN_PROD
+    if (process.env.NODE_ENV !== "production" || process.env.ENABLE_SWAGGER_IN_PROD === "true") {
       app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
       console.log(`📚 Swagger UI available at /api-docs (NODE_ENV=${process.env.NODE_ENV})`);
     }
@@ -250,9 +278,16 @@ AppDataSource.initialize()
 
     // Global error handler
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      console.error(err);
+      logger.error(`Global error caught: ${err.message || String(err)}`, err, "GlobalErrorHandler");
       const isProd = process.env.NODE_ENV === "production";
-      res.status(err.httpCode || 500).json({
+      const statusCode = err.status || err.statusCode || err.httpCode || 500;
+      if (err.type === "entity.too.large" || statusCode === 413) {
+        return res.status(413).json({
+          status: "error",
+          message: "Payload Too Large: Request body exceeds maximum allowed limit."
+        });
+      }
+      res.status(statusCode).json({
         message: isProd ? "An unexpected error occurred." : err.message,
         errors: isProd ? null : err.errors || null
       });
@@ -290,7 +325,6 @@ AppDataSource.initialize()
 
       // Initialize Cron Jobs
       SubscriptionCronService.init();
-      // DailyScoreCronService.init();
       SpotlightCronService.init();
       OnlineStallCronService.init();
       AnnouncementCronService.init();

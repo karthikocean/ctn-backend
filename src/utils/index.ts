@@ -6,3 +6,5 @@ export { hasPermission } from "./common.function";
 export { calculateYearsBetween, parseAndValidateDob, IST_OFFSET_MS, getIstDate } from "./dateUtils";
 export { resolveRegion, resolveRegions } from "./region.helper";
 export { parseExcelBufferToJson } from "./excelHelper";
+export { logger } from "./logger";
+export { generateSecureOtp } from "./id.generator";

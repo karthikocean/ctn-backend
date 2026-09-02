@@ -3,15 +3,11 @@ import { AppDataSource } from "../data-source";
 import { SpotlightRequest, SpotlightRequestStatus } from "../entity/SpotlightRequest";
 import { Spotlight, SpotlightStatus } from "../entity/Spotlight";
 import { SpotlightHistory, SpotlightHistoryAction } from "../entity/SpotlightHistory";
-// import { Member } from "../entity/Member";
-// import { insertPushNotification } from "./pushnotification.service";
-// import { NotificationModule } from "../entity/PushNotifications";
 
 export class SpotlightRequestCronService {
   private static requestRepo = AppDataSource.getMongoRepository(SpotlightRequest);
   private static spotlightRepo = AppDataSource.getMongoRepository(Spotlight);
   private static spotlightHistoryRepo = AppDataSource.getMongoRepository(SpotlightHistory);
-  // private static memberRepo = AppDataSource.getMongoRepository(Member);
 
   /**
    * Initializes the Spotlight Request related cron jobs

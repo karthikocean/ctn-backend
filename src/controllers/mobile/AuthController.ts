@@ -13,6 +13,7 @@ import bcrypt from "bcryptjs";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { ObjectId } from "mongodb";
 import { isStoreTestOtpValid, isStoreTestMobileNumber } from "../../config/storeTest.config";
+import { generateSecureOtp } from "../../utils";
 @JsonController("/auth")
 export class MobileAuthController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
@@ -126,7 +127,7 @@ export class MobileAuthController {
         throw new BadRequestError("Account is blocked. Please contact administrator.");
       }
 
-      const otp = Math.floor(1000 + Math.random() * 9000).toString();
+      const otp = generateSecureOtp(4);
       const expiresAt = new Date();
       expiresAt.setMinutes(expiresAt.getMinutes() + 5);
 
