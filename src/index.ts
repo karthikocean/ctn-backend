@@ -44,6 +44,7 @@ import { SpotlightRequestCronService } from "./services/spotlightRequestCron.ser
 import { MilestoneCronService } from "./services/milestoneCron.service";
 import { MemberInactivityCronService } from "./services/memberInactivityCron.service";
 import { DataRetentionCronService } from "./services/dataRetentionCron.service";
+import { ensureMongoIndexes } from "./utils/ensureIndexes";
 // import { migrateRegions } from "./migrations/migrateRegions";
 
 // ─────────────────────────────────────────────────────────
@@ -214,6 +215,14 @@ process.on("SIGUSR2", closeServer); // For nodemon restarts
 AppDataSource.initialize()
   .then(async () => {
     console.log("✅ Database connected");
+
+    // Ensure all @Index decorators are registered safely in MongoDB (idempotent, never drops data)
+    try {
+      const indexResult = await ensureMongoIndexes(AppDataSource);
+      console.log(`📑 MongoDB indexes ensured: ${indexResult.totalIndexes} across ${indexResult.totalEntities} entities.`);
+    } catch (indexErr) {
+      console.warn("⚠️ Failed to ensure MongoDB indexes on startup:", indexErr);
+    }
 
     // ✅ Swagger route — only available in non-production environments
     if (process.env.NODE_ENV !== "production") {

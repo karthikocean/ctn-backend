@@ -87,6 +87,12 @@ async function runCleanup() {
 // 4. If the script is imported anywhere else in the project, it must not execute.
 // 5. The cleanup should only start when the file is executed directly.
 if (require.main === module) {
+  // Absolute safety check: Never permit cleanup execution in production
+  if (process.env.NODE_ENV === "production") {
+    console.error("❌ Fatal: Database cleanup script is strictly forbidden in production (NODE_ENV=production).");
+    process.exit(1);
+  }
+
   // 3. Additionally, require an environment variable: CONFIRM_DELETE_DATABASE=true
   // If this variable is missing or not equal to "true", immediately exit.
   if (process.env.CONFIRM_DELETE_DATABASE !== "true") {

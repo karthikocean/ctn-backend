@@ -4,10 +4,15 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index
 } from "typeorm";
 import { ObjectId } from "mongodb";
 
 @Entity("member_subscriptions")
+@Index(["memberId", "status"])
+@Index(["memberId"])
+@Index(["status"])
+@Index(["isDeleted"])
 export class MemberSubscription {
   @ObjectIdColumn()
     _id!: ObjectId;

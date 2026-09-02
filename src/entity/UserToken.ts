@@ -3,6 +3,8 @@ import { ObjectId } from "mongodb";
 
 @Entity("user_tokens")
 @Index(["userId", "token"])
+@Index(["token"])
+@Index(["userId"])
 export class UserToken {
 
     @Column({ nullable: true })
