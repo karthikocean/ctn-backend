@@ -14,6 +14,7 @@ import { Member } from "../../entity/Member";
 import { OneToOne } from "../../entity/OneToOne";
 import { Referral } from "../../entity/Referral";
 import { ThankYouSlip } from "../../entity/ThankYouSlip";
+import { ReportedHistory } from "../../entity/ReportedHistory";
 import { Category } from "../../entity/Category";
 import { BusinessRegion } from "../../entity/BusinessRegion";
 import { ObjectId } from "mongodb";
@@ -31,8 +32,8 @@ export class ConnectionController {
   private oneToOneRepo = AppDataSource.getMongoRepository(OneToOne);
   private referralRepo = AppDataSource.getMongoRepository(Referral);
   private thankYouSlipRepo = AppDataSource.getMongoRepository(ThankYouSlip);
+  private reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
-  private regionRepo = AppDataSource.getMongoRepository(BusinessRegion);
 
   /**
    * @swagger
@@ -304,7 +305,7 @@ export class ConnectionController {
       // 1. Fetch Connections for page members
       const connections = await this.connectionRepo.find({
         where: {
-          isDeleted: false,
+          isDeleted: { $ne: true },
           $or: [
             { senderId: { $in: memberIds } },
             { receiverId: { $in: memberIds } }
@@ -322,15 +323,8 @@ export class ConnectionController {
         } as any
       });
 
-      // 3. Fetch Recommendations / Referrals Received
+      // 3. Fetch Recommendations / Referrals (Given & Received)
       const referrals = await this.referralRepo.find({
-        where: {
-          receiverId: { $in: memberIds }
-        } as any
-      });
-
-      // 4. Fetch Thank You Slips (Business Done)
-      const thankYouSlips = await this.thankYouSlipRepo.find({
         where: {
           $or: [
             { senderId: { $in: memberIds } },
@@ -339,21 +333,42 @@ export class ConnectionController {
         } as any
       });
 
+      // 4. Fetch Thank You Slips (Business Done Received & Given)
+      const thankYouSlips = await this.thankYouSlipRepo.find({
+        where: {
+          $or: [
+            { receiverId: { $in: memberIds } },
+            { senderId: { $in: memberIds } }
+          ]
+        } as any
+      });
+
+      // 5. Fetch Reports against member
+      const reportedHistories = await this.reportedHistoryRepo.find({
+        where: {
+          targetUserId: { $in: memberIds },
+          status: "REPORTED",
+          isDeleted: { $ne: true }
+        } as any
+      });
+
       // Build Engagement Maps per Member
       const data = members.map(m => {
         const mIdStr = m._id.toString();
 
         // Connection counts
+        let totalReqGivenCount = 0;
         let sentAcceptedCount = 0;
         let sentRejectedCount = 0;
         let receivedAcceptedCount = 0;
         let receivedRejectedCount = 0;
 
         connections.forEach(c => {
-          const sId = c.senderId.toString();
-          const rId = c.receiverId.toString();
+          const sId = c.senderId?.toString();
+          const rId = c.receiverId?.toString();
 
           if (sId === mIdStr) {
+            totalReqGivenCount++;
             if (c.status === ConnectionStatus.ACCEPTED) sentAcceptedCount++;
             else if (c.status === ConnectionStatus.REJECTED) sentRejectedCount++;
           }
@@ -363,29 +378,41 @@ export class ConnectionController {
           }
         });
 
-        // Direct Meet Count (1-to-1 meetings)
+        // Direct Meet Count (both created and participated in)
         let directMeetCount = 0;
         oneToOnes.forEach(o => {
-          if (o.senderId.toString() === mIdStr || o.receiverId.toString() === mIdStr) {
+          if (o.senderId?.toString() === mIdStr || o.receiverId?.toString() === mIdStr) {
             directMeetCount++;
           }
         });
 
-        // Recommendation Received Count
+        // Recommendations Count
+        let giveRecommendationsCount = 0;
         let recommendationReceivedCount = 0;
         referrals.forEach(r => {
-          if (r.receiverId.toString() === mIdStr) {
+          if (r.senderId?.toString() === mIdStr) {
+            giveRecommendationsCount++;
+          }
+          if (r.receiverId?.toString() === mIdStr) {
             recommendationReceivedCount++;
           }
         });
 
-        // Business Done Count & Amount (Thank You Slips given or received)
-        let businessDoneCount = 0;
-        let businessDoneAmount = 0;
+        // Received Business Done Count & Amount (he received)
+        let receivedBusinessDoneCount = 0;
+        let receivedBusinessDoneAmount = 0;
         thankYouSlips.forEach(t => {
-          if (t.senderId.toString() === mIdStr || t.receiverId.toString() === mIdStr) {
-            businessDoneCount++;
-            businessDoneAmount += Number(t.amount) || 0;
+          if (t.receiverId?.toString() === mIdStr) {
+            receivedBusinessDoneCount++;
+            receivedBusinessDoneAmount += Number(t.amount) || 0;
+          }
+        });
+
+        // Reported Count (who reported him)
+        let reportedCount = 0;
+        reportedHistories.forEach(rh => {
+          if (rh.targetUserId?.toString() === mIdStr) {
+            reportedCount++;
           }
         });
 
@@ -401,14 +428,19 @@ export class ConnectionController {
           subCategoryName: subCatName || null,
           mobileNumber: m.mobileNumber,
           city: m.city || null,
+          totalReqGivenCount,
           sentAcceptedCount,
           sentRejectedCount,
           receivedAcceptedCount,
           receivedRejectedCount,
           directMeetCount,
+          giveRecommendationsCount,
           recommendationReceivedCount,
-          businessDoneCount,
-          businessDoneAmount
+          receivedBusinessDoneCount,
+          receivedBusinessDoneAmount,
+          businessDoneCount: receivedBusinessDoneCount,
+          businessDoneAmount: receivedBusinessDoneAmount,
+          reportedCount
         };
       });
 
@@ -471,6 +503,23 @@ export class ConnectionController {
       let targetMemberIds: { otherMemberId: ObjectId; date: Date; status: string; recordId: ObjectId; meta?: any }[] = [];
 
       switch (type) {
+        case "total_req_given": {
+          const conns = await this.connectionRepo.find({
+            where: {
+              senderId: targetId,
+              isDeleted: false
+            },
+            order: { createdAt: "DESC" }
+          });
+          targetMemberIds = conns.map(c => ({
+            otherMemberId: c.receiverId,
+            date: c.createdAt,
+            status: c.status ? (c.status.charAt(0).toUpperCase() + c.status.slice(1).toLowerCase()) : "Pending",
+            recordId: c._id
+          }));
+          break;
+        }
+
         case "sent_accepted": {
           const conns = await this.connectionRepo.find({
             where: {
@@ -503,6 +552,90 @@ export class ConnectionController {
             date: c.updatedAt || c.createdAt,
             status: "Rejected",
             recordId: c._id
+          }));
+          break;
+        }
+
+        case "direct_meet": {
+          const meets = await this.oneToOneRepo.find({
+            where: {
+              $or: [{ senderId: targetId }, { receiverId: targetId }]
+            } as any,
+            order: { createdAt: "DESC" }
+          });
+          targetMemberIds = meets.map(m => {
+            const isSender = m.senderId.toString() === targetId.toString();
+            return {
+              otherMemberId: isSender ? m.receiverId : m.senderId,
+              date: m.createdAt,
+              status: m.status || "Completed",
+              recordId: m._id,
+              meta: { media: m.media, reason: m.reason, role: isSender ? "Creator" : "Participant" }
+            };
+          });
+          break;
+        }
+
+        case "give_recommendations":
+        case "recommendation_given": {
+          const refs = await this.referralRepo.find({
+            where: { senderId: targetId },
+            order: { createdAt: "DESC" }
+          });
+          targetMemberIds = refs.map(r => ({
+            otherMemberId: r.receiverId,
+            date: r.createdAt,
+            status: r.status || "Given",
+            recordId: r._id,
+            meta: {
+              referralName: r.referralName,
+              referralMobile: r.referralMobile,
+              comments: r.comments
+            }
+          }));
+          break;
+        }
+
+        case "received_business_done":
+        case "business_done": {
+          const slips = await this.thankYouSlipRepo.find({
+            where: {
+              receiverId: targetId
+            } as any,
+            order: { createdAt: "DESC" }
+          });
+          targetMemberIds = slips.map(s => ({
+            otherMemberId: s.senderId,
+            date: s.createdAt,
+            status: s.status || "Received",
+            recordId: s._id,
+            meta: {
+              amount: s.amount,
+              businessDetails: s.businessDetails,
+              type: "Received"
+            }
+          }));
+          break;
+        }
+
+        case "reported": {
+          const reports = await this.reportedHistoryRepo.find({
+            where: {
+              targetUserId: targetId,
+              status: "REPORTED",
+              isDeleted: { $ne: true }
+            } as any,
+            order: { createdAt: "DESC" }
+          });
+          targetMemberIds = reports.map(r => ({
+            otherMemberId: r.reporterUserId,
+            date: r.createdAt,
+            status: "Reported",
+            recordId: r._id,
+            meta: {
+              reason: r.reason || "Reported Member",
+              moduleName: r.moduleName || "General"
+            }
           }));
           break;
         }
@@ -543,26 +676,6 @@ export class ConnectionController {
           break;
         }
 
-        case "direct_meet": {
-          const meets = await this.oneToOneRepo.find({
-            where: {
-              $or: [{ senderId: targetId }, { receiverId: targetId }]
-            } as any,
-            order: { createdAt: "DESC" }
-          });
-          targetMemberIds = meets.map(m => {
-            const isSender = m.senderId.toString() === targetId.toString();
-            return {
-              otherMemberId: isSender ? m.receiverId : m.senderId,
-              date: m.createdAt,
-              status: m.status || "Completed",
-              recordId: m._id,
-              meta: { media: m.media, reason: m.reason }
-            };
-          });
-          break;
-        }
-
         case "recommendation_received": {
           const refs = await this.referralRepo.find({
             where: { receiverId: targetId },
@@ -579,30 +692,6 @@ export class ConnectionController {
               comments: r.comments
             }
           }));
-          break;
-        }
-
-        case "business_done": {
-          const slips = await this.thankYouSlipRepo.find({
-            where: {
-              $or: [{ senderId: targetId }, { receiverId: targetId }]
-            } as any,
-            order: { createdAt: "DESC" }
-          });
-          targetMemberIds = slips.map(s => {
-            const isSender = s.senderId.toString() === targetId.toString();
-            return {
-              otherMemberId: isSender ? s.receiverId : s.senderId,
-              date: s.createdAt,
-              status: s.status || "Done",
-              recordId: s._id,
-              meta: {
-                amount: s.amount,
-                businessDetails: s.businessDetails,
-                type: isSender ? "Given" : "Received"
-              }
-            };
-          });
           break;
         }
 
