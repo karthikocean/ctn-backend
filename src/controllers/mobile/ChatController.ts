@@ -260,42 +260,43 @@ export class MobileChatController {
       if (search && search.trim()) {
         const queryRegex = { $regex: new RegExp(search.trim(), "i") };
 
-        // Find matching members (exclude self to avoid matching all own conversations)
-        const matchedMembers = await this.memberRepo.find({
-          where: {
-            fullName: queryRegex,
-            isDeleted: false
-          } as any
-        });
+        // Run all 4 search queries concurrently with selective _id projection
+        const [matchedMembers, matchedPosts, matchedProducts, matchedMilestones] = await Promise.all([
+          this.memberRepo.find({
+            where: {
+              fullName: queryRegex,
+              isDeleted: false
+            } as any,
+            select: ["_id"]
+          }),
+          this.postRepo.find({
+            where: {
+              title: queryRegex,
+              isDeleted: false
+            } as any,
+            select: ["_id"]
+          }),
+          this.productRepo.find({
+            where: {
+              $or: [{ productName: queryRegex }, { title: queryRegex }],
+              isDeleted: false
+            } as any,
+            select: ["_id"]
+          }),
+          this.milestoneRepo.find({
+            where: {
+              $or: [{ caption: queryRegex }, { title: queryRegex }],
+              isDeleted: false
+            } as any,
+            select: ["_id"]
+          })
+        ]);
+
         const matchedMemberIds = matchedMembers
           .map(m => m._id)
           .filter(id => !id.equals(userId));
-
-        // Find matching posts
-        const matchedPosts = await this.postRepo.find({
-          where: {
-            title: queryRegex,
-            isDeleted: false
-          } as any
-        });
         const matchedPostIds = matchedPosts.map(p => p._id);
-
-        // Find matching products
-        const matchedProducts = await this.productRepo.find({
-          where: {
-            title: queryRegex,
-            isDeleted: false
-          } as any
-        });
         const matchedProductIds = matchedProducts.map(p => p._id);
-
-        // Find matching milestones
-        const matchedMilestones = await this.milestoneRepo.find({
-          where: {
-            title: queryRegex,
-            isDeleted: false
-          } as any
-        });
         const matchedMilestoneIds = matchedMilestones.map(m => m._id);
 
         const orClauses: any[] = [{ lastMessage: queryRegex }];
@@ -369,58 +370,95 @@ export class MobileChatController {
         conv.participants.find(p => !p.equals(userId))
       ).filter(id => !!id) as ObjectId[];
 
-      const members = participantIds.length > 0
-        ? await this.memberRepo.find({ where: { _id: { $in: participantIds } } as any })
-        : [];
-
-      const memberMap = new Map(members.map(m => [m._id.toString(), m]));
-
-      const categoryIds = members
-        .map(m => m.businessCategory)
+      const postIds = conversations
+        .map(c => c.postId)
         .filter(id => !!id) as ObjectId[];
 
-      const categories = categoryIds.length > 0
-        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
-        : [];
+      const milestoneIds = conversations
+        .map(c => c.milestoneId)
+        .filter(id => !!id) as ObjectId[];
 
-      const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
+      const productIds = conversations
+        .map(c => (c as any).productId)
+        .filter(id => !!id) as ObjectId[];
 
-      // Batch check mutual connections and blocked/reported members for all participants
-      const mutualConnections = participantIds.length > 0 ? await this.connectionRepo.find({
-        where: {
-          $or: [
-            { senderId: userId, receiverId: { $in: participantIds }, status: ConnectionStatus.ACCEPTED, isDeleted: false },
-            { receiverId: userId, senderId: { $in: participantIds }, status: ConnectionStatus.ACCEPTED, isDeleted: false }
-          ]
-        } as any
-      }) : [];
-      const followingSet = new Set(mutualConnections.filter(c => c.senderId.equals(userId)).map(c => c.receiverId.toString()));
-      const followerSet = new Set(mutualConnections.filter(c => c.receiverId.equals(userId)).map(c => c.senderId.toString()));
+      const convIds = conversations.map(c => c._id);
+      const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
+
+      // Stage 1: Run all 8 primary independent queries concurrently in 1 round-trip
+      const [
+        members,
+        mutualConnections,
+        blockedConnections,
+        reportedHistories,
+        posts,
+        milestones,
+        products,
+        slicedMsgsPerConv
+      ] = await Promise.all([
+        participantIds.length > 0
+          ? this.memberRepo.find({ where: { _id: { $in: participantIds } } as any })
+          : Promise.resolve([]),
+        participantIds.length > 0
+          ? this.connectionRepo.find({
+              where: {
+                $or: [
+                  { senderId: userId, receiverId: { $in: participantIds }, status: ConnectionStatus.ACCEPTED, isDeleted: false },
+                  { receiverId: userId, senderId: { $in: participantIds }, status: ConnectionStatus.ACCEPTED, isDeleted: false }
+                ]
+              } as any
+            })
+          : Promise.resolve([]),
+        participantIds.length > 0
+          ? this.connectionRepo.find({
+              where: {
+                $or: [
+                  { senderId: userId, receiverId: { $in: participantIds }, status: ConnectionStatus.BLOCKED, isDeleted: false },
+                  { receiverId: userId, senderId: { $in: participantIds }, status: ConnectionStatus.BLOCKED, isDeleted: false }
+                ]
+              } as any
+            })
+          : Promise.resolve([]),
+        participantIds.length > 0
+          ? reportedHistoryRepo.find({
+              where: {
+                $or: [
+                  { reporterUserId: userId, targetUserId: { $in: participantIds } },
+                  { reporterUserId: { $in: participantIds }, targetUserId: userId }
+                ],
+                isDeleted: { $ne: true }
+              } as any
+            })
+          : Promise.resolve([]),
+        postIds.length > 0
+          ? this.postRepo.find({ where: { _id: { $in: postIds } } as any })
+          : Promise.resolve([]),
+        milestoneIds.length > 0
+          ? this.milestoneRepo.find({ where: { _id: { $in: milestoneIds } } as any })
+          : Promise.resolve([]),
+        productIds.length > 0
+          ? this.productRepo.find({ where: { _id: { $in: productIds } } as any })
+          : Promise.resolve([]),
+        // Optimized: only fetch newest 5 messages per conversation via $slice aggregation instead of full history
+        convIds.length > 0
+          ? this.messageRepo.aggregate([
+              { $match: { conversationId: { $in: convIds }, isDeleted: { $ne: true } } },
+              { $sort: { createdAt: -1 } },
+              { $group: { _id: "$conversationId", msgs: { $push: "$$ROOT" } } },
+              { $project: { msgs: { $slice: ["$msgs", 5] } } }
+            ]).toArray()
+          : Promise.resolve([])
+      ]);
+
+      const memberMap = new Map((members as any[]).map(m => [m._id.toString(), m]));
+      const followingSet = new Set((mutualConnections as any[]).filter(c => c.senderId.equals(userId)).map(c => c.receiverId.toString()));
+      const followerSet = new Set((mutualConnections as any[]).filter(c => c.receiverId.equals(userId)).map(c => c.senderId.toString()));
       const mutualSet = new Set([...followingSet].filter(id => followerSet.has(id)));
 
-      const blockedConnections = participantIds.length > 0 ? await this.connectionRepo.find({
-        where: {
-          $or: [
-            { senderId: userId, receiverId: { $in: participantIds }, status: ConnectionStatus.BLOCKED, isDeleted: false },
-            { receiverId: userId, senderId: { $in: participantIds }, status: ConnectionStatus.BLOCKED, isDeleted: false }
-          ]
-        } as any
-      }) : [];
       const blockedSet = new Set(
-        blockedConnections.map(c => c.senderId.equals(userId) ? c.receiverId.toString() : c.senderId.toString())
+        (blockedConnections as any[]).map(c => c.senderId.equals(userId) ? c.receiverId.toString() : c.senderId.toString())
       );
-
-      const reportedHistoryRepo = AppDataSource.getMongoRepository(ReportedHistory);
-      const reportedHistories = participantIds.length > 0 ? await reportedHistoryRepo.find({
-        where: {
-          $or: [
-            { reporterUserId: userId, targetUserId: { $in: participantIds } },
-            { reporterUserId: { $in: participantIds }, targetUserId: userId }
-          ],
-          isDeleted: { $ne: true }
-        } as any
-      }) : [];
-      for (const r of reportedHistories) {
+      for (const r of (reportedHistories as any[])) {
         if (r.reporterUserId?.equals(userId)) {
           blockedSet.add(r.targetUserId.toString());
         } else if (r.targetUserId?.equals(userId)) {
@@ -428,64 +466,41 @@ export class MobileChatController {
         }
       }
 
-      const postIds = conversations
-        .map(c => c.postId)
-        .filter(id => !!id) as ObjectId[];
+      const postMap = new Map((posts as any[]).map(p => [p._id.toString(), p]));
+      const milestoneMap = new Map((milestones as any[]).map(m => [m._id.toString(), m]));
+      const productMap = new Map((products as any[]).map(p => [p._id.toString(), p]));
 
-      const posts = postIds.length > 0
-        ? await this.postRepo.find({ where: { _id: { $in: postIds } } as any })
-        : [];
-
-      const postMap = new Map(posts.map(p => [p._id.toString(), p]));
-
-      const milestoneIds = conversations
-        .map(c => c.milestoneId)
-        .filter(id => !!id) as ObjectId[];
-
-      const milestones = milestoneIds.length > 0
-        ? await this.milestoneRepo.find({ where: { _id: { $in: milestoneIds } } as any })
-        : [];
-
-      const milestoneMap = new Map(milestones.map(m => [m._id.toString(), m]));
-
-      // Fetch products for product-related conversations
-      const productIds = conversations
-        .map(c => (c as any).productId)
-        .filter(id => !!id) as ObjectId[];
-
-      const products = productIds.length > 0
-        ? await this.productRepo.find({ where: { _id: { $in: productIds } } as any })
-        : [];
-
-      const productMap = new Map(products.map(p => [p._id.toString(), p]));
-
-      // Ensure lastMessage visible to current user (hide opposite member's private self-reminders)
-      const convIds = conversations.map(c => c._id);
-      const latestMsgs = convIds.length > 0 ? await this.messageRepo.find({
-        where: { conversationId: { $in: convIds }, isDeleted: { $ne: true } } as any,
-        order: { createdAt: "DESC" }
-      }) : [];
-
+      // Populate latestMsgMap from capped slice results
       const latestMsgMap = new Map<string, Message[]>();
-      for (const m of latestMsgs) {
-        const cId = m.conversationId.toString();
-        if (!latestMsgMap.has(cId)) latestMsgMap.set(cId, []);
-        latestMsgMap.get(cId)!.push(m);
-      }
-      // Ensure each conversation's messages are sorted newest-first
-      for (const [cId, msgs] of latestMsgMap) {
-        msgs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const allFetchedMsgs: Message[] = [];
+      for (const group of (slicedMsgsPerConv as any[])) {
+        const cId = group._id.toString();
+        const msgs = (group.msgs || []) as Message[];
+        latestMsgMap.set(cId, msgs);
+        allFetchedMsgs.push(...msgs);
       }
 
-      const reminderIdsToCheck = latestMsgs
+      // Stage 2: Run dependent category and reminder queries concurrently
+      const categoryIds = (members as any[])
+        .map(m => m.businessCategory)
+        .filter(id => !!id) as ObjectId[];
+
+      const reminderIdsToCheck = allFetchedMsgs
         .filter(m => (m.type as any) === MessageType.REMINDER || m.reminderId || m.businessActionId)
         .map(m => m.reminderId || m.businessActionId!)
         .filter(id => !!id);
 
-      const remindersList = reminderIdsToCheck.length > 0
-        ? await this.reminderRepo.find({ where: { _id: { $in: reminderIdsToCheck } } as any })
-        : [];
-      const reminderMap = new Map(remindersList.map(r => [r._id.toString(), r]));
+      const [categories, remindersList] = await Promise.all([
+        categoryIds.length > 0
+          ? this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+          : Promise.resolve([]),
+        reminderIdsToCheck.length > 0
+          ? this.reminderRepo.find({ where: { _id: { $in: reminderIdsToCheck } } as any })
+          : Promise.resolve([])
+      ]);
+
+      const categoryMap = new Map((categories as any[]).map(c => [c._id.toString(), c.name]));
+      const reminderMap = new Map((remindersList as any[]).map(r => [r._id.toString(), r]));
 
       const results = conversations.map(conv => {
         const otherParticipantId = conv.participants.find(p => !p.equals(userId));

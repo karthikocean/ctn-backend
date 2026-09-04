@@ -28,12 +28,16 @@ export interface ServiceLocation {
 }
 
 @Entity("members")
-// @Index(["mobileNumber"], { unique: true })
+@Index(["mobileNumber"])
 @Index(["email"], { unique: true, sparse: true })
 @Index(["referralCode"], { unique: true, sparse: true })
 @Index(["referredBy"])
 @Index(["status"])
 @Index(["isDeleted"])
+@Index(["status", "isDeleted"])
+@Index(["status", "isDeleted", "fullName"])
+@Index(["status", "isDeleted", "businessCategory"])
+@Index(["status", "isDeleted", "city"])
 @Index(["businessRegion", "isDeleted"])
 @Index(["businessRegion"])
 export class Member {

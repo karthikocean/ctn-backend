@@ -10,8 +10,10 @@ import { ObjectId } from "mongodb";
 
 @Entity("conversations")
 @Index(["participants"])
+@Index(["participants", "lastMessageTime"])
 @Index(["postId"])
 @Index(["productId"])
+@Index(["milestoneId"])
 export class Conversation {
   @ObjectIdColumn()
     _id!: ObjectId;

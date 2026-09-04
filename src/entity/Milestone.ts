@@ -12,6 +12,7 @@ import { ObjectId } from "mongodb";
 @Index(["memberId"])
 @Index(["isDeleted"])
 @Index(["createdAt"])
+@Index(["memberId", "isDeleted"])
 export class Milestone {
   @ObjectIdColumn()
     _id!: ObjectId;

@@ -3,11 +3,14 @@ import {
   ObjectIdColumn,
   Column,
   CreateDateColumn,
-  UpdateDateColumn
+  UpdateDateColumn,
+  Index
 } from "typeorm";
 import { ObjectId } from "mongodb";
 
 @Entity("states")
+@Index(["name", "isDeleted"])
+@Index(["name"])
 export class State {
   @ObjectIdColumn()
     _id!: ObjectId;

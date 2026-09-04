@@ -17,6 +17,7 @@ import { OneToOne } from "../entity/OneToOne";
 import { ThankYouSlip } from "../entity/ThankYouSlip";
 import { UserReferral } from "../entity/UserReferral";
 import { BadRequestError, NotFoundError } from "routing-controllers";
+import { appRedis } from "../config/appRedis";
 
 export interface ModuleUsageConfig {
   entity: any;
@@ -171,10 +172,50 @@ export class SubscriptionService {
   }
 
   /**
-   * Helper to retrieve active plan configurations for a specific member
+   * Invalidates cached member plan in Redis on subscription changes
+   */
+  async invalidateMemberPlanCache(memberId: string | ObjectId): Promise<void> {
+    try {
+      if (appRedis.status === "ready") {
+        await appRedis.del(`plan:member:${memberId.toString()}`);
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
+   * Helper to retrieve active plan configurations for a specific member.
+   * Caches the resolved plan and date windows in Redis with a 2-minute TTL
+   * to eliminate repeated DB queries during high-frequency operations.
    */
   async getMemberPlan(memberId: string | ObjectId): Promise<Plan> {
     const memberOid = new ObjectId(memberId);
+    const memberIdStr = memberOid.toString();
+    const cacheKey = `plan:member:${memberIdStr}`;
+
+    try {
+      if (appRedis.status === "ready") {
+        const cachedRaw = await appRedis.get(cacheKey);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          const now = new Date();
+          if (cached.subscriptionStartDate && new Date(cached.subscriptionStartDate) > now) {
+            throw new BadRequestError("Subscription plan has not started yet.");
+          }
+          if (cached.subscriptionEndDate && new Date(cached.subscriptionEndDate) < now) {
+            throw new BadRequestError("Subscription plan has expired.");
+          }
+          return cached.plan as Plan;
+        }
+      }
+    } catch (err: any) {
+      if (err instanceof BadRequestError || err instanceof NotFoundError) {
+        throw err;
+      }
+      // Redis errors transparently fall through to DB path
+    }
+
     const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
     if (!member) {
       throw new NotFoundError("Member not found");
@@ -200,6 +241,24 @@ export class SubscriptionService {
 
     if (plan.status !== "active") {
       throw new BadRequestError("Assigned subscription plan is currently inactive.");
+    }
+
+    // Cache the resolved plan and date windows with 120s TTL
+    try {
+      if (appRedis.status === "ready") {
+        await appRedis.set(
+          cacheKey,
+          JSON.stringify({
+            plan,
+            subscriptionStartDate: member.subscriptionStartDate,
+            subscriptionEndDate: member.subscriptionEndDate
+          }),
+          "EX",
+          120
+        );
+      }
+    } catch {
+      // Non-fatal
     }
 
     return plan;
@@ -612,6 +671,7 @@ export class SubscriptionService {
       activeSub.status = "EXPIRED";
       await this.subRepo.save(activeSub);
       await this.memberRepo.update(memberObjectId, { subscriptionId: null as any, planId: null as any });
+      await this.invalidateMemberPlanCache(memberObjectId);
       return this.getVirtualGuestSubscription(now);
     }
 
@@ -746,6 +806,7 @@ export class SubscriptionService {
     member.subscriptionStartDate = now;
     member.subscriptionEndDate = end;
     await this.memberRepo.save(member);
+    await this.invalidateMemberPlanCache(memberObjectId);
 
     try {
       const { ReferralService } = await import("./referral.service");
@@ -945,6 +1006,7 @@ export class SubscriptionService {
       subscriptionStartDate: start,
       subscriptionEndDate: end
     });
+    await this.invalidateMemberPlanCache(memberId);
 
     try {
       const { ReferralService } = await import("./referral.service");
@@ -978,6 +1040,7 @@ export class SubscriptionService {
       subscriptionStartDate: null as any,
       subscriptionEndDate: null as any
     });
+    await this.invalidateMemberPlanCache(memberObjectId);
 
     return {
       message: "Subscription cancelled successfully.",

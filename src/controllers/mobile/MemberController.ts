@@ -27,6 +27,7 @@ import pagination from "../../utils/pagination";
 import jwt from "jsonwebtoken";
 import handleErrorResponse from "../../utils/commonFunction";
 import imageService from "../../utils/upload";
+import logger from "../../utils/logger";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import bcrypt from "bcryptjs";
 import { UserToken } from "../../entity/UserToken";
@@ -38,10 +39,12 @@ import { ThankYouSlip } from "../../entity/ThankYouSlip";
 import { Milestone } from "../../entity/Milestone";
 import { SubscriptionService } from "../../services/subscription.service";
 import { PointHistory } from "../../entity/PointHistory";
+import { invalidateAuthCache } from "../../services/authCache.service";
 import { PostReport } from "../../entity/PostReport";
 import { Conversation } from "../../entity/Conversation";
 import { ReportedHistory } from "../../entity/ReportedHistory";
 import { ReferralService } from "../../services/referral.service";
+import { WelcomeCardService } from "../../services/welcomeCard.service";
 
 @JsonController("/members")
 export class MobileMemberController {
@@ -75,6 +78,7 @@ export class MobileMemberController {
   @HttpCode(StatusCodes.CREATED)
   async register(@Req() req: any, @Body() data: CreateMemberDto, @Res() res: any) {
     try {
+      console.log(JSON.stringify(data), 'aaa')
       // Check if mobile already exists
       const existingMobile = await this.memberRepo.findOneBy({ mobileNumber: data.mobileNumber, isDeleted: false });
       if (existingMobile) throw new BadRequestError("Mobile number already registered");
@@ -137,6 +141,11 @@ export class MobileMemberController {
           console.error(`[MemberRegistration] Referral processing notice for member ${saved._id}:`, referralErr.message);
         }
       }
+
+      // Generate official Welcome Card PDF and notify admin@trustednetwork.in
+      WelcomeCardService.sendRegistrationWelcomeEmailToAdmin(saved).catch(err => {
+        console.error(`[MemberRegistration] Welcome email to admin notice for member ${saved._id}:`, err.message);
+      });
 
       return res.status(StatusCodes.CREATED).json({
         success: true,
@@ -294,6 +303,7 @@ export class MobileMemberController {
         return existingToken.token;
       } catch (error: any) {
         console.log(error);
+        await invalidateAuthCache(existingToken.token);
         const token = jwt.sign(
           {
             userId: member._id.toString(),
@@ -345,48 +355,42 @@ export class MobileMemberController {
 
       if (!member) throw new NotFoundError("Profile not found");
 
-      const counts = await this.getMemberCounts(userId);
-      const contributionSummary = await this.getContributionSummary(userId);
+      const categoryIds = [member.businessCategory, member.subCategory].filter((id): id is ObjectId => !!id);
+
+      // Run ALL independent lookups concurrently in a single round-trip:
+      // (1) Stats & counts
+      // (2) Contribution summary aggregation
+      // (3) Active subscription
+      // (4) Categories (batched into 1 query instead of 2)
+      // (5) Business region area (direct indexed lookup by areas._id — eliminates 2 regex scans on State & City)
+      const [counts, contributionSummary, subscription, categories, region] = await Promise.all([
+        this.getMemberCounts(userId),
+        this.getContributionSummary(userId),
+        new SubscriptionService().getActiveSubscription(userId),
+        categoryIds.length > 0
+          ? this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+          : Promise.resolve([]),
+        member.businessRegion
+          ? this.businessRegionRepo.findOne({
+            where: { "areas._id": new ObjectId(member.businessRegion), isDeleted: false } as any
+          })
+          : Promise.resolve(null)
+      ]);
 
       const data: any = { ...member };
       delete data.pin;
       delete data.fcmToken;
 
-      if (member.businessCategory) {
-        const cat = await this.categoryRepo.findOneBy({ _id: member.businessCategory });
-        data.businessCategory = cat ? { _id: cat._id, name: cat.name } : member.businessCategory;
-      }
-      if (member.subCategory) {
-        const subCat = await this.categoryRepo.findOneBy({ _id: member.subCategory });
-        data.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : member.subCategory;
-      }
-      if (member.businessRegion && member.state && member.city) {
-        const stateRepo = AppDataSource.getMongoRepository(State);
-        const cityRepo = AppDataSource.getMongoRepository(City);
-        const stateDoc = await stateRepo.findOne({
-          where: { name: { $regex: new RegExp(`^${member.state}$`, "i") }, isDeleted: false }
-        });
-        let region = null;
-        if (stateDoc) {
-          const cityDoc = await cityRepo.findOne({
-            where: { name: { $regex: new RegExp(`^${member.city}$`, "i") }, stateId: stateDoc._id, isDeleted: false }
-          });
-          if (cityDoc) {
-            region = await this.businessRegionRepo.findOne({
-              where: {
-                state: stateDoc._id,
-                city: cityDoc._id,
-                isDeleted: false
-              }
-            });
-          }
-        }
+      const catMap = new Map((categories || []).map(c => [c._id.toString(), c]));
+      const cat = member.businessCategory ? catMap.get(member.businessCategory.toString()) : null;
+      const subCat = member.subCategory ? catMap.get(member.subCategory.toString()) : null;
+      data.businessCategory = cat ? { _id: cat._id, name: cat.name } : member.businessCategory;
+      data.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : member.subCategory;
+
+      if (member.businessRegion) {
         const matchedArea = region?.areas?.find(a => a._id?.toString() === member.businessRegion!.toString());
         data.businessRegion = matchedArea ? { _id: matchedArea._id, name: matchedArea.name } : member.businessRegion;
       }
-
-      const subService = new SubscriptionService();
-      const subscription = await subService.getActiveSubscription(userId);
 
       const totalDays = (subscription as any).totalDays ?? (
         subscription.startDate && subscription.endDate
@@ -454,7 +458,7 @@ export class MobileMemberController {
       const oldBusinessDocuments = member.businessDocuments;
 
       Object.assign(member, data);
-      console.log(JSON.stringify(data), "data");
+      // Removed verbose console.log — was serializing full payload (including base64 images) in production
       if (data.businessCategory) member.businessCategory = new ObjectId(data.businessCategory);
       if (data.subCategory) member.subCategory = new ObjectId(data.subCategory);
       if (data.businessRegion) {
@@ -527,8 +531,13 @@ export class MobileMemberController {
       member.fcmToken = undefined;
       await this.memberRepo.save(member);
 
-      // Invalidate active user tokens / sessions
+      // Invalidate the active session cache and then delete all DB tokens
       const tokenRepo = AppDataSource.getMongoRepository(UserToken);
+      const authHeader = (req as any).headers?.authorization || "";
+      const currentToken = authHeader.replace(/^Bearer\s+/i, "");
+      if (currentToken) {
+        await invalidateAuthCache(currentToken);
+      }
       await tokenRepo.deleteMany({ userId: new ObjectId(userId) } as any);
 
       // Permanently delete all connections for this member
@@ -1004,9 +1013,7 @@ export class MobileMemberController {
         : [];
       const incomingMap = new Map(incomingConnections.map(c => [c.senderId.toString(), c]));
 
-      console.log(`[getDirectory] Logged-in User: ${userId} | Search: "${search || ""}" | Found Members: ${members.length}`);
-      console.log(`[getDirectory] Outgoing Connections (${outgoingConnections.length}):`, outgoingConnections.map(c => ({ senderId: c.senderId?.toString(), receiverId: c.receiverId?.toString(), status: c.status })));
-      console.log(`[getDirectory] Incoming Connections (${incomingConnections.length}):`, incomingConnections.map(c => ({ senderId: c.senderId?.toString(), receiverId: c.receiverId?.toString(), status: c.status })));
+      logger.debug(`[getDirectory] User: ${userId} | Search: "${search || ""}" | Results: ${members.length}`, "MemberController");
 
       const data = members.map(m => {
         const myRequest = outgoingMap.get(m._id.toString());
@@ -1358,136 +1365,51 @@ export class MobileMemberController {
         const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1, 0, 0, 0, 0);
         const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999);
 
-        // a) Top 3 Business Done
-        const tySlipStats = await this.tySlipRepo.aggregate([
-          {
-            $match: {
-              createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth }
-            }
-          },
-          {
-            $group: {
-              _id: "$senderId",
-              count: { $sum: 1 }
-            }
-          },
-          {
-            $match: { count: { $gt: 0 } }
-          },
-          {
-            $sort: { count: -1 }
-          },
-          {
-            $limit: 3
-          }
-        ]).toArray();
-
-        // b) Top 3 Recommendations
-        const referralStats = await this.referralRepo.aggregate([
-          {
-            $match: {
-              createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth }
-            }
-          },
-          {
-            $group: {
-              _id: "$senderId",
-              count: { $sum: 1 }
-            }
-          },
-          {
-            $match: { count: { $gt: 0 } }
-          },
-          {
-            $sort: { count: -1 }
-          },
-          {
-            $limit: 3
-          }
-        ]).toArray();
-
-        // c) Top 3 Requirement Posts
-        const postStats = await this.postRepo.aggregate([
-          {
-            $match: {
-              type: PostType.REQUIREMENT,
-              isDeleted: false,
-              createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth }
-            }
-          },
-          {
-            $group: {
-              _id: "$memberId",
-              count: { $sum: 1 }
-            }
-          },
-          {
-            $match: { count: { $gt: 0 } }
-          },
-          {
-            $sort: { count: -1 }
-          },
-          {
-            $limit: 3
-          }
-        ]).toArray();
-
-        // d) Top 3 Direct Meets
-        const oneToOneStats = await this.oneToOneRepo.aggregate([
-          {
-            $match: {
-              createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth }
-            }
-          },
-          {
-            $project: {
-              participants: ["$senderId", "$receiverId"]
-            }
-          },
-          {
-            $unwind: "$participants"
-          },
-          {
-            $group: {
-              _id: "$participants",
-              count: { $sum: 1 }
-            }
-          },
-          {
-            $match: { count: { $gt: 0 } }
-          },
-          {
-            $sort: { count: -1 }
-          },
-          {
-            $limit: 3
-          }
-        ]).toArray();
-
-        // e) Top 3 Points
-        const pointStats = await this.historyRepo.aggregate([
-          {
-            $match: {
-              type: "earned",
-              createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth }
-            }
-          },
-          {
-            $group: {
-              _id: "$memberId",
-              totalPoints: { $sum: "$points" }
-            }
-          },
-          {
-            $match: { totalPoints: { $gt: 0 } }
-          },
-          {
-            $sort: { totalPoints: -1 }
-          },
-          {
-            $limit: 3
-          }
-        ]).toArray();
+        // Run all 5 aggregations concurrently — they query independent collections
+        const [tySlipStats, referralStats, postStats, oneToOneStats, pointStats] = await Promise.all([
+          // a) Top 3 Business Done
+          this.tySlipRepo.aggregate([
+            { $match: { createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } } },
+            { $group: { _id: "$senderId", count: { $sum: 1 } } },
+            { $match: { count: { $gt: 0 } } },
+            { $sort: { count: -1 } },
+            { $limit: 3 }
+          ]).toArray(),
+          // b) Top 3 Recommendations
+          this.referralRepo.aggregate([
+            { $match: { createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } } },
+            { $group: { _id: "$senderId", count: { $sum: 1 } } },
+            { $match: { count: { $gt: 0 } } },
+            { $sort: { count: -1 } },
+            { $limit: 3 }
+          ]).toArray(),
+          // c) Top 3 Requirement Posts
+          this.postRepo.aggregate([
+            { $match: { type: PostType.REQUIREMENT, isDeleted: false, createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } } },
+            { $group: { _id: "$memberId", count: { $sum: 1 } } },
+            { $match: { count: { $gt: 0 } } },
+            { $sort: { count: -1 } },
+            { $limit: 3 }
+          ]).toArray(),
+          // d) Top 3 Direct Meets
+          this.oneToOneRepo.aggregate([
+            { $match: { createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } } },
+            { $project: { participants: ["$senderId", "$receiverId"] } },
+            { $unwind: "$participants" },
+            { $group: { _id: "$participants", count: { $sum: 1 } } },
+            { $match: { count: { $gt: 0 } } },
+            { $sort: { count: -1 } },
+            { $limit: 3 }
+          ]).toArray(),
+          // e) Top 3 Points
+          this.historyRepo.aggregate([
+            { $match: { type: "earned", createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } } },
+            { $group: { _id: "$memberId", totalPoints: { $sum: "$points" } } },
+            { $match: { totalPoints: { $gt: 0 } } },
+            { $sort: { totalPoints: -1 } },
+            { $limit: 3 }
+          ]).toArray()
+        ]);
 
         // Resolve and format lists
         [
@@ -1606,36 +1528,50 @@ export class MobileMemberController {
 
   private async getContributionSummary(memberId: string) {
     const id = new ObjectId(memberId);
+
+    // Use $group aggregations instead of full-document fetches for ThankYouSlip amounts,
+    // post response counts, and milestone view counts — drastically reduces data transfer
     const [
       oneToOnesCount,
       referralsGiven,
       referralsReceived,
-      tySlipsGiven,
-      tySlipsReceived,
-      responsedData
+      tySlipsGivenAgg,
+      tySlipsReceivedAgg,
+      responsedAgg,
+      milestoneAgg
     ] = await Promise.all([
       this.oneToOneRepo.count({ $or: [{ senderId: id }, { receiverId: id }], status: { $ne: "REPORTED" } } as any),
       this.referralRepo.count({ senderId: id, status: { $ne: "REPORTED" } }),
       this.referralRepo.count({ receiverId: id, status: { $ne: "REPORTED" } }),
-      this.tySlipRepo.find({ where: { senderId: id, status: { $ne: "REPORTED" } } }),
-      this.tySlipRepo.find({ where: { receiverId: id, status: { $ne: "REPORTED" } } }),
-      this.postRepo.find({ memberId: id, isDeleted: false })
+      // Single aggregation doc returned instead of all ThankYouSlip documents
+      this.tySlipRepo.aggregate([
+        { $match: { senderId: id, status: { $ne: "REPORTED" } } },
+        { $group: { _id: null, total: { $sum: "$amount" } } }
+      ]).toArray(),
+      this.tySlipRepo.aggregate([
+        { $match: { receiverId: id, status: { $ne: "REPORTED" } } },
+        { $group: { _id: null, total: { $sum: "$amount" } } }
+      ]).toArray(),
+      // Single aggregation doc returned instead of all Post documents
+      this.postRepo.aggregate([
+        { $match: { memberId: id, isDeleted: false } },
+        { $group: { _id: null, responsesCount: { $sum: "$responsedCount" } } }
+      ]).toArray(),
+      // Single aggregation doc returned instead of all Milestone documents
+      this.milestoneRepo.aggregate([
+        { $match: { memberId: id, isDeleted: false } },
+        { $group: { _id: null, totalViews: { $sum: "$viewCount" } } }
+      ]).toArray()
     ]);
-
-    const tySlipsGivenAmount = tySlipsGiven.reduce((sum, slip) => sum + (slip.amount || 0), 0);
-    const tySlipsReceivedAmount = tySlipsReceived.reduce((sum, slip) => sum + (slip.amount || 0), 0);
-    const responsesCount = responsedData.reduce((sum, post) => sum + (post.responsedCount || 0), 0);
-    const milestoneData = await this.milestoneRepo.find({ where: { memberId: id, isDeleted: false } });
-    const milestoneViewsCount = milestoneData.reduce((sum, m) => sum + (m.viewCount || 0), 0);
 
     return {
       oneToOnesCount,
       referralsGivenCount: referralsGiven,
       referralsReceivedCount: referralsReceived,
-      thankYouSlipsGivenAmount: tySlipsGivenAmount,
-      thankYouSlipsReceivedAmount: tySlipsReceivedAmount,
-      responsesCount,
-      milestoneViewsCount
+      thankYouSlipsGivenAmount: tySlipsGivenAgg[0]?.total ?? 0,
+      thankYouSlipsReceivedAmount: tySlipsReceivedAgg[0]?.total ?? 0,
+      responsesCount: responsedAgg[0]?.responsesCount ?? 0,
+      milestoneViewsCount: milestoneAgg[0]?.totalViews ?? 0
     };
   }
 
@@ -1648,14 +1584,8 @@ export class MobileMemberController {
       this.postRepo.count({ memberId: id, isDeleted: false })
     ]);
 
-    const followerIds = followers.map(f => f.senderId.toString());
-    const followingIds = followings.map(f => f.receiverId.toString());
-
-    console.log(`[PROFILE_COUNTS] Member ID: ${memberId}`);
-    console.log(`[PROFILE_COUNTS] Followers count: ${followers.length}`);
-    console.log("[PROFILE_COUNTS] Follower IDs (senderIds):", followerIds);
-    console.log(`[PROFILE_COUNTS] Followings count: ${followings.length}`);
-    console.log("[PROFILE_COUNTS] Following IDs (receiverIds):", followingIds);
+    // Removed verbose PROFILE_COUNTS console.logs — were serializing full ID arrays on every profile/detail load
+    logger.debug(`[PROFILE_COUNTS] Member: ${memberId} | followers: ${followers.length} | followings: ${followings.length}`, "MemberController");
 
     return {
       followersCount: followers.length,
@@ -1902,39 +1832,88 @@ export class MobileMemberController {
 
       if (!member) throw new NotFoundError("Member not found");
 
+      const shouldCheckConnection = !!(currentUserId && currentUserId !== id);
+      const categoryIds = [member.businessCategory, member.subCategory].filter((cid): cid is ObjectId => !!cid);
+
+      // Run ALL member detail lookups concurrently in 1 round-trip:
+      // (1) Categories (batched)
+      // (2) Business region area (direct indexed lookup by areas._id)
+      // (3) Connection checks (if authenticated)
+      // (4) Stats & counts
+      // (5) Contribution summary aggregation
+      // (6) 4 Categorized post queries
+      const [
+        categories,
+        region,
+        connectionTuple,
+        counts,
+        contributionSummary,
+        [promotionPosts, requirementPosts, givePosts, askPosts]
+      ] = await Promise.all([
+        categoryIds.length > 0
+          ? this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+          : Promise.resolve([]),
+        member.businessRegion
+          ? this.businessRegionRepo.findOne({
+            where: { "areas._id": new ObjectId(member.businessRegion), isDeleted: false } as any
+          })
+          : Promise.resolve(null),
+        shouldCheckConnection
+          ? Promise.all([
+            this.connectionRepo.findOne({
+              where: {
+                senderId: { $in: [new ObjectId(currentUserId), currentUserId.toString()] },
+                receiverId: { $in: [new ObjectId(id), id.toString()] },
+                isDeleted: { $ne: true }
+              } as any
+            }),
+            this.connectionRepo.findOne({
+              where: {
+                senderId: { $in: [new ObjectId(id), id.toString()] },
+                receiverId: { $in: [new ObjectId(currentUserId), currentUserId.toString()] },
+                isDeleted: { $ne: true }
+              } as any
+            })
+          ])
+          : Promise.resolve([null, null]),
+        this.getMemberCounts(id),
+        this.getContributionSummary(id),
+        Promise.all([
+          this.postRepo.find({
+            where: { memberId: new ObjectId(id), type: PostType.PROMOTION, isDeleted: false },
+            take: 9,
+            order: { createdAt: "DESC" }
+          }),
+          this.postRepo.find({
+            where: { memberId: new ObjectId(id), type: PostType.REQUIREMENT, isDeleted: false },
+            take: 9,
+            order: { createdAt: "DESC" }
+          }),
+          this.postRepo.find({
+            where: { memberId: new ObjectId(id), type: PostType.GIVE, isDeleted: false },
+            take: 9,
+            order: { createdAt: "DESC" }
+          }),
+          this.postRepo.find({
+            where: { memberId: new ObjectId(id), type: PostType.ASK, isDeleted: false },
+            take: 9,
+            order: { createdAt: "DESC" }
+          })
+        ])
+      ]);
+
       // Populate Categories
       const populated: any = { ...member };
       delete populated.pin;
       delete populated.fcmToken;
-      if (member.businessCategory) {
-        const cat = await this.categoryRepo.findOneBy({ _id: member.businessCategory });
-        populated.businessCategory = cat ? { _id: cat._id, name: cat.name } : null;
-      }
-      if (member.subCategory) {
-        const subCat = await this.categoryRepo.findOneBy({ _id: member.subCategory });
-        populated.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : null;
-      }
-      if (member.businessRegion && member.state && member.city) {
-        const stateRepo = AppDataSource.getMongoRepository(State);
-        const cityRepo = AppDataSource.getMongoRepository(City);
-        const stateDoc = await stateRepo.findOne({
-          where: { name: { $regex: new RegExp(`^${member.state}$`, "i") }, isDeleted: false }
-        });
-        let region = null;
-        if (stateDoc) {
-          const cityDoc = await cityRepo.findOne({
-            where: { name: { $regex: new RegExp(`^${member.city}$`, "i") }, stateId: stateDoc._id, isDeleted: false }
-          });
-          if (cityDoc) {
-            region = await this.businessRegionRepo.findOne({
-              where: {
-                state: stateDoc._id,
-                city: cityDoc._id,
-                isDeleted: false
-              }
-            });
-          }
-        }
+
+      const catMap = new Map((categories || []).map(c => [c._id.toString(), c]));
+      const cat = member.businessCategory ? catMap.get(member.businessCategory.toString()) : null;
+      const subCat = member.subCategory ? catMap.get(member.subCategory.toString()) : null;
+      populated.businessCategory = cat ? { _id: cat._id, name: cat.name } : null;
+      populated.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : null;
+
+      if (member.businessRegion) {
         const matchedArea = region?.areas?.find(a => a._id?.toString() === member.businessRegion!.toString());
         populated.businessRegion = matchedArea ? { _id: matchedArea._id, name: matchedArea.name } : null;
       } else {
@@ -1942,22 +1921,8 @@ export class MobileMemberController {
       }
 
       // Add Connection Status if authenticated
-      if (currentUserId && currentUserId !== id) {
-        const myRequest = await this.connectionRepo.findOne({
-          where: {
-            senderId: { $in: [new ObjectId(currentUserId), currentUserId.toString()] },
-            receiverId: { $in: [new ObjectId(id), id.toString()] },
-            isDeleted: { $ne: true }
-          } as any
-        });
-        const theirRequest = await this.connectionRepo.findOne({
-          where: {
-            senderId: { $in: [new ObjectId(id), id.toString()] },
-            receiverId: { $in: [new ObjectId(currentUserId), currentUserId.toString()] },
-            isDeleted: { $ne: true }
-          } as any
-        });
-
+      if (shouldCheckConnection) {
+        const [myRequest, theirRequest] = connectionTuple;
         populated.connection = {
           myRequestStatus: myRequest?.status || null,
           theirRequestStatus: theirRequest?.status || null,
@@ -1966,34 +1931,6 @@ export class MobileMemberController {
           isMutual: myRequest?.status === ConnectionStatus.ACCEPTED && theirRequest?.status === ConnectionStatus.ACCEPTED
         };
       }
-
-      // Fetch Stats & Summary
-      const counts = await this.getMemberCounts(id);
-      const contributionSummary = await this.getContributionSummary(id);
-
-      // Fetch categorized posts
-      const [promotionPosts, requirementPosts, givePosts, askPosts] = await Promise.all([
-        this.postRepo.find({
-          where: { memberId: new ObjectId(id), type: PostType.PROMOTION, isDeleted: false },
-          take: 9,
-          order: { createdAt: "DESC" }
-        }),
-        this.postRepo.find({
-          where: { memberId: new ObjectId(id), type: PostType.REQUIREMENT, isDeleted: false },
-          take: 9,
-          order: { createdAt: "DESC" }
-        }),
-        this.postRepo.find({
-          where: { memberId: new ObjectId(id), type: PostType.GIVE, isDeleted: false },
-          take: 9,
-          order: { createdAt: "DESC" }
-        }),
-        this.postRepo.find({
-          where: { memberId: new ObjectId(id), type: PostType.ASK, isDeleted: false },
-          take: 9,
-          order: { createdAt: "DESC" }
-        })
-      ]);
 
       return res.status(StatusCodes.OK).json({
         success: true,

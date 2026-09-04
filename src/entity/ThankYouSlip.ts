@@ -11,6 +11,8 @@ import { ObjectId } from "mongodb";
 @Entity("thank_you_slips")
 @Index(["senderId"])
 @Index(["receiverId"])
+@Index(["senderId", "status"])
+@Index(["receiverId", "status"])
 export class ThankYouSlip {
   @ObjectIdColumn()
     _id!: ObjectId;

@@ -3,7 +3,8 @@ import {
   ObjectIdColumn,
   Column,
   CreateDateColumn,
-  UpdateDateColumn
+  UpdateDateColumn,
+  Index
 } from "typeorm";
 import { ObjectId } from "mongodb";
 
@@ -18,6 +19,8 @@ export interface Area {
 }
 
 @Entity("business_regions")
+@Index(["state", "city", "isDeleted"])
+@Index(["areas"])
 export class BusinessRegion {
   @ObjectIdColumn()
     _id!: ObjectId;

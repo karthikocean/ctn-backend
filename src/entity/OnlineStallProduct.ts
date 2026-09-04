@@ -3,6 +3,8 @@ import { ObjectId } from "mongodb";
 
 @Entity("online_stall_products")
 @Index(["memberId"])
+@Index(["isDeleted"])
+@Index(["memberId", "isDeleted"])
 export class OnlineStallProduct {
   @ObjectIdColumn()
     _id!: ObjectId;

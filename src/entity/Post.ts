@@ -26,6 +26,9 @@ export enum RequirementVisibility {
 @Index(["type"])
 @Index(["isDeleted"])
 @Index(["createdAt"])
+@Index(["memberId", "type", "isDeleted"])
+@Index(["type", "isDeleted", "createdAt"])
+@Index(["isDeleted", "createdAt"])
 export class PostModel {
   @ObjectIdColumn()
     _id!: ObjectId;

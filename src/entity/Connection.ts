@@ -22,6 +22,8 @@ export enum ConnectionStatus {
 @Index(["receiverId"])
 @Index(["status"])
 @Index(["isDeleted"])
+@Index(["senderId", "status", "isDeleted"])
+@Index(["receiverId", "status", "isDeleted"])
 export class Connection {
   @ObjectIdColumn()
     _id!: ObjectId;

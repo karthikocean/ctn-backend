@@ -97,6 +97,17 @@ export async function ensureMongoIndexes(dataSource: DataSource): Promise<{
     }
   }
 
+  // Explicit nested document-level index for BusinessRegion areas (not expressible in TypeORM column decorator)
+  try {
+    const brRepo = dataSource.getMongoRepository("business_regions");
+    await brRepo.createCollectionIndex({ "areas._id": 1 }, { background: true });
+    totalIndexes++;
+  } catch (err: any) {
+    const msg = `[NestedIndexWarning] Collection "business_regions": ${err.message}`;
+    console.warn(`⚠️ ${msg}`);
+    errors.push(msg);
+  }
+
   return {
     totalEntities: entityMetadatas.length,
     totalIndexes,
