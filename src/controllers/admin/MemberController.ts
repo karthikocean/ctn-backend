@@ -240,7 +240,7 @@ export class AdminMemberController {
         where,
         skip: page * limit,
         take: limit,
-        order: { updatedAt: "DESC" }
+        order: { createdAt: "DESC" }
       });
 
       // Populate Categories
@@ -398,6 +398,44 @@ export class AdminMemberController {
         success: true,
         data: populated
       });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/members/{id}/welcome-card:
+   *   get:
+   *     summary: Download welcome card PDF for a member (Admin)
+   *     tags: [Admin Member]
+   */
+  @Get("/:id/welcome-card")
+  async downloadWelcomeCard(@Req() req: any, @Param("id") id: string, @Res() res: any) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
+
+      const member = await this.memberRepo.findOne({
+        where: { _id: new ObjectId(id), isDeleted: false }
+      });
+
+      if (!member) throw new NotFoundError("Member not found");
+
+      if (req.isFranchise) {
+        const regionId = member.businessRegion;
+        if (!regionId || !req.franchiseAreaIds.some((areaId: ObjectId) => areaId.toString() === regionId.toString())) {
+          throw new NotFoundError("Member not found");
+        }
+      }
+
+      const pdfBuffer = await WelcomeCardService.generateWelcomeCardPdf(member);
+      const safeName = (member.fullName || "Member").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const filename = `Welcome_Card_${safeName}.pdf`;
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Length", pdfBuffer.length);
+      return res.send(pdfBuffer);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
