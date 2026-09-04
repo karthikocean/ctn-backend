@@ -610,17 +610,14 @@ export class MobilePostController {
       }
 
       // console.log(JSON.stringify(where), 'where')
-      const allPosts = await this.postRepo.find({ where });
-      const total = allPosts.length;
-
-      // Random shuffle using Math.random() (Fisher-Yates shuffle algorithm)
-      const shuffledPosts = [...allPosts];
-      for (let i = shuffledPosts.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffledPosts[i], shuffledPosts[j]] = [shuffledPosts[j], shuffledPosts[i]];
-      }
-
-      const posts = shuffledPosts.slice(page * limit, (page + 1) * limit);
+      // Efficient: count in DB, then $sample only page-size docs (no full collection load)
+      const total = await this.postRepo.count(where as any);
+      const posts: PostEntity[] = total > 0
+        ? (await this.postRepo.aggregate([
+            { $match: where },
+            { $sample: { size: Math.min(limit, total) } }
+          ]).toArray()) as PostEntity[]
+        : [];
 
       // 4. Populate Member Info
       const memberIds = [...new Set(posts.map(p => p.memberId))];
@@ -819,17 +816,14 @@ export class MobilePostController {
 
       this.applyCategoryVisibilityFilter(where, currentMember);
       // console.log("where", JSON.stringify(where));s
-      const allPosts = await this.postRepo.find({ where });
-      const total = allPosts.length;
-
-      // Random shuffle using Math.random() (Fisher-Yates shuffle algorithm)
-      const shuffledPosts = [...allPosts];
-      for (let i = shuffledPosts.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffledPosts[i], shuffledPosts[j]] = [shuffledPosts[j], shuffledPosts[i]];
-      }
-
-      const posts = shuffledPosts.slice(page * limit, (page + 1) * limit);
+      // Efficient: count in DB, then $sample only page-size docs (no full collection load)
+      const total = await this.postRepo.count(where as any);
+      const posts: PostEntity[] = total > 0
+        ? (await this.postRepo.aggregate([
+            { $match: where },
+            { $sample: { size: Math.min(limit, total) } }
+          ]).toArray()) as PostEntity[]
+        : [];
 
       // Populate Member Info
       const memberIds = [...new Set(posts.map(p => p.memberId))];
@@ -995,17 +989,14 @@ export class MobilePostController {
         where.$and = [...(where.$and || []), ninPostCondition];
       }
       // console.log('aaaaaaaa', JSON.stringify(where))
-      const allPosts = await this.postRepo.find({ where });
-      const total = allPosts.length;
-
-      // Random shuffle using Math.random() (Fisher-Yates shuffle algorithm)
-      const shuffledPosts = [...allPosts];
-      for (let i = shuffledPosts.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffledPosts[i], shuffledPosts[j]] = [shuffledPosts[j], shuffledPosts[i]];
-      }
-
-      const posts = shuffledPosts.slice(page * limit, (page + 1) * limit);
+      // Efficient: count in DB, then $sample only page-size docs (no full collection load)
+      const total = await this.postRepo.count(where as any);
+      const posts: PostEntity[] = total > 0
+        ? (await this.postRepo.aggregate([
+            { $match: where },
+            { $sample: { size: Math.min(limit, total) } }
+          ]).toArray()) as PostEntity[]
+        : [];
 
       // 4. Populate Member Info
       const memberIds = [...new Set(posts.map(p => p.memberId))];
@@ -1255,17 +1246,14 @@ export class MobilePostController {
         }
       }
 
-      const allPosts = await this.postRepo.find({ where });
-      const total = allPosts.length;
-
-      // Random shuffle using Math.random() (Fisher-Yates shuffle algorithm)
-      const shuffledPosts = [...allPosts];
-      for (let i = shuffledPosts.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffledPosts[i], shuffledPosts[j]] = [shuffledPosts[j], shuffledPosts[i]];
-      }
-
-      const posts = shuffledPosts.slice(page * limit, (page + 1) * limit);
+      // Efficient: count in DB, then $sample only page-size docs (no full collection load)
+      const total = await this.postRepo.count(where as any);
+      const posts: PostEntity[] = total > 0
+        ? (await this.postRepo.aggregate([
+            { $match: where },
+            { $sample: { size: Math.min(limit, total) } }
+          ]).toArray()) as PostEntity[]
+        : [];
 
       // Populate Member Info
       const memberIds = [...new Set(posts.map(p => p.memberId))];

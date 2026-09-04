@@ -14,6 +14,7 @@ import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { ObjectId } from "mongodb";
 import { isStoreTestOtpValid, isStoreTestMobileNumber } from "../../config/storeTest.config";
 import { generateSecureOtp } from "../../utils";
+import { invalidateAuthCache } from "../../services/authCache.service";
 @JsonController("/auth")
 export class MobileAuthController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
@@ -392,6 +393,9 @@ export class MobileAuthController {
       const memberId = req.user.userId;
 
       if (token) {
+        // Invalidate Redis cache immediately so the revoked token stops working at once
+        await invalidateAuthCache(token);
+
         await this.tokenRepo.deleteMany({
           userId: new ObjectId(memberId),
           token: token
@@ -431,6 +435,11 @@ export class MobileAuthController {
   async logoutAll(@Req() req: any, @Res() res: any) {
     try {
       const memberId = req.user.userId;
+      const authHeader = req.headers?.authorization || "";
+      const token = authHeader.replace(/^Bearer\s+/i, "");
+      if (token) {
+        await invalidateAuthCache(token);
+      }
 
       await this.tokenRepo.deleteMany({
         userId: new ObjectId(memberId)
@@ -465,6 +474,10 @@ export class MobileAuthController {
     const token = jwt.sign(tokenPayload, jwtSecret, { expiresIn: jwtExpiresIn });
 
     if (existingToken) {
+      // Invalidate the old token's Redis cache entry before rotating it
+      // so requests carrying the old token are rejected immediately
+      await invalidateAuthCache(existingToken.token);
+
       existingToken.token = token;
       await this.tokenRepo.save(existingToken);
       return token;

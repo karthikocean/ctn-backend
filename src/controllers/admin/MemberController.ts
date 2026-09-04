@@ -32,6 +32,7 @@ import imageService from "../../utils/upload";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 import { MailService } from "../../services/mail.service";
+import { WelcomeCardService } from "../../services/welcomeCard.service";
 
 @JsonController("/members")
 @UseBefore(AuthMiddleware, franchiseFilter)
@@ -99,6 +100,11 @@ export class AdminMemberController {
           console.error(`[AdminRegister] Failed to send welcome email to ${saved.email}:`, mailError.message);
         }
       }
+
+      // Generate official Welcome Card PDF and notify admin@trustednetwork.in
+      WelcomeCardService.sendRegistrationWelcomeEmailToAdmin(saved).catch(err => {
+        console.error(`[AdminRegister] Welcome email to admin notice for member ${saved._id}:`, err.message);
+      });
 
       return res.status(StatusCodes.CREATED).json({
         success: true,

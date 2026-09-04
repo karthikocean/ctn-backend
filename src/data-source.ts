@@ -16,4 +16,11 @@ export const AppDataSource = new DataSource({
     : !isProduction,
   logging: !isProduction,
   entities: [`${__dirname}/entity/**/*.${ext}`],
+  extra: {
+    maxPoolSize: process.env.MONGO_MAX_POOL_SIZE ? parseInt(process.env.MONGO_MAX_POOL_SIZE, 10) : 100,
+    minPoolSize: process.env.MONGO_MIN_POOL_SIZE ? parseInt(process.env.MONGO_MIN_POOL_SIZE, 10) : 5,
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 10000,
+    socketTimeoutMS: 45000
+  }
 });

@@ -3,11 +3,15 @@ import {
   ObjectIdColumn,
   Column,
   CreateDateColumn,
-  UpdateDateColumn
+  UpdateDateColumn,
+  Index
 } from "typeorm";
 import { ObjectId } from "mongodb";
 
 @Entity("cities")
+@Index(["name", "stateId", "isDeleted"])
+@Index(["stateId", "isDeleted"])
+@Index(["name"])
 export class City {
   @ObjectIdColumn()
     _id!: ObjectId;

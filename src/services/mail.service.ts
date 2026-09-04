@@ -24,14 +24,25 @@ export class MailService {
   /**
      * Send a generic email
      */
-  static async sendEmail(to: string | string[], subject: string, html: string) {
+  static async sendEmail(
+    to: string | string[],
+    subject: string,
+    html: string,
+    attachments?: nodemailer.SendMailOptions["attachments"]
+  ) {
     try {
-      const info = await this.transporter.sendMail({
+      const mailOptions: nodemailer.SendMailOptions = {
         from: `"${process.env.ZEPTO_MAIL_FROM_NAME || "Trusted Network"}" <${process.env.ZEPTO_MAIL_FROM_EMAIL || "noreply@trustednetwork.in"}>`,
         to: Array.isArray(to) ? to.join(",") : to,
         subject: subject,
         html: html,
-      });
+      };
+
+      if (attachments && attachments.length > 0) {
+        mailOptions.attachments = attachments;
+      }
+
+      const info = await this.transporter.sendMail(mailOptions);
       console.log("Email sent: %s", info.messageId);
       return info;
     } catch (error) {

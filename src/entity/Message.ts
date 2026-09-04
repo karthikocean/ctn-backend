@@ -25,6 +25,8 @@ export enum MessageType {
 @Index(["conversationId"])
 @Index(["senderId"])
 @Index(["createdAt"])
+@Index(["conversationId", "isDeleted", "createdAt"])
+@Index(["conversationId", "createdAt"])
 export class Message {
   @ObjectIdColumn()
     _id!: ObjectId;
