@@ -273,7 +273,7 @@ export class CommonController {
           name: area.name,
           memberCount: countMap.get(areaIdStr) || 0
         };
-      });
+      }).sort((a: any, b: any) => (a.name || "").trim().localeCompare((b.name || "").trim(), undefined, { sensitivity: "base", numeric: true }));
 
       return res.status(200).json({
         status: true,
@@ -425,15 +425,27 @@ export class CommonController {
    *         schema:
    *           type: string
    *         description: Comma-separated list of city ObjectIds to filter results
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *         description: Maximum number of areas to return
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *         description: Page number for pagination (0-based)
    *     responses:
    *       200:
-   *         description: List of areas filtered by state and/or city
+   *         description: List of areas sorted in alphabetical order, filtered by state and/or city
    */
   @Get("/business-regions")
   async getBusinessRegions(
     @QueryParam("stateIds") stateIds: string,
     @QueryParam("states") states: string,
     @QueryParam("cityIds") cityIds: string,
+    @QueryParam("limit") limit: number,
+    @QueryParam("page") page: number,
     @Res() res: any
   ) {
     try {
@@ -518,11 +530,27 @@ export class CommonController {
         }
       }
 
-      const result = combinedAreas.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      // Sort alphabetically by area name, with city name as tie-breaker
+      const result = combinedAreas.sort((a, b) => {
+        const nameA = (a.name || "").trim();
+        const nameB = (b.name || "").trim();
+        const cmp = nameA.localeCompare(nameB, undefined, { sensitivity: "base", numeric: true });
+        if (cmp !== 0) return cmp;
+        const cityA = (a.city?.name || "").trim();
+        const cityB = (b.city?.name || "").trim();
+        return cityA.localeCompare(cityB, undefined, { sensitivity: "base", numeric: true });
+      });
+
+      let finalData = result;
+      if (limit && Number(limit) > 0) {
+        const p = Number(page) || 0;
+        const lim = Number(limit);
+        finalData = result.slice(p * lim, (p + 1) * lim);
+      }
 
       return res.status(200).json({
         success: true,
-        data: result
+        data: finalData
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

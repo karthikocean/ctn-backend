@@ -9,6 +9,7 @@ import { BadRequestError, NotFoundError } from "routing-controllers";
 import crypto from "crypto";
 import { insertPushNotification } from "./pushnotification.service";
 import { NotificationModule } from "../entity/PushNotifications";
+import { generateInvoiceNumber } from "../utils/id.generator";
 
 const Razorpay = require("razorpay");
 
@@ -381,6 +382,7 @@ export class RazorpayUpgradeService {
     payment.paymentMethod = "downgrade_credit";
     payment.transactionId = `downgrade_${Date.now()}`;
     payment.status = "COMPLETED";
+    payment.invoiceNumber = await generateInvoiceNumber();
     payment.subscriptionId = savedSub._id;
     payment.isDeleted = false;
     payment.action = "downgrade";
@@ -442,6 +444,9 @@ export class RazorpayVerificationService {
 
     // 3. Mark payment as completed
     payment.status = "COMPLETED";
+    if (!payment.invoiceNumber) {
+      payment.invoiceNumber = await generateInvoiceNumber();
+    }
     await this.paymentRepo.save(payment);
 
     // 4. Activate dynamic upgrade subscription

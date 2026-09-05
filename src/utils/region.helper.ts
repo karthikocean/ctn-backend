@@ -45,6 +45,10 @@ export async function resolveRegions(regions: any[]): Promise<any[]> {
     const plain = typeof r.toPlain === "function" ? r.toPlain() : JSON.parse(JSON.stringify(r));
     const stateIdStr = r.state ? r.state.toString() : "";
     const cityIdStr = r.city ? r.city.toString() : "";
+    if (plain.areas && Array.isArray(plain.areas)) {
+      plain.areas.sort((a: any, b: any) => (a.name || "").trim().localeCompare((b.name || "").trim(), undefined, { sensitivity: "base", numeric: true }));
+    }
+
     return {
       ...plain,
       state: stateMap.get(stateIdStr) || plain.state,

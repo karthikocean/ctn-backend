@@ -25,6 +25,7 @@ import { SubscriptionFeatureUsage } from "../../entity/SubscriptionFeatureUsage"
 import { SubscriptionService } from "../../services/subscription.service";
 import { RazorpayUpgradeService, RazorpayVerificationService } from "../../services/razorpay.service";
 import { InvoiceService } from "../../services/invoice.service";
+import { generateInvoiceNumber } from "../../utils/id.generator";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { StartTrialDto, UpgradeSubscriptionDto, BuySubscriptionDto, DowngradeSubscriptionDto, VerifyRazorpayPaymentDto, CancelRazorpayPaymentDto } from "../../dto/mobile/Subscription.dto";
@@ -910,12 +911,12 @@ export class MobileSubscriptionController {
         const newSub = sub || getSubForPlan(p.planId, p.createdAt);
         const oldSub = getSubForPlan(p.previousPlanId, p.createdAt, p.subscriptionId);
 
-        const invoiceNo = `OSINV-${p._id.toString().slice(-6).toUpperCase()}`;
+        const invoiceNo = p.invoiceNumber || `OSINV-${p._id.toString().slice(-6).toUpperCase()}`;
 
         return {
           ...p,
           invoiceNo,
-          invoiceUrl: `/mobile-api/subscription/invoice/${p._id.toString()}`,
+          invoiceUrl: `/mobile-api/subscription/invoice/${p.invoiceNumber || p._id.toString()}`,
           planName: plan ? plan.title : "Unknown Plan",
           action: p.action || "payment",
           oldPlanDetails: previousPlan ? {
@@ -1005,6 +1006,13 @@ export class MobileSubscriptionController {
 
       if (!payment) {
         payment = await this.paymentRepo.findOneBy({
+          invoiceNumber: paymentId,
+          isDeleted: false
+        });
+      }
+
+      if (!payment) {
+        payment = await this.paymentRepo.findOneBy({
           transactionId: paymentId,
           isDeleted: false
         });
@@ -1031,6 +1039,11 @@ export class MobileSubscriptionController {
         throw new ForbiddenError("You are not authorized to view this invoice");
       }
 
+      if (payment.status === "COMPLETED" && !payment.invoiceNumber) {
+        payment.invoiceNumber = await generateInvoiceNumber();
+        await this.paymentRepo.save(payment);
+      }
+
       const member = await this.memberRepo.findOneBy({
         _id: new ObjectId(memberId),
         isDeleted: false
@@ -1044,7 +1057,7 @@ export class MobileSubscriptionController {
         : null;
 
       const pdfBuffer = await this.invoiceService.generateInvoicePdf(payment, member, plan);
-      const invoiceFileName = `OSINV-${payment._id.toString().slice(-6).toUpperCase()}.pdf`;
+      const invoiceFileName = `${payment.invoiceNumber || `OSINV-${payment._id.toString().slice(-6).toUpperCase()}`}.pdf`;
 
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="${invoiceFileName}"`);
