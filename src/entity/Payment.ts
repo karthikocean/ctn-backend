@@ -11,9 +11,13 @@ import { ObjectId } from "mongodb";
 @Entity("payments")
 @Index(["transactionId"], { unique: true })
 @Index(["memberId", "createdAt"])
+@Index(["invoiceNumber"], { unique: true, sparse: true })
 export class Payment {
   @ObjectIdColumn()
     _id!: ObjectId;
+
+  @Column({ nullable: true })
+    invoiceNumber?: string;
 
   @Column()
     memberId!: ObjectId;

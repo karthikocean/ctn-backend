@@ -27,6 +27,8 @@ import { CreateBillingDto, UpdateBillingDto } from "../../dto/admin/Billing.dto"
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 import { InvoiceService } from "../../services/invoice.service";
+import { generateInvoiceNumber } from "../../utils/id.generator";
+import crypto from "crypto";
 
 @JsonController("/billings")
 @UseBefore(AuthMiddleware, franchiseFilter)
@@ -62,11 +64,34 @@ export class AdminBillingController {
       payment.paymentMethod = data.paymentMethod;
       payment.amount = data.amount;
       payment.remarks = data.remarks;
-      payment.transactionId = data.transactionId;
+
+      let transactionId = data.transactionId ? data.transactionId.trim() : "";
+      const isCash = (data.paymentMethod && data.paymentMethod.trim().toLowerCase() === "cash") || transactionId.toUpperCase() === "CASH";
+      const genericPlaceholders = ["CASH", "OFFLINE", "MANUAL", "NONE", "NA", "N/A"];
+
+      if (!transactionId || isCash || genericPlaceholders.includes(transactionId.toUpperCase())) {
+        const prefix = isCash ? "CASH" : (transactionId ? transactionId.toUpperCase().replace(/[^A-Z0-9]/g, "") : "TXN");
+        transactionId = `${prefix}_${Date.now()}_${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
+      } else {
+        const existingTxn = await this.paymentRepo.findOneBy({ transactionId, isDeleted: false });
+        if (existingTxn) {
+          throw new BadRequestError(`Transaction ID '${transactionId}' already exists`);
+        }
+      }
+
+      const normalizedStatus = data.status
+        ? (["PAID", "COMPLETED", "SUCCESS"].includes(data.status.trim().toUpperCase()) ? "COMPLETED" : data.status.trim().toUpperCase())
+        : "COMPLETED";
+
+      payment.transactionId = transactionId;
       payment.source = "admin";
-      payment.status = "COMPLETED";
+      payment.status = normalizedStatus;
       payment.isDeleted = false;
       payment.action = "payment";
+
+      if (payment.status === "COMPLETED") {
+        payment.invoiceNumber = await generateInvoiceNumber();
+      }
 
       try {
         const subRepo = AppDataSource.getMongoRepository(MemberSubscription);
@@ -167,6 +192,7 @@ export class AdminBillingController {
         where.$or = [
           { memberId: { $in: matchingMemberIds } },
           { planId: { $in: matchingPlanIds } },
+          { invoiceNumber: { $regex: search, $options: "i" } },
           { paymentMethod: { $regex: search, $options: "i" } },
           { transactionId: { $regex: search, $options: "i" } },
           { remarks: { $regex: search, $options: "i" } }
@@ -297,10 +323,35 @@ export class AdminBillingController {
         payment.paymentMethod = data.paymentMethod;
       }
       if (data.transactionId !== undefined) {
-        payment.transactionId = data.transactionId;
+        let txn = data.transactionId ? data.transactionId.trim() : "";
+        const method = (data.paymentMethod || payment.paymentMethod || "").toLowerCase();
+        const isCash = method === "cash" || txn.toUpperCase() === "CASH";
+        const genericPlaceholders = ["CASH", "OFFLINE", "MANUAL", "NONE", "NA", "N/A"];
+
+        if (isCash || !txn || genericPlaceholders.includes(txn.toUpperCase())) {
+          if (!payment.transactionId || payment.transactionId.toUpperCase() === "CASH") {
+            const prefix = isCash ? "CASH" : (txn ? txn.toUpperCase().replace(/[^A-Z0-9]/g, "") : "TXN");
+            payment.transactionId = `${prefix}_${Date.now()}_${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
+          }
+        } else {
+          const existingTxn = await this.paymentRepo.findOneBy({ transactionId: txn, isDeleted: false });
+          if (existingTxn && existingTxn._id.toString() !== payment._id.toString()) {
+            throw new BadRequestError(`Transaction ID '${txn}' is already registered with another payment`);
+          }
+          payment.transactionId = txn;
+        }
       }
       if (data.amount !== undefined) payment.amount = data.amount;
       if (data.remarks !== undefined) payment.remarks = data.remarks;
+      if (data.status !== undefined) {
+        const normalizedStatus = ["PAID", "COMPLETED", "SUCCESS"].includes(data.status.trim().toUpperCase())
+          ? "COMPLETED"
+          : data.status.trim().toUpperCase();
+        payment.status = normalizedStatus;
+        if (payment.status === "COMPLETED" && !payment.invoiceNumber) {
+          payment.invoiceNumber = await generateInvoiceNumber();
+        }
+      }
 
       if (req.user && req.user.userId) {
         payment.updatedBy = new ObjectId(req.user.userId);
@@ -397,6 +448,13 @@ export class AdminBillingController {
 
       if (!payment) {
         payment = await this.paymentRepo.findOneBy({
+          invoiceNumber: id,
+          isDeleted: false
+        });
+      }
+
+      if (!payment) {
+        payment = await this.paymentRepo.findOneBy({
           transactionId: id,
           isDeleted: false
         });
@@ -418,6 +476,11 @@ export class AdminBillingController {
         throw new NotFoundError("Billing record not found");
       }
 
+      if (payment.status === "COMPLETED" && !payment.invoiceNumber) {
+        payment.invoiceNumber = await generateInvoiceNumber();
+        await this.paymentRepo.save(payment);
+      }
+
       const member = await this.memberRepo.findOneBy({
         _id: new ObjectId(payment.memberId),
         isDeleted: false
@@ -432,7 +495,7 @@ export class AdminBillingController {
         : null;
 
       const pdfBuffer = await this.invoiceService.generateInvoicePdf(payment, member, plan);
-      const invoiceFileName = `OSINV-${payment._id.toString().slice(-6).toUpperCase()}.pdf`;
+      const invoiceFileName = `${payment.invoiceNumber || `OSINV-${payment._id.toString().slice(-6).toUpperCase()}`}.pdf`;
 
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="${invoiceFileName}"`);

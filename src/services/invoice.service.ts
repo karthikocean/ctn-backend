@@ -16,7 +16,7 @@ export class InvoiceService {
           size: "A4",
           margin: 40,
           info: {
-            Title: `Invoice #${payment.transactionId || payment._id.toString()}`,
+            Title: `Invoice #${payment.invoiceNumber || payment.transactionId || payment._id.toString()}`,
             Author: "Ocean Softwares",
             Subject: "Tax Invoice"
           }
@@ -67,7 +67,7 @@ export class InvoiceService {
         }
 
         // Right-aligned Invoice Title & Number
-        const invoiceNum = `OSINV-${payment._id.toString().slice(-6).toUpperCase()}`;
+        const invoiceNum = payment.invoiceNumber || `OSINV-${payment._id.toString().slice(-6).toUpperCase()}`;
         doc.font("Helvetica-Bold").fontSize(18).fillColor("#1e293b");
         doc.text("Invoice", pageWidth - margin - 220, 38, { align: "right", width: 220 });
 

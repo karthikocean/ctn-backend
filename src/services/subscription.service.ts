@@ -18,6 +18,7 @@ import { ThankYouSlip } from "../entity/ThankYouSlip";
 import { UserReferral } from "../entity/UserReferral";
 import { BadRequestError, NotFoundError } from "routing-controllers";
 import { appRedis } from "../config/appRedis";
+import { generateInvoiceNumber } from "../utils/id.generator";
 
 export interface ModuleUsageConfig {
   entity: any;
@@ -933,6 +934,13 @@ export class SubscriptionService {
     payment.status = status;
 
     if (status === "COMPLETED") {
+      if (!payment.invoiceNumber) {
+        payment.invoiceNumber = await generateInvoiceNumber();
+        await this.paymentRepo.updateOne(
+          { _id: payment._id },
+          { $set: { invoiceNumber: payment.invoiceNumber } }
+        );
+      }
       const activeSub = await this.activateSubscription(payment.memberId, payment.planId, payment._id);
       return {
         payment: payment,

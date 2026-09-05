@@ -29,6 +29,10 @@ export class CreateBillingDto {
   @IsString()
   @IsOptional()
     remarks?: string;
+
+  @IsString()
+  @IsOptional()
+    status?: string;
 }
 
 export class UpdateBillingDto {
@@ -55,4 +59,8 @@ export class UpdateBillingDto {
   @IsString()
   @IsOptional()
     remarks?: string;
+
+  @IsString()
+  @IsOptional()
+    status?: string;
 }
