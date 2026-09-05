@@ -101,7 +101,7 @@ export class AdminMemberController {
         }
       }
 
-      // Generate official Welcome Card PDF and notify admin@trustednetwork.in
+      // Generate official Welcome Card PNG and notify admin@trustednetwork.in
       WelcomeCardService.sendRegistrationWelcomeEmailToAdmin(saved).catch(err => {
         console.error(`[AdminRegister] Welcome email to admin notice for member ${saved._id}:`, err.message);
       });
@@ -407,7 +407,7 @@ export class AdminMemberController {
    * @swagger
    * /api/admin/members/{id}/welcome-card:
    *   get:
-   *     summary: Download welcome card PDF for a member (Admin)
+   *     summary: Download welcome card PNG for a member (Admin)
    *     tags: [Admin Member]
    */
   @Get("/:id/welcome-card")
@@ -428,14 +428,14 @@ export class AdminMemberController {
         }
       }
 
-      const pdfBuffer = await WelcomeCardService.generateWelcomeCardPdf(member);
+      const pngBuffer = await WelcomeCardService.generateWelcomeCardPng(member);
       const safeName = (member.fullName || "Member").replace(/[^a-zA-Z0-9_-]/g, "_");
-      const filename = `Welcome_Card_${safeName}.pdf`;
+      const filename = `Welcome_Card_${safeName}.png`;
 
-      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Type", "image/png");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-      res.setHeader("Content-Length", pdfBuffer.length);
-      return res.send(pdfBuffer);
+      res.setHeader("Content-Length", pngBuffer.length);
+      return res.send(pngBuffer);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

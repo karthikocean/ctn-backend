@@ -22,17 +22,19 @@ export interface AuthPayload {
 export class AuthMiddleware implements ExpressMiddlewareInterface {
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
     try {
+      let token = "";
       const authHeader = req.headers.authorization;
 
-      if (!authHeader) {
+      if (authHeader) {
+        if (!authHeader.startsWith("Bearer ")) {
+          throw new UnauthorizedError("Invalid authorization format");
+        }
+        token = authHeader.split(" ")[1];
+      } else if (req.query && req.query.token && typeof req.query.token === "string") {
+        token = req.query.token;
+      } else {
         throw new UnauthorizedError("Authorization header missing");
       }
-
-      if (!authHeader.startsWith("Bearer ")) {
-        throw new UnauthorizedError("Invalid authorization format");
-      }
-
-      const token = authHeader.split(" ")[1];
 
       let decoded: JwtPayload;
       try {

@@ -142,7 +142,7 @@ export class MobileMemberController {
         }
       }
 
-      // Generate official Welcome Card PDF and notify admin@trustednetwork.in
+      // Generate official Welcome Card PNG and notify admin@trustednetwork.in
       WelcomeCardService.sendRegistrationWelcomeEmailToAdmin(saved).catch(err => {
         console.error(`[MemberRegistration] Welcome email to admin notice for member ${saved._id}:`, err.message);
       });

@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=360, initial-scale=1.0">
+  <title>Welcome Card</title>
+  <style>
+    @font-face {
+      font-family: 'Great Vibes';
+      font-style: normal;
+      font-weight: 400;
+      src: url('<%= fontDataUri %>') format('truetype');
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 360px;
+      height: 586px;
+      margin: 0;
+      padding: 0;
+      background: #FFFFFF;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+    }
+
+    .card-canvas {
+      position: relative;
+      width: 360px;
+      height: 586px;
+      background: #FFFFFF;
+      overflow: hidden;
+    }
+
+    /* Outer border frame with 22px border radius */
+    .outer-frame {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 354px;
+      height: 580px;
+      border: 1.5px solid #E2E8F0;
+      border-radius: 22px;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* Decorative Corner Accents */
+    .corner {
+      position: absolute;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .corner-tl {
+      top: 0;
+      left: 0;
+      width: 85px;
+      height: 85px;
+    }
+
+    .corner-tr {
+      top: 0;
+      right: 0;
+      width: 85px;
+      height: 85px;
+    }
+
+    .corner-bl {
+      bottom: 0;
+      left: 0;
+      width: 75px;
+      height: 75px;
+    }
+
+    .corner-br {
+      bottom: 0;
+      right: 0;
+      width: 75px;
+      height: 75px;
+    }
+
+    /* Header Logo */
+    .header-logo-container {
+      position: absolute;
+      top: 22px;
+      left: 0;
+      width: 360px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 3;
+    }
+
+    .header-logo {
+      width: 175px;
+      height: auto;
+      display: block;
+    }
+
+    /* Main Navy Blue Card Container */
+    .main-container {
+      position: absolute;
+      top: 82px;
+      left: 14px;
+      width: 332px;
+      height: 454px;
+      background-color: #081E3D;
+      border: 1.2px solid #DCA838;
+      border-radius: 20px;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      box-sizing: border-box;
+      padding-top: 16px;
+    }
+
+    /* "Welcome!" Script */
+    .welcome-script {
+      font-family: 'Great Vibes', cursive;
+      font-size: 44px;
+      color: #DCA838;
+      line-height: 1.1;
+      text-align: center;
+      margin-top: 2px;
+      font-weight: 400;
+    }
+
+    /* "NEW MEMBER JOINED" Header */
+    .new-member-title {
+      font-size: 15.5px;
+      font-weight: 800;
+      color: #FFFFFF;
+      letter-spacing: 1.2px;
+      text-align: center;
+      margin-top: 6px;
+      text-transform: uppercase;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    /* Divider with User Icon */
+    .title-divider {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 9px;
+      width: 100%;
+    }
+
+    .divider-line {
+      width: 48px;
+      height: 1px;
+      background-color: #DCA838;
+    }
+
+    .divider-icon {
+      width: 14px;
+      height: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Center White Profile Card */
+    .white-profile-card {
+      position: absolute;
+      top: 130px;
+      left: 16px;
+      width: 300px;
+      height: 304px;
+      background-color: #FFFFFF;
+      border-radius: 18px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 14px 14px 14px;
+      box-sizing: border-box;
+    }
+
+    /* Avatar Circle */
+    .avatar-wrapper {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      border: 2.5px solid #DCA838;
+      background-color: #06152D;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+      flex-shrink: 0;
+    }
+
+    .avatar-initial {
+      color: #FFFFFF;
+      font-size: 34px;
+      font-weight: 700;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    /* Member Name */
+    .member-name {
+      font-size: 17.5px;
+      font-weight: 700;
+      color: #06152D;
+      text-align: center;
+      margin-top: 8px;
+      line-height: 1.25;
+      max-width: 270px;
+      word-wrap: break-word;
+    }
+
+    /* Business Name */
+    .business-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: #1E293B;
+      text-align: center;
+      margin-top: 4px;
+      line-height: 1.3;
+      max-width: 270px;
+      word-wrap: break-word;
+    }
+
+    /* Category / Location Line */
+    .category-location {
+      font-size: 9px;
+      color: #64748B;
+      text-align: center;
+      margin-top: 3px;
+      line-height: 1.35;
+      max-width: 270px;
+    }
+
+    /* Badge "NEW MEMBER" */
+    .new-member-badge {
+      margin-top: 10px;
+      width: 144px;
+      height: 28px;
+      background-color: #FEF3C7;
+      border: 1px solid #F59E0B;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      color: #92400E;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+
+    .badge-icon {
+      width: 13px;
+      height: 13px;
+    }
+
+    /* Divider with center dot */
+    .card-footer-divider {
+      margin-top: 10px;
+      width: 260px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card-footer-divider-line {
+      width: 100%;
+      height: 0.8px;
+      background-color: #FDE68A;
+    }
+
+    .card-footer-divider-dot {
+      position: absolute;
+      width: 4.5px;
+      height: 4.5px;
+      border-radius: 50%;
+      background-color: #DCA838;
+    }
+
+    /* Welcome text */
+    .welcome-text {
+      margin-top: 8px;
+      font-size: 9.5px;
+      line-height: 1.45;
+      color: #334155;
+      text-align: center;
+      max-width: 270px;
+    }
+
+    /* Bottom Footer Website URL - Perfectly Centered */
+    .bottom-footer {
+      position: absolute;
+      bottom: 18px;
+      left: 0;
+      right: 0;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 6px;
+      z-index: 10;
+      margin: 0 auto;
+      pointer-events: none;
+    }
+
+    .globe-icon {
+      width: 12px;
+      height: 12px;
+      display: inline-block;
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+
+    .footer-url {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #06152D;
+      letter-spacing: 0.3px;
+      line-height: 12px;
+      display: inline-block;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+  <div class="card-canvas">
+    <!-- Outer Frame -->
+    <div class="outer-frame"></div>
+
+    <!-- Decorative Corner SVGs -->
+    <!-- Top-Left -->
+    <svg class="corner corner-tl" viewBox="0 0 85 85" fill="none">
+      <path d="M 3 3 L 85 3 C 65 3 3 65 3 85 Z" fill="#06152D" />
+      <path d="M 85 3 C 65 3 3 65 3 85" stroke="#DCA838" stroke-width="3" fill="none" stroke-linecap="round" />
+    </svg>
+
+    <!-- Top-Right -->
+    <svg class="corner corner-tr" viewBox="0 0 85 85" fill="none">
+      <path d="M 82 3 L 0 3 C 20 3 82 65 82 85 Z" fill="#06152D" />
+      <path d="M 0 3 C 20 3 82 65 82 85" stroke="#DCA838" stroke-width="3" fill="none" stroke-linecap="round" />
+    </svg>
+
+    <!-- Bottom-Left -->
+    <svg class="corner corner-bl" viewBox="0 0 75 75" fill="none">
+      <path d="M 3 72 L 75 72 C 55 72 3 52 3 0 Z" fill="#06152D" />
+      <path d="M 75 72 C 55 72 3 52 3 0" stroke="#DCA838" stroke-width="3" fill="none" stroke-linecap="round" />
+    </svg>
+
+    <!-- Bottom-Right -->
+    <svg class="corner corner-br" viewBox="0 0 75 75" fill="none">
+      <path d="M 72 72 L 0 72 C 20 72 72 52 72 0 Z" fill="#06152D" />
+      <path d="M 0 72 C 20 72 72 52 72 0" stroke="#DCA838" stroke-width="3" fill="none" stroke-linecap="round" />
+    </svg>
+
+    <!-- Top Header Logo -->
+    <div class="header-logo-container">
+      <img class="header-logo" src="<%= logoDataUri %>" alt="Trusted Network" />
+    </div>
+
+    <!-- Main Navy Card Container -->
+    <div class="main-container">
+      <div class="welcome-script">Welcome!</div>
+      <div class="new-member-title">NEW MEMBER JOINED</div>
+
+      <!-- Divider with User Icon -->
+      <div class="title-divider">
+        <div class="divider-line"></div>
+        <div class="divider-icon">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#DCA838" stroke-width="1.2">
+            <circle cx="8" cy="5" r="3.2" />
+            <path d="M 2.5 14 C 2.5 10.8 5 9.5 8 9.5 C 11 9.5 13.5 10.8 13.5 14" stroke-linecap="round" />
+            <circle cx="11.5" cy="11.5" r="1.3" fill="#DCA838" />
+          </svg>
+        </div>
+        <div class="divider-line"></div>
+      </div>
+
+      <!-- Center White Profile Card -->
+      <div class="white-profile-card">
+        <!-- Avatar Circle -->
+        <div class="avatar-wrapper">
+          <span class="avatar-initial"><%= initial %></span>
+        </div>
+
+        <!-- Member Name -->
+        <div class="member-name"><%= member.fullName || 'Valued Member' %></div>
+
+        <!-- Business Name -->
+        <div class="business-name"><%= member.businessName || 'Business Network Member' %></div>
+
+        <!-- Categories / Location -->
+        <div class="category-location"><%= categoriesText %></div>
+
+        <!-- Badge -->
+        <div class="new-member-badge">
+          <svg class="badge-icon" viewBox="0 0 16 16" fill="none" stroke="#92400E" stroke-width="1.3">
+            <circle cx="6" cy="5" r="3" />
+            <path d="M 1.5 13 C 1.5 10 3.5 9 6 9 C 8.5 9 10.5 10 10.5 13" stroke-linecap="round" />
+            <line x1="12" y1="4" x2="12" y2="8" stroke-linecap="round" />
+            <line x1="10" y1="6" x2="14" y2="6" stroke-linecap="round" />
+          </svg>
+          <span>NEW MEMBER</span>
+        </div>
+
+        <!-- Divider with Gold Dot -->
+        <div class="card-footer-divider">
+          <div class="card-footer-divider-line"></div>
+          <div class="card-footer-divider-dot"></div>
+        </div>
+
+        <!-- Welcome Text -->
+        <div class="welcome-text">
+          Let's give a warm welcome to our newest<br />
+          member in the Trusted Network<br />
+          community!
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Footer -->
+    <div class="bottom-footer">
+      <svg class="globe-icon" viewBox="0 0 16 16" fill="none" stroke="#06152D" stroke-width="1.2">
+        <circle cx="8" cy="8" r="6" />
+        <line x1="2" y1="8" x2="14" y2="8" />
+        <ellipse cx="8" cy="8" rx="3.2" ry="6" />
+      </svg>
+      <span class="footer-url">www.trustednetwork.in</span>
+    </div>
+  </div>
+</body>
+</html>

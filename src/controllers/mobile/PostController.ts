@@ -614,9 +614,9 @@ export class MobilePostController {
       const total = await this.postRepo.count(where as any);
       const posts: PostEntity[] = total > 0
         ? (await this.postRepo.aggregate([
-            { $match: where },
-            { $sample: { size: Math.min(limit, total) } }
-          ]).toArray()) as PostEntity[]
+          { $match: where },
+          { $sample: { size: Math.min(limit, total) } }
+        ]).toArray()) as PostEntity[]
         : [];
 
       // 4. Populate Member Info
@@ -820,9 +820,9 @@ export class MobilePostController {
       const total = await this.postRepo.count(where as any);
       const posts: PostEntity[] = total > 0
         ? (await this.postRepo.aggregate([
-            { $match: where },
-            { $sample: { size: Math.min(limit, total) } }
-          ]).toArray()) as PostEntity[]
+          { $match: where },
+          { $sample: { size: Math.min(limit, total) } }
+        ]).toArray()) as PostEntity[]
         : [];
 
       // Populate Member Info
@@ -993,9 +993,9 @@ export class MobilePostController {
       const total = await this.postRepo.count(where as any);
       const posts: PostEntity[] = total > 0
         ? (await this.postRepo.aggregate([
-            { $match: where },
-            { $sample: { size: Math.min(limit, total) } }
-          ]).toArray()) as PostEntity[]
+          { $match: where },
+          { $sample: { size: Math.min(limit, total) } }
+        ]).toArray()) as PostEntity[]
         : [];
 
       // 4. Populate Member Info
@@ -1250,9 +1250,9 @@ export class MobilePostController {
       const total = await this.postRepo.count(where as any);
       const posts: PostEntity[] = total > 0
         ? (await this.postRepo.aggregate([
-            { $match: where },
-            { $sample: { size: Math.min(limit, total) } }
-          ]).toArray()) as PostEntity[]
+          { $match: where },
+          { $sample: { size: Math.min(limit, total) } }
+        ]).toArray()) as PostEntity[]
         : [];
 
       // Populate Member Info
@@ -1327,15 +1327,15 @@ export class MobilePostController {
         const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
         if (!currentMember) throw new BadRequestError("Member not found");
 
-        if (post.subCategoryIds && post.subCategoryIds.length > 0) {
-          const memberSub = currentMember.subCategory ? currentMember.subCategory.toString() : null;
-          const match = post.subCategoryIds.some(catId => catId.toString() === memberSub);
-          if (!match) throw new BadRequestError("Post not found");
-        } else if (post.categoryIds && post.categoryIds.length > 0) {
-          const memberCat = currentMember.businessCategory ? currentMember.businessCategory.toString() : null;
-          const match = post.categoryIds.some(catId => catId.toString() === memberCat);
-          if (!match) throw new BadRequestError("Post not found");
-        }
+        // if (post.subCategoryIds && post.subCategoryIds.length > 0) {
+        //   const memberSub = currentMember.subCategory ? currentMember.subCategory.toString() : null;
+        //   const match = post.subCategoryIds.some(catId => catId.toString() === memberSub);
+        //   if (!match) throw new BadRequestError("Post not found");
+        // } else if (post.categoryIds && post.categoryIds.length > 0) {
+        //   const memberCat = currentMember.businessCategory ? currentMember.businessCategory.toString() : null;
+        //   const match = post.categoryIds.some(catId => catId.toString() === memberCat);
+        //   if (!match) throw new BadRequestError("Post not found");
+        // }
       }
 
       const member = await this.memberRepo.findOneBy({ _id: post.memberId });
