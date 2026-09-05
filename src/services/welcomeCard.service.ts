@@ -1,6 +1,7 @@
-import PDFDocument from "pdfkit";
 import fs from "fs";
 import path from "path";
+import ejs from "ejs";
+import puppeteer from "puppeteer-core";
 import { Member } from "../entity/Member";
 import { Category } from "../entity/Category";
 import { AppDataSource } from "../data-source";
@@ -50,10 +51,64 @@ export class WelcomeCardService {
   }
 
   /**
-   * Generates the pixel-perfect New Member Welcome Card PDF buffer matching the official TN flyer design
+   * Resolves the Welcome Card EJS template path across dev and compiled environments
    */
-  static async generateWelcomeCardPdf(member: Member): Promise<Buffer> {
-    // 1. Resolve Category and SubCategory names if available
+  private static findTemplatePath(): string {
+    const candidateTemplatePaths = [
+      path.join(__dirname, "..", "views", "welcomeCard.ejs"),
+      path.join(__dirname, "..", "..", "src", "views", "welcomeCard.ejs"),
+      path.join(process.cwd(), "src", "views", "welcomeCard.ejs"),
+      path.join(process.cwd(), "views", "welcomeCard.ejs"),
+      path.join(process.cwd(), "dist", "views", "welcomeCard.ejs")
+    ];
+
+    for (const p of candidateTemplatePaths) {
+      if (fs.existsSync(p)) return p;
+    }
+
+    throw new Error("Welcome Card EJS template not found (searched in src/views and dist/views)");
+  }
+
+  /**
+   * Resolves Chromium / Chrome executable across Windows, Linux, and macOS
+   */
+  private static findChromiumPath(): string {
+    if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+      return process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+
+    const candidatePaths = [
+      // Windows Google Chrome
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+      // Windows Microsoft Edge
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      // Linux Google Chrome / Chromium
+      "/usr/bin/google-chrome",
+      "/usr/bin/google-chrome-stable",
+      "/usr/bin/chromium",
+      "/usr/bin/chromium-browser",
+      "/snap/bin/chromium",
+      // macOS Google Chrome / Edge
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+    ];
+
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) return p;
+    }
+
+    throw new Error("Chromium/Chrome executable not found. Please set PUPPETEER_EXECUTABLE_PATH or install Chrome/Chromium.");
+  }
+
+  /**
+   * Resolves member category, subcategory, display text, and initials
+   */
+  private static async resolveMemberDetails(member: Member): Promise<{
+    categoriesText: string;
+    initial: string;
+  }> {
     let categoryName = "";
     let subCategoryName = "";
 
@@ -82,329 +137,124 @@ export class WelcomeCardService {
       console.error("[WelcomeCardService] Category resolution notice:", e.message);
     }
 
-    return new Promise((resolve, reject) => {
-      try {
-        const pageWidth = 360;
-        const pageHeight = 586;
+    let categoriesText = "";
+    if (categoryName && subCategoryName) {
+      categoriesText = `${categoryName} • ${subCategoryName}`;
+    } else if (categoryName) {
+      categoriesText = categoryName;
+    } else if (member.industry) {
+      categoriesText = member.industry;
+    }
 
-        const doc = new PDFDocument({
-          size: [pageWidth, pageHeight],
-          margin: 0,
-          info: {
-            Title: `Welcome - ${member.fullName || "New Member"}`,
-            Author: "Trusted Network",
-            Subject: "New Member Welcome Announcement"
-          }
-        });
+    if (member.city) {
+      categoriesText = categoriesText ? `${categoriesText} • ${member.city}` : member.city;
+    }
 
-        const buffers: Buffer[] = [];
-        doc.on("data", (chunk: Buffer) => buffers.push(chunk));
-        doc.on("end", () => resolve(Buffer.concat(buffers)));
-        doc.on("error", (err: Error) => reject(err));
+    if (!categoriesText) {
+      categoriesText = "Trusted Network Community Member";
+    }
 
-        const fontPath = this.findFontPath();
-        if (fontPath) {
-          doc.registerFont("GreatVibes", fontPath);
-        }
+    const initial = (member.fullName ? member.fullName.trim().charAt(0) : "M").toUpperCase();
 
-        const navyDark = "#06152D";
-        const navyCard = "#081E3D";
-        const goldAccent = "#DCA838";
-        const goldLight = "#FEF3C7";
-        const goldBorder = "#F59E0B";
-        const goldText = "#92400E";
-        const slateDark = "#1E293B";
-        const slateMuted = "#64748B";
-
-        // 1. Overall Background: Pure White
-        doc.rect(0, 0, pageWidth, pageHeight).fill("#FFFFFF");
-
-        // Outer Card Frame with smooth rounded corners
-        doc.roundedRect(3, 3, pageWidth - 6, pageHeight - 6, 22)
-           .lineWidth(1.5)
-           .strokeColor("#E2E8F0")
-           .stroke();
-
-        // Top corner decorative navy accents with gold trim
-        // Top Left Corner
-        doc.save();
-        doc.moveTo(3, 3)
-           .lineTo(85, 3)
-           .bezierCurveTo(65, 3, 3, 65, 3, 85)
-           .closePath()
-           .fill(navyDark);
-        doc.moveTo(85, 3)
-           .bezierCurveTo(65, 3, 3, 65, 3, 85)
-           .lineWidth(3)
-           .strokeColor(goldAccent)
-           .stroke();
-        doc.restore();
-
-        // Top Right Corner
-        doc.save();
-        doc.moveTo(pageWidth - 3, 3)
-           .lineTo(pageWidth - 85, 3)
-           .bezierCurveTo(pageWidth - 65, 3, pageWidth - 3, 65, pageWidth - 3, 85)
-           .closePath()
-           .fill(navyDark);
-        doc.moveTo(pageWidth - 85, 3)
-           .bezierCurveTo(pageWidth - 65, 3, pageWidth - 3, 65, pageWidth - 3, 85)
-           .lineWidth(3)
-           .strokeColor(goldAccent)
-           .stroke();
-        doc.restore();
-
-        // 2. Top Header Logo
-        const logoPath = this.findLogoPath();
-        if (logoPath) {
-          const logoWidth = 175;
-          const logoX = (pageWidth - logoWidth) / 2;
-          doc.image(logoPath, logoX, 22, { width: logoWidth });
-        }
-
-        // 3. Main Navy Blue Container
-        const mainContainerY = 82;
-        const mainContainerHeight = 454;
-        const mainContainerWidth = pageWidth - 28; // 332
-        const mainContainerX = 14;
-
-        // Dark Navy Background
-        doc.roundedRect(mainContainerX, mainContainerY, mainContainerWidth, mainContainerHeight, 20)
-           .fill(navyCard);
-
-        // Gold border on main container
-        doc.save();
-        doc.roundedRect(mainContainerX, mainContainerY, mainContainerWidth, mainContainerHeight, 20)
-           .lineWidth(1.2)
-           .strokeColor(goldAccent)
-           .stroke();
-        doc.restore();
-
-        // 4. "Welcome!" script title
-        if (fontPath) {
-          doc.font("GreatVibes").fontSize(44).fillColor(goldAccent);
-        } else {
-          doc.font("Times-Italic").fontSize(40).fillColor(goldAccent);
-        }
-        doc.text("Welcome!", 0, 108, { align: "center", width: pageWidth });
-
-        // 5. "NEW MEMBER JOINED"
-        doc.font("Helvetica-Bold")
-           .fontSize(16)
-           .fillColor("#FFFFFF")
-           .text("NEW MEMBER JOINED", 0, 162, { align: "center", width: pageWidth, characterSpacing: 1.2 });
-
-        // 6. Gold divider line with user icon below title
-        const dividerY = 192;
-        doc.save();
-        doc.strokeColor(goldAccent).lineWidth(1);
-        // Left line
-        doc.moveTo(115, dividerY).lineTo(162, dividerY).stroke();
-        // Right line
-        doc.moveTo(198, dividerY).lineTo(245, dividerY).stroke();
-
-        // Small user icon in center
-        doc.circle(180, dividerY - 4, 3).stroke();
-        (doc as any).arc(180, dividerY + 5, 5.5, Math.PI, 2 * Math.PI).stroke();
-        doc.circle(184, dividerY + 4, 1.8).fillAndStroke(goldAccent, goldAccent);
-        doc.restore();
-
-        // 7. Center White Profile Card
-        const cardX = 30;
-        const cardY = 212;
-        const cardWidth = pageWidth - 60; // 300
-        const cardHeight = 304;
-
-        doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 18)
-           .fill("#FFFFFF");
-
-        // 8. Avatar / Initial Circle
-        const avatarCenterX = pageWidth / 2;
-        const avatarCenterY = cardY + 52;
-        const avatarRadius = 36;
-
-        // Outer Gold Ring
-        doc.circle(avatarCenterX, avatarCenterY, avatarRadius + 2.5)
-           .lineWidth(2.5)
-           .strokeColor(goldAccent)
-           .stroke();
-
-        // Inner Navy Fill
-        doc.circle(avatarCenterX, avatarCenterY, avatarRadius)
-           .fill(navyDark);
-
-        // Initial Letter (e.g. "A")
-        const initial = (member.fullName ? member.fullName.trim().charAt(0) : "M").toUpperCase();
-        doc.font("Helvetica-Bold")
-           .fontSize(34)
-           .fillColor("#FFFFFF")
-           .text(initial, avatarCenterX - 25, avatarCenterY - 17, { align: "center", width: 50 });
-
-        // 9. Member Full Name
-        const nameY = cardY + 104;
-        doc.font("Helvetica-Bold")
-           .fontSize(18)
-           .fillColor(navyDark)
-           .text(member.fullName || "Valued Member", cardX + 15, nameY, {
-             align: "center",
-             width: cardWidth - 30
-           });
-
-        const nameHeight = doc.heightOfString(member.fullName || "Valued Member", { width: cardWidth - 30 });
-        const businessY = nameY + Math.max(24, nameHeight + 6);
-
-        // 10. Business Name
-        doc.font("Helvetica-Bold")
-           .fontSize(12)
-           .fillColor(slateDark)
-           .text(member.businessName || "Business Network Member", cardX + 15, businessY, {
-             align: "center",
-             width: cardWidth - 30
-           });
-
-        const businessHeight = doc.heightOfString(member.businessName || "Business Network Member", { width: cardWidth - 30 });
-        const catY = businessY + Math.max(18, businessHeight + 5);
-
-        // 11. Categories / Subcategories Line
-        let categoriesText = "";
-        if (categoryName && subCategoryName) {
-          categoriesText = `${categoryName} • ${subCategoryName}`;
-        } else if (categoryName) {
-          categoriesText = categoryName;
-        } else if (member.industry) {
-          categoriesText = member.industry;
-        }
-
-        if (member.city) {
-          categoriesText = categoriesText ? `${categoriesText} • ${member.city}` : member.city;
-        }
-
-        if (!categoriesText) {
-          categoriesText = "Trusted Network Community Member";
-        }
-
-        doc.font("Helvetica")
-           .fontSize(9)
-           .fillColor(slateMuted)
-           .text(categoriesText, cardX + 15, catY, {
-             align: "center",
-             width: cardWidth - 30,
-             lineGap: 3
-           });
-
-        const catHeight = doc.heightOfString(categoriesText, { width: cardWidth - 30, lineGap: 3 });
-
-        // 12. "NEW MEMBER" Badge
-        const badgeWidth = 144;
-        const badgeHeight = 28;
-        const badgeX = (pageWidth - badgeWidth) / 2;
-        const badgeY = catY + Math.max(24, catHeight + 8);
-
-        doc.roundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 8)
-           .fillAndStroke(goldLight, goldBorder);
-
-        // Icon + text inside badge
-        doc.save();
-        doc.strokeColor(goldText).lineWidth(1.2);
-        const iconX = badgeX + 20;
-        const iconY = badgeY + 14;
-        doc.circle(iconX, iconY - 3, 2.5).stroke();
-        (doc as any).arc(iconX, iconY + 5, 4.5, Math.PI, 2 * Math.PI).stroke();
-        doc.moveTo(iconX + 7, iconY - 2).lineTo(iconX + 7, iconY + 4).stroke();
-        doc.moveTo(iconX + 4, iconY + 1).lineTo(iconX + 10, iconY + 1).stroke();
-        doc.restore();
-
-        doc.font("Helvetica-Bold")
-           .fontSize(10.5)
-           .fillColor(goldText)
-           .text("NEW MEMBER", badgeX + 36, badgeY + 8);
-
-        // 13. Horizontal divider line with gold dot
-        const divider2Y = badgeY + 38;
-        doc.save();
-        doc.strokeColor("#FDE68A").lineWidth(0.8);
-        doc.moveTo(cardX + 20, divider2Y).lineTo(cardX + cardWidth - 20, divider2Y).stroke();
-        doc.circle(pageWidth / 2, divider2Y, 2.2).fill(goldAccent);
-        doc.restore();
-
-        // 14. Welcome Community Text (Exact 3-line layout matching reference flyer)
-        const welcomeTextY = divider2Y + 14;
-        const welcomeText = "Let's give a warm welcome to our newest\nmember in the Trusted Network\ncommunity!";
-        doc.font("Helvetica")
-           .fontSize(9.5)
-           .fillColor("#334155")
-           .text(
-             welcomeText,
-             cardX + 15,
-             welcomeTextY,
-             {
-               align: "center",
-               width: cardWidth - 30,
-               lineGap: 3.5
-             }
-           );
-
-        // 15. Bottom Footer (Website URL + Bottom Corner Accents)
-        const cornerSize = 75;
-        // Bottom Left Corner
-        doc.save();
-        doc.moveTo(3, pageHeight - 3)
-           .lineTo(cornerSize, pageHeight - 3)
-           .bezierCurveTo(cornerSize - 20, pageHeight - 3, 3, pageHeight - 20, 3, pageHeight - cornerSize)
-           .closePath()
-           .fill(navyDark);
-        doc.moveTo(cornerSize, pageHeight - 3)
-           .bezierCurveTo(cornerSize - 20, pageHeight - 3, 3, pageHeight - 20, 3, pageHeight - cornerSize)
-           .lineWidth(3)
-           .strokeColor(goldAccent)
-           .stroke();
-        doc.restore();
-
-        // Bottom Right Corner
-        doc.save();
-        doc.moveTo(pageWidth - 3, pageHeight - 3)
-           .lineTo(pageWidth - cornerSize, pageHeight - 3)
-           .bezierCurveTo(pageWidth - cornerSize + 20, pageHeight - 3, pageWidth - 3, pageHeight - 20, pageWidth - 3, pageHeight - cornerSize)
-           .closePath()
-           .fill(navyDark);
-        doc.moveTo(pageWidth - cornerSize, pageHeight - 3)
-           .bezierCurveTo(pageWidth - cornerSize + 20, pageHeight - 3, pageWidth - 3, pageHeight - 20, pageWidth - 3, pageHeight - cornerSize)
-           .lineWidth(3)
-           .strokeColor(goldAccent)
-           .stroke();
-        doc.restore();
-
-        // Website URL at bottom center
-        const footerY = pageHeight - 30;
-        doc.save();
-        const globeX = (pageWidth / 2) - 78;
-        doc.circle(globeX, footerY + 5, 5).lineWidth(1).strokeColor(navyDark).stroke();
-        doc.moveTo(globeX - 5, footerY + 5).lineTo(globeX + 5, footerY + 5).stroke();
-        (doc as any).arc(globeX, footerY + 5, 2.5, 0, 2 * Math.PI).stroke();
-        doc.restore();
-
-        doc.font("Helvetica-Bold")
-           .fontSize(9)
-           .fillColor(navyDark)
-           .text("www.trustednetwork.in", globeX + 12, footerY);
-
-        doc.end();
-      } catch (err) {
-        reject(err);
-      }
-    });
+    return { categoriesText, initial };
   }
 
   /**
-   * Generates the welcome PDF card and sends it via email to admin@trustednetwork.in
+   * Generates high-quality New Member Welcome Card PNG buffer directly via EJS and Puppeteer
+   */
+  static async generateWelcomeCardPng(member: Member): Promise<Buffer> {
+    const { categoriesText, initial } = await this.resolveMemberDetails(member);
+
+    const logoPath = this.findLogoPath();
+    const fontPath = this.findFontPath();
+    const templatePath = this.findTemplatePath();
+    const chromiumPath = this.findChromiumPath();
+
+    const logoDataUri = logoPath && fs.existsSync(logoPath)
+      ? `data:image/png;base64,${fs.readFileSync(logoPath).toString("base64")}`
+      : "";
+
+    const fontDataUri = fontPath && fs.existsSync(fontPath)
+      ? `data:font/ttf;base64,${fs.readFileSync(fontPath).toString("base64")}`
+      : "";
+
+    const html = await ejs.renderFile(templatePath, {
+      member,
+      initial,
+      categoriesText,
+      logoDataUri,
+      fontDataUri
+    });
+
+    const browser = await puppeteer.launch({
+      executablePath: chromiumPath,
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--font-render-hinting=none"
+      ]
+    });
+
+    try {
+      const page = await browser.newPage();
+      await page.setViewport({
+        width: 360,
+        height: 586,
+        deviceScaleFactor: 2 // High-DPI 720x1172 PNG
+      });
+
+      await page.setContent(html, { waitUntil: "networkidle0" as any });
+
+      // Wait for fonts and all images to be loaded
+      await page.evaluate(`
+        (async () => {
+          if (document.fonts) {
+            await document.fonts.ready;
+          }
+          const images = Array.from(document.images);
+          await Promise.all(
+            images.map(img => {
+              if (img.complete) return Promise.resolve();
+              return new Promise(resolve => {
+                img.onload = resolve;
+                img.onerror = resolve;
+              });
+            })
+          );
+        })()
+      `);
+
+      const pngBuffer = await page.screenshot({
+        type: "png",
+        omitBackground: false
+      });
+
+      return Buffer.from(pngBuffer);
+    } finally {
+      await browser.close().catch(() => {});
+    }
+  }
+
+  /**
+   * Backwards-compatible alias for generateWelcomeCardPng
+   */
+  static async generateWelcomeCardPdf(member: Member): Promise<Buffer> {
+    return this.generateWelcomeCardPng(member);
+  }
+
+  /**
+   * Generates the welcome PNG card and sends it via email to admin@trustednetwork.in
    */
   static async sendRegistrationWelcomeEmailToAdmin(member: Member): Promise<void> {
     const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || "admin@trustednetwork.in";
 
     try {
-      const pdfBuffer = await this.generateWelcomeCardPdf(member);
+      const pngBuffer = await this.generateWelcomeCardPng(member);
       const safeName = (member.fullName || "New_Member").replace(/[^a-zA-Z0-9_-]/g, "_");
-      const filename = `Welcome_Card_${safeName}.pdf`;
+      const filename = `Welcome_Card_${safeName}.png`;
 
       const subject = `🎉 New Member Registered: ${member.fullName || "New Member"} - Trusted Network`;
 
@@ -455,7 +305,7 @@ export class WelcomeCardService {
             </div>
 
             <p style="color: #475569; font-size: 14px; line-height: 1.5;">
-              📎 <strong>Attached:</strong> The official New Member Welcome flyer PDF (<code>${filename}</code>) has been attached to this email.
+              📎 <strong>Attached:</strong> The official New Member Welcome flyer image (<code>${filename}</code>) has been attached to this email.
             </p>
           </div>
           <div style="text-align: center; margin-top: 20px; color: #94A3B8; font-size: 12px;">
@@ -471,13 +321,13 @@ export class WelcomeCardService {
         [
           {
             filename,
-            content: pdfBuffer,
-            contentType: "application/pdf"
+            content: pngBuffer,
+            contentType: "image/png"
           }
         ]
       );
 
-      console.log(`[WelcomeCardService] Welcome card PDF sent to ${adminEmail} for member ${member.fullName} (${member._id})`);
+      console.log(`[WelcomeCardService] Welcome card PNG sent to ${adminEmail} for member ${member.fullName} (${member._id})`);
     } catch (error: any) {
       console.error(`[WelcomeCardService] Failed to generate/send welcome email to ${adminEmail}:`, error.message);
       // Non-blocking: registration itself will not fail if email delivery fails
