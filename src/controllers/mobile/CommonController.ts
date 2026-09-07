@@ -3,9 +3,11 @@ import {
   Get,
   QueryParam,
   Res,
+  Req,
   BadRequestError
 } from "routing-controllers";
 import axios from "axios";
+import { GstAlertService } from "../../services/gstAlert.service";
 import { AppDataSource } from "../../data-source";
 import { Category, CategoryStatus } from "../../entity/Category";
 import { MarketplaceCategory, MarketplaceCategoryStatus } from "../../entity/MarketplaceCategory";
@@ -147,12 +149,42 @@ export class CommonController {
    *         schema:
    *           type: string
    *           example: "27AAACV9003N1Z2"
+   *       - in: query
+   *         name: name
+   *         required: false
+   *         description: Optional name of the person verifying
+   *         schema:
+   *           type: string
+   *           example: "John Doe"
+   *       - in: query
+   *         name: phone
+   *         required: false
+   *         description: Optional phone number of the person verifying
+   *         schema:
+   *           type: string
+   *           example: "9876543210"
+   *       - in: query
+   *         name: email
+   *         required: false
+   *         description: Optional email of the person verifying
+   *         schema:
+   *           type: string
+   *           example: "john@example.com"
    *     responses:
    *       200:
    *         description: GST verification results
    */
   @Get("/verify-gst")
-  async verifyGST(@QueryParam("gstin") gstin: string, @Res() res: any) {
+  async verifyGST(
+    @QueryParam("gstin") gstin: string,
+    @QueryParam("name") name: string,
+    @QueryParam("phone") phone: string,
+    @QueryParam("email") email: string,
+    @QueryParam("fullName") fullName: string,
+    @QueryParam("mobileNumber") mobileNumber: string,
+    @Req() req: any,
+    @Res() res: any
+  ) {
     if (!gstin) {
       return res.status(400).json({ status: false, message: "GSTIN is required" });
     }
@@ -162,8 +194,30 @@ export class CommonController {
     if (!gstRegex.test(gstin)) {
       return res.status(400).json({ status: false, message: "Invalid GSTIN format" });
     }
-    const gstCount = await this.memberRepo.count({ gstNumber: gstin, isDeleted: false });
-    if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
+
+    const cleanGst = gstin.trim().toUpperCase();
+    const existingGstMembers = await this.memberRepo.find({
+      where: {
+        gstNumber: { $in: [cleanGst, gstin.trim()] },
+        isDeleted: false
+      } as any
+    });
+
+    if (existingGstMembers.length >= 2) {
+      const attemptedName = name || fullName || req?.query?.name || req?.query?.fullName || undefined;
+      const attemptedPhone = phone || mobileNumber || req?.query?.phone || req?.query?.mobileNumber || undefined;
+      const attemptedEmail = email || req?.query?.email || undefined;
+
+      GstAlertService.notifySuspiciousAttempt(existingGstMembers, cleanGst, {
+        mobileNumber: attemptedPhone,
+        fullName: attemptedName,
+        email: attemptedEmail
+      }).catch(err => {
+        console.error("[GST Security Alert] Failed to dispatch alert in verifyGST:", err.message);
+      });
+
+      throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
+    }
 
     try {
       const apiKey = process.env.GSTIN_CHECK_API_KEY;

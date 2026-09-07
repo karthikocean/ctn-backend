@@ -58,6 +58,8 @@ export async function gracefulShutdown(signal: string = "SIGTERM"): Promise<void
       console.log("✅ [Graceful Shutdown] Socket.io server closed.");
     }
   } catch (err: any) {
+    console.error("❌ [Graceful Shutdown] Error closing Socket.io server:", err.message);
+    hasError = true;
     console.log("ℹ️ [Graceful Shutdown] Socket.io was not active or already closed.");
   }
 
@@ -75,7 +77,8 @@ export async function gracefulShutdown(signal: string = "SIGTERM"): Promise<void
           resolve();
         });
       });
-    } catch (err) {
+    } catch (err: any) {
+      console.error("❌ [Graceful Shutdown] Error closing HTTP server:", err.message);
       hasError = true;
     }
   }

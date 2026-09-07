@@ -2,6 +2,7 @@ import {
   JsonController,
   Get,
   Put,
+  Post,
   Body,
   Res,
   Req,
@@ -16,6 +17,7 @@ import { PushNotification, NotificationModule } from "../../entity/PushNotificat
 import { Member } from "../../entity/Member";
 import { ObjectId } from "mongodb";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
+import { NotificationProducerService } from "../../services/notificationProducer.service";
 
 @JsonController("/push-notification")
 export class AdminPushNotificationController {
@@ -184,6 +186,71 @@ export class AdminPushNotificationController {
    *     summary: Mark specific notifications as read for admin
    *     tags: [Admin Push Notification]
    */
+  /**
+   * @swagger
+   * /api/admin/push-notification/remind-activity-gap:
+   *   post:
+   *     summary: Send push notification reminder to members with activity gaps (e.g. not posted, not asked, not given, no requirements)
+   *     tags: [Admin Push Notification]
+   */
+  @Post("/remind-activity-gap")
+  @UseBefore(AuthMiddleware)
+  async remindActivityGap(
+    @Req() req: any,
+    @Body() body: {
+      activityType: "notPosted" | "notAsked" | "notGiven" | "notRequirements";
+      title: string;
+      message: string;
+      regionId?: string;
+      categoryId?: string;
+    },
+    @Res() res: any
+  ) {
+    try {
+      const { activityType, title, message, regionId, categoryId } = body;
+
+      if (!activityType || !["notPosted", "notAsked", "notGiven", "notRequirements"].includes(activityType)) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          success: false,
+          message: "Invalid or missing activityType. Must be one of: notPosted, notAsked, notGiven, notRequirements",
+        });
+      }
+
+      if (!title || !title.trim()) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          success: false,
+          message: "Notification title is required",
+        });
+      }
+
+      if (!message || !message.trim()) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          success: false,
+          message: "Notification message is required",
+        });
+      }
+
+      const adminId = req.user?.userId || req.user?._id || req.user?.id;
+
+      const result = await NotificationProducerService.enqueueActivityGapReminder({
+        activityType,
+        subject: title.trim(),
+        content: message.trim(),
+        senderId: adminId ? adminId.toString() : undefined,
+        regionId: regionId || undefined,
+        categoryId: categoryId || undefined,
+      });
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Activity gap reminder notifications queued successfully",
+        data: result,
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
   @Put("/read")
   @UseBefore(AuthMiddleware)
   async markAsRead(

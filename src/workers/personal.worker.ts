@@ -16,12 +16,15 @@ export interface PersonalNotificationJobData {
   moduleId?: string;
   senderId?: string;
   fcmToken?: string;
+  name?: string;
+  phone?: string;
+  email?: string;
 }
 
 export const personalWorker = new Worker(
   QUEUE_NAMES.PERSONAL,
   async (job: Job<PersonalNotificationJobData>) => {
-    const { receiverId, subject, content, moduleName, moduleId, senderId, fcmToken } = job.data;
+    const { receiverId, subject, content, moduleName, moduleId, senderId, fcmToken, name, phone, email } = job.data;
     if (!receiverId || !ObjectId.isValid(receiverId)) {
       throw new Error(`Invalid receiverId: ${receiverId}`);
     }
@@ -38,6 +41,9 @@ export const personalWorker = new Worker(
     notification.moduleId = moduleId ? new ObjectId(moduleId) : undefined;
     notification.receiverId = receiverOid;
     notification.senderId = senderId ? new ObjectId(senderId) : undefined;
+    notification.name = name;
+    notification.phone = phone;
+    notification.email = email;
     notification.isRead = false;
     notification.isDeleted = false;
     notification.createdAt = now;

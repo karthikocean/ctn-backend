@@ -4,7 +4,8 @@ import { bullRedisConfig } from "../config/bullmq.config";
 import { QUEUE_NAMES, broadcastNotificationQueue, dlqNotificationQueue } from "../queues/notification.queue";
 import { AppDataSource } from "../data-source";
 import { Member, MemberStatus } from "../entity/Member";
-import { PushNotification } from "../entity/PushNotifications";
+import { PushNotification, NotificationModule } from "../entity/PushNotifications";
+import { PostModel, PostType } from "../entity/Post";
 import { FcmService } from "../services/fcm.service";
 import { SocketNotificationService } from "../services/socketNotification.service";
 
@@ -17,6 +18,16 @@ export interface BroadcastInitiateJobData {
   senderId?: string;
   useTopic?: boolean;
   topicName?: string;
+}
+
+export interface ActivityGapReminderJobData {
+  reminderId: string;
+  activityType: "notPosted" | "notAsked" | "notGiven" | "notRequirements";
+  subject: string;
+  content: string;
+  senderId?: string;
+  regionId?: string;
+  categoryId?: string;
 }
 
 export interface BroadcastChunkJobData {
@@ -45,6 +56,9 @@ export const broadcastWorker = new Worker(
       break;
     case "broadcast-chunk":
       await handleBroadcastChunk(job);
+      break;
+    case "activity-gap-reminder":
+      await handleActivityGapReminder(job);
       break;
     default:
       console.warn(`⚠️ [BroadcastWorker] Unknown job name: ${job.name}`);
@@ -231,6 +245,165 @@ async function handleBroadcastChunk(job: Job<BroadcastChunkJobData>): Promise<vo
   // 4. Emit Socket Unread Count ONLY to currently online members in this chunk
   const memberIds = members.map((m: { id: string; fcmToken?: string }) => m.id);
   await SocketNotificationService.emitUnreadToConnectedBatch(memberIds);
+}
+
+/**
+ * Orchestrator Handler for Activity Gap Reminders:
+ * Finds active members who have not completed the specified activity today (Post, Ask, Give, Requirement)
+ * and enqueues bulk jobs to Redis in chunks of 2,000 via MongoDB cursor streaming to avoid blocking the event loop.
+ */
+async function handleActivityGapReminder(job: Job<ActivityGapReminderJobData>): Promise<void> {
+  const { reminderId, activityType, subject, content, senderId, regionId, categoryId } = job.data;
+  console.log(`🚀 [ActivityGap Orchestrator] Starting reminder initiation ${reminderId} for ${activityType}...`);
+
+  let targetType: PostType | null = null;
+  let targetModule: NotificationModule = NotificationModule.DAILY_TASK;
+
+  if (activityType === "notPosted") {
+    targetType = PostType.PROMOTION;
+    targetModule = NotificationModule.DAILY_TASK;
+  } else if (activityType === "notAsked") {
+    targetType = PostType.ASK;
+    targetModule = NotificationModule.DAILY_TASK;
+  } else if (activityType === "notGiven") {
+    targetType = PostType.GIVE;
+    targetModule = NotificationModule.DAILY_TASK;
+  } else if (activityType === "notRequirements") {
+    targetType = PostType.REQUIREMENT;
+    targetModule = NotificationModule.DAILY_TASK;
+  }
+
+  if (!targetType) {
+    console.warn(`⚠️ [ActivityGap Orchestrator] Invalid activityType: ${activityType}`);
+    return;
+  }
+
+  const now = new Date();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(now);
+  endOfToday.setHours(23, 59, 59, 999);
+
+  const postRepo = AppDataSource.getMongoRepository(PostModel);
+  const postsToday = await postRepo.find({
+    where: {
+      type: targetType,
+      isDeleted: false,
+      createdAt: { $gte: startOfToday, $lte: endOfToday }
+    },
+    select: { memberId: true } as any
+  });
+
+  const memberIdsWithPosts = postsToday.map(p => p.memberId).filter(Boolean);
+
+  const memberRepo = AppDataSource.getMongoRepository(Member);
+  const queryFilter: any = {
+    status: MemberStatus.ACTIVE,
+    isDeleted: false,
+  };
+
+  const excludeIds: ObjectId[] = [];
+  if (memberIdsWithPosts.length > 0) {
+    memberIdsWithPosts.forEach(id => {
+      if (ObjectId.isValid(id)) {
+        excludeIds.push(new ObjectId(id));
+      }
+    });
+  }
+  if (senderId && ObjectId.isValid(senderId)) {
+    excludeIds.push(new ObjectId(senderId));
+  }
+  if (excludeIds.length > 0) {
+    queryFilter._id = { $nin: excludeIds };
+  }
+
+  if (regionId && ObjectId.isValid(regionId)) {
+    queryFilter.businessRegion = { $in: [new ObjectId(regionId), regionId] };
+  }
+  if (categoryId && ObjectId.isValid(categoryId)) {
+    queryFilter.businessCategory = { $in: [new ObjectId(categoryId), categoryId] };
+  }
+
+  // Stream matching active members via MongoDB cursor projecting only _id and fcmToken
+  const mongoCursor = memberRepo.createCursor(queryFilter as any).project({ _id: 1, fcmToken: 1 });
+
+  let memberBuffer: Array<{ id: string; fcmToken?: string }> = [];
+  let chunkJobsBuffer: Array<{
+    name: string;
+    data: BroadcastChunkJobData;
+    opts: { attempts: number; backoff: any };
+  }> = [];
+
+  let totalMembersQueued = 0;
+  let totalChunksEnqueued = 0;
+
+  while (await mongoCursor.hasNext()) {
+    const memberDoc = await mongoCursor.next();
+    if (!memberDoc) break;
+
+    memberBuffer.push({
+      id: memberDoc._id.toString(),
+      fcmToken: memberDoc.fcmToken,
+    });
+
+    if (memberBuffer.length >= CHUNK_SIZE) {
+      totalMembersQueued += memberBuffer.length;
+      totalChunksEnqueued++;
+
+      chunkJobsBuffer.push({
+        name: "broadcast-chunk",
+        data: {
+          broadcastId: reminderId,
+          subject,
+          content,
+          moduleName: targetModule,
+          senderId,
+          members: memberBuffer,
+          useTopic: false,
+        },
+        opts: {
+          attempts: 5,
+          backoff: { type: "exponential", delay: 2000 },
+        },
+      });
+
+      memberBuffer = [];
+
+      if (chunkJobsBuffer.length >= BULK_ENQUEUE_SIZE) {
+        await broadcastNotificationQueue.addBulk(chunkJobsBuffer as any);
+        chunkJobsBuffer = [];
+        console.log(`📦 [ActivityGap Orchestrator] Enqueued ${totalChunksEnqueued} chunks (${totalMembersQueued} members total)...`);
+      }
+    }
+  }
+
+  if (memberBuffer.length > 0) {
+    totalMembersQueued += memberBuffer.length;
+    totalChunksEnqueued++;
+
+    chunkJobsBuffer.push({
+      name: "broadcast-chunk",
+      data: {
+        broadcastId: reminderId,
+        subject,
+        content,
+        moduleName: targetModule,
+        senderId,
+        members: memberBuffer,
+        useTopic: false,
+      },
+      opts: {
+        attempts: 5,
+        backoff: { type: "exponential", delay: 2000 },
+      },
+    });
+  }
+
+  if (chunkJobsBuffer.length > 0) {
+    await broadcastNotificationQueue.addBulk(chunkJobsBuffer as any);
+  }
+
+  console.log(`✅ [ActivityGap Orchestrator] Finished orchestrating ${activityType} reminder ${reminderId}: ${totalMembersQueued} members queued across ${totalChunksEnqueued} chunk jobs.`);
 }
 
 // Error & DLQ routing

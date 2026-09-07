@@ -5,8 +5,7 @@ import {
   Res,
   UseBefore,
   Req,
-  BadRequestError,
-  NotFoundError
+  BadRequestError
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
 import { Connection, ConnectionStatus } from "../../entity/Connection";
@@ -16,7 +15,6 @@ import { Referral } from "../../entity/Referral";
 import { ThankYouSlip } from "../../entity/ThankYouSlip";
 import { ReportedHistory } from "../../entity/ReportedHistory";
 import { Category } from "../../entity/Category";
-import { BusinessRegion } from "../../entity/BusinessRegion";
 import { ObjectId } from "mongodb";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
@@ -503,200 +501,200 @@ export class ConnectionController {
       let targetMemberIds: { otherMemberId: ObjectId; date: Date; status: string; recordId: ObjectId; meta?: any }[] = [];
 
       switch (type) {
-        case "total_req_given": {
-          const conns = await this.connectionRepo.find({
-            where: {
-              senderId: targetId,
-              isDeleted: false
-            },
-            order: { createdAt: "DESC" }
-          });
-          targetMemberIds = conns.map(c => ({
-            otherMemberId: c.receiverId,
-            date: c.createdAt,
-            status: c.status ? (c.status.charAt(0).toUpperCase() + c.status.slice(1).toLowerCase()) : "Pending",
-            recordId: c._id
-          }));
-          break;
-        }
+      case "total_req_given": {
+        const conns = await this.connectionRepo.find({
+          where: {
+            senderId: targetId,
+            isDeleted: false
+          },
+          order: { createdAt: "DESC" }
+        });
+        targetMemberIds = conns.map(c => ({
+          otherMemberId: c.receiverId,
+          date: c.createdAt,
+          status: c.status ? (c.status.charAt(0).toUpperCase() + c.status.slice(1).toLowerCase()) : "Pending",
+          recordId: c._id
+        }));
+        break;
+      }
 
-        case "sent_accepted": {
-          const conns = await this.connectionRepo.find({
-            where: {
-              senderId: targetId,
-              status: ConnectionStatus.ACCEPTED,
-              isDeleted: false
-            },
-            order: { updatedAt: "DESC" }
-          });
-          targetMemberIds = conns.map(c => ({
-            otherMemberId: c.receiverId,
-            date: c.updatedAt || c.createdAt,
-            status: "Accepted",
-            recordId: c._id
-          }));
-          break;
-        }
+      case "sent_accepted": {
+        const conns = await this.connectionRepo.find({
+          where: {
+            senderId: targetId,
+            status: ConnectionStatus.ACCEPTED,
+            isDeleted: false
+          },
+          order: { updatedAt: "DESC" }
+        });
+        targetMemberIds = conns.map(c => ({
+          otherMemberId: c.receiverId,
+          date: c.updatedAt || c.createdAt,
+          status: "Accepted",
+          recordId: c._id
+        }));
+        break;
+      }
 
-        case "sent_rejected": {
-          const conns = await this.connectionRepo.find({
-            where: {
-              senderId: targetId,
-              status: ConnectionStatus.REJECTED,
-              isDeleted: false
-            },
-            order: { updatedAt: "DESC" }
-          });
-          targetMemberIds = conns.map(c => ({
-            otherMemberId: c.receiverId,
-            date: c.updatedAt || c.createdAt,
-            status: "Rejected",
-            recordId: c._id
-          }));
-          break;
-        }
+      case "sent_rejected": {
+        const conns = await this.connectionRepo.find({
+          where: {
+            senderId: targetId,
+            status: ConnectionStatus.REJECTED,
+            isDeleted: false
+          },
+          order: { updatedAt: "DESC" }
+        });
+        targetMemberIds = conns.map(c => ({
+          otherMemberId: c.receiverId,
+          date: c.updatedAt || c.createdAt,
+          status: "Rejected",
+          recordId: c._id
+        }));
+        break;
+      }
 
-        case "direct_meet": {
-          const meets = await this.oneToOneRepo.find({
-            where: {
-              $or: [{ senderId: targetId }, { receiverId: targetId }]
-            } as any,
-            order: { createdAt: "DESC" }
-          });
-          targetMemberIds = meets.map(m => {
-            const isSender = m.senderId.toString() === targetId.toString();
-            return {
-              otherMemberId: isSender ? m.receiverId : m.senderId,
-              date: m.createdAt,
-              status: m.status || "Completed",
-              recordId: m._id,
-              meta: { media: m.media, reason: m.reason, role: isSender ? "Creator" : "Participant" }
-            };
-          });
-          break;
-        }
+      case "direct_meet": {
+        const meets = await this.oneToOneRepo.find({
+          where: {
+            $or: [{ senderId: targetId }, { receiverId: targetId }]
+          } as any,
+          order: { createdAt: "DESC" }
+        });
+        targetMemberIds = meets.map(m => {
+          const isSender = m.senderId.toString() === targetId.toString();
+          return {
+            otherMemberId: isSender ? m.receiverId : m.senderId,
+            date: m.createdAt,
+            status: m.status || "Completed",
+            recordId: m._id,
+            meta: { media: m.media, reason: m.reason, role: isSender ? "Creator" : "Participant" }
+          };
+        });
+        break;
+      }
 
-        case "give_recommendations":
-        case "recommendation_given": {
-          const refs = await this.referralRepo.find({
-            where: { senderId: targetId },
-            order: { createdAt: "DESC" }
-          });
-          targetMemberIds = refs.map(r => ({
-            otherMemberId: r.receiverId,
-            date: r.createdAt,
-            status: r.status || "Given",
-            recordId: r._id,
-            meta: {
-              referralName: r.referralName,
-              referralMobile: r.referralMobile,
-              comments: r.comments
-            }
-          }));
-          break;
-        }
+      case "give_recommendations":
+      case "recommendation_given": {
+        const refs = await this.referralRepo.find({
+          where: { senderId: targetId },
+          order: { createdAt: "DESC" }
+        });
+        targetMemberIds = refs.map(r => ({
+          otherMemberId: r.receiverId,
+          date: r.createdAt,
+          status: r.status || "Given",
+          recordId: r._id,
+          meta: {
+            referralName: r.referralName,
+            referralMobile: r.referralMobile,
+            comments: r.comments
+          }
+        }));
+        break;
+      }
 
-        case "received_business_done":
-        case "business_done": {
-          const slips = await this.thankYouSlipRepo.find({
-            where: {
-              receiverId: targetId
-            } as any,
-            order: { createdAt: "DESC" }
-          });
-          targetMemberIds = slips.map(s => ({
-            otherMemberId: s.senderId,
-            date: s.createdAt,
-            status: s.status || "Received",
-            recordId: s._id,
-            meta: {
-              amount: s.amount,
-              businessDetails: s.businessDetails,
-              type: "Received"
-            }
-          }));
-          break;
-        }
+      case "received_business_done":
+      case "business_done": {
+        const slips = await this.thankYouSlipRepo.find({
+          where: {
+            receiverId: targetId
+          } as any,
+          order: { createdAt: "DESC" }
+        });
+        targetMemberIds = slips.map(s => ({
+          otherMemberId: s.senderId,
+          date: s.createdAt,
+          status: s.status || "Received",
+          recordId: s._id,
+          meta: {
+            amount: s.amount,
+            businessDetails: s.businessDetails,
+            type: "Received"
+          }
+        }));
+        break;
+      }
 
-        case "reported": {
-          const reports = await this.reportedHistoryRepo.find({
-            where: {
-              targetUserId: targetId,
-              status: "REPORTED",
-              isDeleted: { $ne: true }
-            } as any,
-            order: { createdAt: "DESC" }
-          });
-          targetMemberIds = reports.map(r => ({
-            otherMemberId: r.reporterUserId,
-            date: r.createdAt,
-            status: "Reported",
-            recordId: r._id,
-            meta: {
-              reason: r.reason || "Reported Member",
-              moduleName: r.moduleName || "General"
-            }
-          }));
-          break;
-        }
+      case "reported": {
+        const reports = await this.reportedHistoryRepo.find({
+          where: {
+            targetUserId: targetId,
+            status: "REPORTED",
+            isDeleted: { $ne: true }
+          } as any,
+          order: { createdAt: "DESC" }
+        });
+        targetMemberIds = reports.map(r => ({
+          otherMemberId: r.reporterUserId,
+          date: r.createdAt,
+          status: "Reported",
+          recordId: r._id,
+          meta: {
+            reason: r.reason || "Reported Member",
+            moduleName: r.moduleName || "General"
+          }
+        }));
+        break;
+      }
 
-        case "received_accepted": {
-          const conns = await this.connectionRepo.find({
-            where: {
-              receiverId: targetId,
-              status: ConnectionStatus.ACCEPTED,
-              isDeleted: false
-            },
-            order: { updatedAt: "DESC" }
-          });
-          targetMemberIds = conns.map(c => ({
-            otherMemberId: c.senderId,
-            date: c.updatedAt || c.createdAt,
-            status: "Accepted",
-            recordId: c._id
-          }));
-          break;
-        }
+      case "received_accepted": {
+        const conns = await this.connectionRepo.find({
+          where: {
+            receiverId: targetId,
+            status: ConnectionStatus.ACCEPTED,
+            isDeleted: false
+          },
+          order: { updatedAt: "DESC" }
+        });
+        targetMemberIds = conns.map(c => ({
+          otherMemberId: c.senderId,
+          date: c.updatedAt || c.createdAt,
+          status: "Accepted",
+          recordId: c._id
+        }));
+        break;
+      }
 
-        case "received_rejected": {
-          const conns = await this.connectionRepo.find({
-            where: {
-              receiverId: targetId,
-              status: ConnectionStatus.REJECTED,
-              isDeleted: false
-            },
-            order: { updatedAt: "DESC" }
-          });
-          targetMemberIds = conns.map(c => ({
-            otherMemberId: c.senderId,
-            date: c.updatedAt || c.createdAt,
-            status: "Rejected",
-            recordId: c._id
-          }));
-          break;
-        }
+      case "received_rejected": {
+        const conns = await this.connectionRepo.find({
+          where: {
+            receiverId: targetId,
+            status: ConnectionStatus.REJECTED,
+            isDeleted: false
+          },
+          order: { updatedAt: "DESC" }
+        });
+        targetMemberIds = conns.map(c => ({
+          otherMemberId: c.senderId,
+          date: c.updatedAt || c.createdAt,
+          status: "Rejected",
+          recordId: c._id
+        }));
+        break;
+      }
 
-        case "recommendation_received": {
-          const refs = await this.referralRepo.find({
-            where: { receiverId: targetId },
-            order: { createdAt: "DESC" }
-          });
-          targetMemberIds = refs.map(r => ({
-            otherMemberId: r.senderId,
-            date: r.createdAt,
-            status: r.status || "Received",
-            recordId: r._id,
-            meta: {
-              referralName: r.referralName,
-              referralMobile: r.referralMobile,
-              comments: r.comments
-            }
-          }));
-          break;
-        }
+      case "recommendation_received": {
+        const refs = await this.referralRepo.find({
+          where: { receiverId: targetId },
+          order: { createdAt: "DESC" }
+        });
+        targetMemberIds = refs.map(r => ({
+          otherMemberId: r.senderId,
+          date: r.createdAt,
+          status: r.status || "Received",
+          recordId: r._id,
+          meta: {
+            referralName: r.referralName,
+            referralMobile: r.referralMobile,
+            comments: r.comments
+          }
+        }));
+        break;
+      }
 
-        default:
-          throw new BadRequestError(`Unsupported drilldown type: ${type}`);
+      default:
+        throw new BadRequestError(`Unsupported drilldown type: ${type}`);
       }
 
       if (targetMemberIds.length === 0) {

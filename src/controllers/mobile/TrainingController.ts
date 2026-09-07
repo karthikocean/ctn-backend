@@ -368,11 +368,10 @@ export class MobileTrainingController {
    *     tags: [Mobile Training]
    */
   @Post("/:id/unlock")
-  async unlock(@Param("id") id: string, @Body() body: { points?: number }, @Req() req: any, @Res() res: any) {
+  async unlock(@Param("id") id: string, @Req() req: any, @Res() res: any) {
     try {
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid ID");
       const userId = new ObjectId(req.user.userId);
-      const { points: inputPoints } = body;
 
       // Validate module usage limit before unlocking/enrolling
       await validateModuleUsage(userId, "Trainings");

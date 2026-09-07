@@ -41,10 +41,10 @@ import { SubscriptionService } from "../../services/subscription.service";
 import { PointHistory } from "../../entity/PointHistory";
 import { invalidateAuthCache } from "../../services/authCache.service";
 import { PostReport } from "../../entity/PostReport";
-import { Conversation } from "../../entity/Conversation";
 import { ReportedHistory } from "../../entity/ReportedHistory";
 import { ReferralService } from "../../services/referral.service";
 import { WelcomeCardService } from "../../services/welcomeCard.service";
+import { GstAlertService } from "../../services/gstAlert.service";
 
 @JsonController("/members")
 export class MobileMemberController {
@@ -59,7 +59,6 @@ export class MobileMemberController {
   private businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
   private historyRepo = AppDataSource.getMongoRepository(PointHistory);
   private postReportRepo = AppDataSource.getMongoRepository(PostReport);
-  private conversationRepo = AppDataSource.getMongoRepository(Conversation);
   private referralService = new ReferralService();
   /**
    * @swagger
@@ -78,7 +77,7 @@ export class MobileMemberController {
   @HttpCode(StatusCodes.CREATED)
   async register(@Req() req: any, @Body() data: CreateMemberDto, @Res() res: any) {
     try {
-      console.log(JSON.stringify(data), 'aaa')
+      console.log(JSON.stringify(data), "aaa");
       // Check if mobile already exists
       const existingMobile = await this.memberRepo.findOneBy({ mobileNumber: data.mobileNumber, isDeleted: false });
       if (existingMobile) throw new BadRequestError("Mobile number already registered");
@@ -90,9 +89,28 @@ export class MobileMemberController {
       }
 
       // Check GST number limit (max 2 users per GST)
-      if (data.gstNumber) {
-        const gstCount = await this.memberRepo.count({ gstNumber: data.gstNumber, isDeleted: false });
-        if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
+      let existingGstMembers: Member[] = [];
+      if (data.gstNumber && data.gstNumber.trim()) {
+        const cleanGst = data.gstNumber.trim().toUpperCase();
+        data.gstNumber = cleanGst;
+        existingGstMembers = await this.memberRepo.find({
+          where: {
+            gstNumber: { $in: [cleanGst, data.gstNumber.trim()] },
+            isDeleted: false
+          } as any
+        });
+
+        if (existingGstMembers.length >= 2) {
+          // Send suspicious attempt alert (push notification + email) to all registered members with this GST
+          GstAlertService.notifySuspiciousAttempt(existingGstMembers, cleanGst, {
+            fullName: data.fullName,
+            mobileNumber: data.mobileNumber,
+            email: data.email
+          }).catch(err => {
+            console.error("[GST Security Alert] Error in notifySuspiciousAttempt:", err.message);
+          });
+          throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
+        }
       }
 
       // Validate referral code if provided
@@ -129,6 +147,13 @@ export class MobileMemberController {
       // }
 
       const saved = await this.memberRepo.save(member);
+
+      // If this was the 2nd user registering with this GST, notify the already registered member
+      if (data.gstNumber && existingGstMembers.length === 1) {
+        GstAlertService.notifySecondUserRegistered(existingGstMembers[0], saved).catch(err => {
+          console.error("[GST Registration Alert] Error in notifySecondUserRegistered:", err.message);
+        });
+      }
 
       // Process referral rewards if a valid referral code was supplied
       if (referrerMember && data.referralCode) {

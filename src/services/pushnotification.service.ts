@@ -46,6 +46,9 @@ export async function insertPushNotification(dto: InsertPushNotificationDto): Pr
       moduleId: dto.moduleId,
       senderId: dto.senderId,
       fcmToken: dto.token,
+      name: dto.name,
+      phone: dto.phone,
+      email: dto.email,
     });
     return true;
   } catch (error: any) {
