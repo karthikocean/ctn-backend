@@ -33,37 +33,37 @@ export class MemberPdfService {
 
         // Top Header Banner
         doc.rect(40, 40, 515, 65).fill("#0F172A");
-        
+
         doc.fillColor("#FFFFFF")
-           .fontSize(20)
-           .font("Helvetica-Bold")
-           .text("CTN BUSINESS NETWORK", 55, 55);
+          .fontSize(20)
+          .font("Helvetica-Bold")
+          .text("CTN BUSINESS NETWORK", 55, 55);
 
         doc.fillColor("#94A3B8")
-           .fontSize(10)
-           .font("Helvetica")
-           .text("VERIFIED MEMBER PROFILE DOCUMENT", 55, 80);
+          .fontSize(10)
+          .font("Helvetica")
+          .text("VERIFIED MEMBER PROFILE DOCUMENT", 55, 80);
 
         doc.fillColor("#38BDF8")
-           .fontSize(9)
-           .font("Helvetica-Bold")
-           .text(`STATUS: ${(member.status || "ACTIVE").toUpperCase()}`, 400, 58, { align: "right", width: 140 });
+          .fontSize(9)
+          .font("Helvetica-Bold")
+          .text(`STATUS: ${(member.status || "ACTIVE").toUpperCase()}`, 400, 58, { align: "right", width: 140 });
 
         let currentY = 125;
 
         // Member Name Title
         doc.fillColor(primaryColor)
-           .fontSize(18)
-           .font("Helvetica-Bold")
-           .text(member.fullName || "N/A", 40, currentY);
+          .fontSize(18)
+          .font("Helvetica-Bold")
+          .text(member.fullName || "N/A", 40, currentY);
 
         currentY += 24;
 
         if (member.businessName) {
           doc.fillColor(accentColor)
-             .fontSize(13)
-             .font("Helvetica-Bold")
-             .text(member.businessName, 40, currentY);
+            .fontSize(13)
+            .font("Helvetica-Bold")
+            .text(member.businessName, 40, currentY);
           currentY += 20;
         }
 
@@ -76,9 +76,9 @@ export class MemberPdfService {
           doc.rect(40, y, 515, 22).fill("#F8FAFC");
           doc.rect(40, y, 4, 22).fill(accentColor);
           doc.fillColor(primaryColor)
-             .fontSize(11)
-             .font("Helvetica-Bold")
-             .text(title.toUpperCase(), 52, y + 6);
+            .fontSize(11)
+            .font("Helvetica-Bold")
+            .text(title.toUpperCase(), 52, y + 6);
           return y + 30;
         };
 
@@ -128,9 +128,9 @@ export class MemberPdfService {
           currentY = drawSectionHeader("Products & Services / About", currentY);
           const desc = member.productsServicesDescription || member.about || "";
           doc.fillColor(textColor)
-             .fontSize(9.5)
-             .font("Helvetica")
-             .text(desc, 40, currentY, { width: 515, lineGap: 3 });
+            .fontSize(9.5)
+            .font("Helvetica")
+            .text(desc, 40, currentY, { width: 515, lineGap: 3 });
           currentY += doc.heightOfString(desc, { width: 515 }) + 15;
         }
 
@@ -138,9 +138,9 @@ export class MemberPdfService {
         const footerY = 780;
         doc.strokeColor(borderColor).lineWidth(1).moveTo(40, footerY).lineTo(555, footerY).stroke();
         doc.fillColor(mutedColor)
-           .fontSize(8)
-           .font("Helvetica")
-           .text(`Generated on ${new Date().toLocaleDateString("en-IN")} • Official CTN Network Document`, 40, footerY + 8, { align: "center", width: 515 });
+          .fontSize(8)
+          .font("Helvetica")
+          .text(`Generated on ${new Date().toLocaleDateString("en-IN")} • Official CTN Network Document`, 40, footerY + 8, { align: "center", width: 515 });
 
         doc.end();
       } catch (err) {

@@ -401,34 +401,34 @@ export class MobileChatController {
           : Promise.resolve([]),
         participantIds.length > 0
           ? this.connectionRepo.find({
-              where: {
-                $or: [
-                  { senderId: userId, receiverId: { $in: participantIds }, status: ConnectionStatus.ACCEPTED, isDeleted: false },
-                  { receiverId: userId, senderId: { $in: participantIds }, status: ConnectionStatus.ACCEPTED, isDeleted: false }
-                ]
-              } as any
-            })
+            where: {
+              $or: [
+                { senderId: userId, receiverId: { $in: participantIds }, status: ConnectionStatus.ACCEPTED, isDeleted: false },
+                { receiverId: userId, senderId: { $in: participantIds }, status: ConnectionStatus.ACCEPTED, isDeleted: false }
+              ]
+            } as any
+          })
           : Promise.resolve([]),
         participantIds.length > 0
           ? this.connectionRepo.find({
-              where: {
-                $or: [
-                  { senderId: userId, receiverId: { $in: participantIds }, status: ConnectionStatus.BLOCKED, isDeleted: false },
-                  { receiverId: userId, senderId: { $in: participantIds }, status: ConnectionStatus.BLOCKED, isDeleted: false }
-                ]
-              } as any
-            })
+            where: {
+              $or: [
+                { senderId: userId, receiverId: { $in: participantIds }, status: ConnectionStatus.BLOCKED, isDeleted: false },
+                { receiverId: userId, senderId: { $in: participantIds }, status: ConnectionStatus.BLOCKED, isDeleted: false }
+              ]
+            } as any
+          })
           : Promise.resolve([]),
         participantIds.length > 0
           ? reportedHistoryRepo.find({
-              where: {
-                $or: [
-                  { reporterUserId: userId, targetUserId: { $in: participantIds } },
-                  { reporterUserId: { $in: participantIds }, targetUserId: userId }
-                ],
-                isDeleted: { $ne: true }
-              } as any
-            })
+            where: {
+              $or: [
+                { reporterUserId: userId, targetUserId: { $in: participantIds } },
+                { reporterUserId: { $in: participantIds }, targetUserId: userId }
+              ],
+              isDeleted: { $ne: true }
+            } as any
+          })
           : Promise.resolve([]),
         postIds.length > 0
           ? this.postRepo.find({ where: { _id: { $in: postIds } } as any })
@@ -442,11 +442,11 @@ export class MobileChatController {
         // Optimized: only fetch newest 5 messages per conversation via $slice aggregation instead of full history
         convIds.length > 0
           ? this.messageRepo.aggregate([
-              { $match: { conversationId: { $in: convIds }, isDeleted: { $ne: true } } },
-              { $sort: { createdAt: -1 } },
-              { $group: { _id: "$conversationId", msgs: { $push: "$$ROOT" } } },
-              { $project: { msgs: { $slice: ["$msgs", 5] } } }
-            ]).toArray()
+            { $match: { conversationId: { $in: convIds }, isDeleted: { $ne: true } } },
+            { $sort: { createdAt: -1 } },
+            { $group: { _id: "$conversationId", msgs: { $push: "$$ROOT" } } },
+            { $project: { msgs: { $slice: ["$msgs", 5] } } }
+          ]).toArray()
           : Promise.resolve([])
       ]);
 

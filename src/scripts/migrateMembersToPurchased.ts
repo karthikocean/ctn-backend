@@ -39,7 +39,6 @@ export async function migrateMembersToPurchased() {
   console.log(`📊 Found ${members.length} member(s) to process.`);
 
   let updatedCount = 0;
-  let alreadyPurchasedCount = 0;
 
   const now = new Date();
 
@@ -55,7 +54,7 @@ export async function migrateMembersToPurchased() {
       }
 
       // Check current active subscription
-      const currentActiveSub = await subRepo.findOne({
+      await subRepo.findOne({
         where: {
           memberId: member._id,
           status: "ACTIVE",

@@ -172,7 +172,7 @@ export class SubscriptionCronService {
               member.email,
               "Plan Expiring Soon",
               `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-            ).catch(e => console.error(`[Cron 30d] Email error:`, e.message));
+            ).catch(e => console.error("[Cron 30d] Email error:", e.message));
           }
 
           if (member.fcmToken) {
@@ -182,7 +182,7 @@ export class SubscriptionCronService {
               content: messageText,
               moduleName: NotificationModule.PLAN_EXPIRY,
               receiverId: member._id.toString()
-            }).catch(e => console.error(`[Cron 30d] Push error:`, e.message));
+            }).catch(e => console.error("[Cron 30d] Push error:", e.message));
           }
         } catch (err: any) {
           console.error(`[Cron] Error sending 30 days notification for sub ${sub._id}:`, err.message);
@@ -230,7 +230,7 @@ export class SubscriptionCronService {
               member.email,
               "Plan Expiring Soon",
               `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-            ).catch(e => console.error(`[Cron 15d] Email error:`, e.message));
+            ).catch(e => console.error("[Cron 15d] Email error:", e.message));
           }
 
           if (member.fcmToken) {
@@ -240,7 +240,7 @@ export class SubscriptionCronService {
               content: messageText,
               moduleName: NotificationModule.PLAN_EXPIRY,
               receiverId: member._id.toString()
-            }).catch(e => console.error(`[Cron 15d] Push error:`, e.message));
+            }).catch(e => console.error("[Cron 15d] Push error:", e.message));
           }
         } catch (err: any) {
           console.error(`[Cron] Error sending 15 days notification for sub ${sub._id}:`, err.message);
@@ -288,7 +288,7 @@ export class SubscriptionCronService {
               member.email,
               "Plan Expiring Soon",
               `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-            ).catch(e => console.error(`[Cron 3d] Email error:`, e.message));
+            ).catch(e => console.error("[Cron 3d] Email error:", e.message));
           }
 
           if (member.fcmToken) {
@@ -298,7 +298,7 @@ export class SubscriptionCronService {
               content: messageText,
               moduleName: NotificationModule.PLAN_EXPIRY,
               receiverId: member._id.toString()
-            }).catch(e => console.error(`[Cron 3d] Push error:`, e.message));
+            }).catch(e => console.error("[Cron 3d] Push error:", e.message));
           }
         } catch (err: any) {
           console.error(`[Cron] Error sending ending soon notification for sub ${sub._id}:`, err.message);
@@ -351,7 +351,7 @@ export class SubscriptionCronService {
             content: messageText,
             moduleName: NotificationModule.TRIAL,
             receiverId: member._id.toString()
-          }).catch(e => console.error(`[Cron Trial] Push error:`, e.message));
+          }).catch(e => console.error("[Cron Trial] Push error:", e.message));
         }
 
         if (member.email) {
@@ -359,7 +359,7 @@ export class SubscriptionCronService {
             member.email,
             `Trial Expiry Notice: ${dayString}`,
             `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-          ).catch(e => console.error(`[Cron Trial] Email error:`, e.message));
+          ).catch(e => console.error("[Cron Trial] Email error:", e.message));
         }
       } catch (err: any) {
         console.error(`[Cron 10:00 AM] Error sending trial remaining days notification for sub ${sub._id}:`, err.message);

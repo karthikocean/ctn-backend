@@ -494,7 +494,7 @@ export class FranchiseController {
         });
       }
 
-      const saved = await this.paymentHistoryRepo.save(record);
+      await this.paymentHistoryRepo.save(record);
 
       return res.status(StatusCodes.OK).json({
         message: "Franchise deleted successfully"

@@ -78,7 +78,7 @@ export class MobileMemberController {
   @HttpCode(StatusCodes.CREATED)
   async register(@Req() req: any, @Body() data: CreateMemberDto, @Res() res: any) {
     try {
-      console.log(JSON.stringify(data), 'aaa')
+      console.log(JSON.stringify(data), "aaa");
       // Check if mobile already exists
       const existingMobile = await this.memberRepo.findOneBy({ mobileNumber: data.mobileNumber, isDeleted: false });
       if (existingMobile) throw new BadRequestError("Mobile number already registered");

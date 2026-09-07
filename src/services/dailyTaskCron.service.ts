@@ -92,11 +92,12 @@ export class DailyTaskCronService {
       return;
     }
 
-    // 2. Fetch all daily score history records for today
+    // 2. Fetch all daily score history records for today across all 5 daily task modules
+    const dailyTaskModules = ["Post", "Ask", "Give", "Requirement", "Milestone"];
     const histories = await this.dailyScoreHistoryRepo.find({
       where: {
         date: dateStr,
-        moduleName: { $in: ["Post", "Ask", "Give", "Requirement"] }
+        moduleName: { $in: dailyTaskModules }
       } as any
     });
 
@@ -110,18 +111,23 @@ export class DailyTaskCronService {
       completedTasksByMember.get(memberIdStr)!.add(history.moduleName);
     }
 
-    // 4. Identify members who have not completed all four tasks
-    const requiredTasks = ["Post", "Ask", "Give", "Requirement"];
+    // 4. Identify members who have completed fewer than 2 tasks out of 5
+    // If a member has completed 2 or more tasks, no reminder notification is needed.
     const membersToNotify = activeMembers.filter(member => {
       const completed = completedTasksByMember.get(member._id.toString()) || new Set();
-      // If any of the required tasks is not completed, they should be notified
-      return requiredTasks.some(task => !completed.has(task));
+      let completedCount = 0;
+      for (const task of dailyTaskModules) {
+        if (completed.has(task)) {
+          completedCount++;
+        }
+      }
+      return completedCount < 2;
     });
 
-    console.log(`[DailyTaskCron] Found ${membersToNotify.length} members out of ${activeMembers.length} who have not completed all daily tasks.`);
+    console.log(`[DailyTaskCron] Found ${membersToNotify.length} members out of ${activeMembers.length} who have completed fewer than 2 daily tasks.`);
 
     if (membersToNotify.length === 0) {
-      console.log("[DailyTaskCron] All active members have completed their daily tasks.");
+      console.log("[DailyTaskCron] All active members have completed at least 2 daily tasks.");
       return;
     }
 

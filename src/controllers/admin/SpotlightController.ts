@@ -19,7 +19,6 @@ import { Spotlight, SpotlightStatus } from "../../entity/Spotlight";
 import { SpotlightRequest, SpotlightRequestStatus } from "../../entity/SpotlightRequest";
 import { SpotlightHistory, SpotlightHistoryAction } from "../../entity/SpotlightHistory";
 import { Member } from "../../entity/Member";
-import { Category } from "../../entity/Category";
 import { CreateSpotlightDto, UpdateSpotlightDto } from "../../dto/admin/Spotlight.dto";
 import { ApproveSpotlightRequestDto } from "../../dto/admin/SpotlightRequest.dto";
 import { ObjectId } from "mongodb";
