@@ -227,4 +227,98 @@ export class MailService {
     `;
     return this.sendEmail(memberData.email, subject, html);
   }
+
+  /**
+   * Send Email Alert to 1st Member when a 2nd Member registers with the same GST Number
+   */
+  static async sendGstSecondUserRegistrationEmail(
+    existingMember: { fullName: string; email: string },
+    newMember: { fullName: string; mobileNumber: string; email?: string },
+    gstNumber: string
+  ) {
+    const subject = `Notice: Second Member Registered with your GST Number (${gstNumber}) - Trusted Network`;
+    const formattedDate = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+    const html = `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; padding: 20px; border-radius: 10px; border: 1px solid #e0e0e0;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="color: #14532D; margin: 0;">Trusted Network</h1>
+          <p style="color: #666; font-size: 14px; margin-top: 5px;">Account Notification</p>
+        </div>
+        <div style="background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+          <h2 style="color: #333; margin-top: 0;">Hello ${existingMember.fullName},</h2>
+          <p style="color: #555; font-size: 15px; line-height: 1.5;">
+            This is to inform you that a second member has registered an account on <strong>Trusted Network</strong> using your company's GST number (<strong style="color: #14532D;">${gstNumber}</strong>).
+          </p>
+          
+          <div style="background-color: #f0fdf4; border-left: 4px solid #14532D; padding: 18px 20px; margin: 25px 0; border-radius: 6px;">
+            <h3 style="color: #14532D; margin-top: 0; margin-bottom: 12px; font-size: 16px;">Newly Registered Member Details:</h3>
+            <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Full Name:</strong> ${newMember.fullName || "New Member"}</p>
+            <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Mobile Number:</strong> ${newMember.mobileNumber}</p>
+            <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Email:</strong> ${newMember.email || "Not provided"}</p>
+            <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Registered At:</strong> ${formattedDate} IST</p>
+          </div>
+
+          <p style="color: #555; font-size: 14px; line-height: 1.5;">
+            As per Trusted Network policy, a maximum of <strong>2 accounts</strong> can be registered under a single GST number. Both accounts are now active.
+          </p>
+          <p style="color: #666; font-size: 13px; line-height: 1.5;">
+            ℹ️ If this registration was authorized by your organization, no further action is required. If you do not recognize this person or this registration was unauthorized, please contact our support team immediately at <a href="mailto:support@trustednetwork.in" style="color: #14532D;">support@trustednetwork.in</a>.
+          </p>
+        </div>
+        <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
+          <p>&copy; ${new Date().getFullYear()} Trusted Network. All rights reserved.</p>
+        </div>
+      </div>
+    `;
+    return this.sendEmail(existingMember.email, subject, html);
+  }
+
+  /**
+   * Send Security Alert Email when an unauthorized / suspicious 3rd person attempts to register with the same GST Number
+   */
+  static async sendGstSuspiciousAttemptEmail(
+    existingMember: { fullName: string; email: string },
+    attemptedUser: { fullName?: string; mobileNumber: string; email?: string },
+    gstNumber: string
+  ) {
+    const subject = `⚠️ Security Alert: Suspicious Registration Attempt with your GST Number (${gstNumber})`;
+    const formattedDate = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+    const html = `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; padding: 20px; border-radius: 10px; border: 1px solid #e0e0e0;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="color: #b91c1c; margin: 0;">🛡️ Security Alert</h1>
+          <p style="color: #666; font-size: 14px; margin-top: 5px;">Trusted Network Security System</p>
+        </div>
+        <div style="background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-top: 4px solid #dc2626;">
+          <h2 style="color: #991b1b; margin-top: 0;">Dear ${existingMember.fullName},</h2>
+          <p style="color: #333; font-size: 15px; line-height: 1.5;">
+            Our security system detected an <strong>unauthorized attempt to register</strong> a new account on Trusted Network using your company's registered GST number (<strong style="color: #991b1b;">${gstNumber}</strong>).
+          </p>
+          
+          <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 18px 20px; margin: 25px 0; border-radius: 6px;">
+            <h3 style="color: #991b1b; margin-top: 0; margin-bottom: 12px; font-size: 16px;">Details of Attempted Registrant:</h3>
+            <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Attempted Name:</strong> ${attemptedUser.fullName || "Not provided"}</p>
+            <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Mobile Number:</strong> ${attemptedUser.mobileNumber}</p>
+            <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Email:</strong> ${attemptedUser.email || "Not provided"}</p>
+            <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Attempt Time:</strong> ${formattedDate} IST</p>
+            <p style="margin: 6px 0; color: #b91c1c; font-size: 14px; font-weight: bold;"><strong>Status:</strong> BLOCKED (Maximum 2 members already registered)</p>
+          </div>
+
+          <div style="background-color: #fffbeb; border: 1px solid #fde68a; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+            <p style="color: #92400e; font-size: 13px; margin: 0; line-height: 1.5;">
+              ⚠️ <strong>Why did this happen?</strong> Your company's GST number is already linked to the maximum allowed limit of 2 accounts. Any additional registration attempt is automatically rejected.
+            </p>
+          </div>
+
+          <p style="color: #555; font-size: 14px; line-height: 1.5;">
+            If you do not recognize this person, someone may be attempting to misuse your business details. Please report this to our support team immediately at <a href="mailto:support@trustednetwork.in" style="color: #dc2626; font-weight: bold;">support@trustednetwork.in</a>.
+          </p>
+        </div>
+        <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
+          <p>&copy; ${new Date().getFullYear()} Trusted Network. All rights reserved.</p>
+        </div>
+      </div>
+    `;
+    return this.sendEmail(existingMember.email, subject, html);
+  }
 }

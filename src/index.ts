@@ -6,16 +6,7 @@ dotenv.config();
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
-import {
-  apiLimiter,
-  mobileApiLimiter,
-  adminApiLimiter,
-  authLimiter,
-  otpLimiter,
-  passwordResetLimiter,
-  uploadLimiter,
-  paymentLimiter
-} from "./middlewares/rateLimit.middleware";
+
 import { useExpressServer } from "routing-controllers";
 import { AppDataSource } from "./data-source";
 import { Member } from "./entity/Member";
@@ -155,33 +146,33 @@ app.get("/", async (_req: Request, res: Response) => {
 // 🛡️ Route-Specific Rate Limiting Middleware
 // ─────────────────────────────────────────────────────────
 // Auth & Security Specific Limiters
-app.use("/api/admin/auth/forgot-pin", passwordResetLimiter);
-app.use("/api/admin/auth/verify-otp", otpLimiter);
-app.use("/api/admin/auth/login", authLimiter);
-app.use("/api/admin/auth", authLimiter);
+// app.use("/api/admin/auth/forgot-pin", passwordResetLimiter);
+// app.use("/api/admin/auth/verify-otp", otpLimiter);
+// app.use("/api/admin/auth/login", authLimiter);
+// app.use("/api/admin/auth", authLimiter);
 
-app.use("/mobile-api/verification/send-otp", otpLimiter);
-app.use("/mobile-api/verification/verify-otp", otpLimiter);
-app.use("/mobile-api/auth/send-otp", otpLimiter);
-app.use("/mobile-api/auth/verify-otp", otpLimiter);
-app.use("/mobile-api/auth/login", authLimiter);
-app.use("/mobile-api/auth/reset-pin", passwordResetLimiter);
-app.use("/mobile-api/auth", authLimiter);
+// app.use("/mobile-api/verification/send-otp", otpLimiter);
+// app.use("/mobile-api/verification/verify-otp", otpLimiter);
+// app.use("/mobile-api/auth/send-otp", otpLimiter);
+// app.use("/mobile-api/auth/verify-otp", otpLimiter);
+// app.use("/mobile-api/auth/login", authLimiter);
+// app.use("/mobile-api/auth/reset-pin", passwordResetLimiter);
+// app.use("/mobile-api/auth", authLimiter);
 
 // File Upload & Import Limiters
-app.use("/mobile-api/media/upload", uploadLimiter);
-app.use("/api/admin/media/upload", uploadLimiter);
-app.use("/api/admin/categories/import", uploadLimiter);
-app.use("/api/admin/migrations", uploadLimiter);
+// app.use("/mobile-api/media/upload", uploadLimiter);
+// app.use("/api/admin/media/upload", uploadLimiter);
+// app.use("/api/admin/categories/import", uploadLimiter);
+// app.use("/api/admin/migrations", uploadLimiter);
 
-// Payment & Subscription Limiters
-app.use("/mobile-api/subscription/create-order", paymentLimiter);
-app.use("/mobile-api/subscription/verify-payment", paymentLimiter);
+// // Payment & Subscription Limiters
+// app.use("/mobile-api/subscription/create-order", paymentLimiter);
+// app.use("/mobile-api/subscription/verify-payment", paymentLimiter);
 
-// Scoped API Group Limiters
-app.use("/mobile-api", mobileApiLimiter);
-app.use("/api/admin", adminApiLimiter);
-app.use("/api", apiLimiter);
+// // Scoped API Group Limiters
+// app.use("/mobile-api", mobileApiLimiter);
+// app.use("/api/admin", adminApiLimiter);
+// app.use("/api", apiLimiter);
 
 import { setupBullBoard } from "./admin/bullboard.config";
 import { registerGracefulShutdown } from "./utils/gracefulShutdown";

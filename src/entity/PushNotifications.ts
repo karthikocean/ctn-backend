@@ -69,6 +69,15 @@ export class PushNotification {
   @Column()
     receiverId!: ObjectId;
 
+  @Column({ nullable: true })
+    name?: string;
+
+  @Column({ nullable: true })
+    phone?: string;
+
+  @Column({ nullable: true })
+    email?: string;
+
   @Column({ default: false })
     isRead!: boolean;
 

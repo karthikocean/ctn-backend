@@ -1,6 +1,6 @@
 import { personalNotificationQueue, broadcastNotificationQueue } from "../queues/notification.queue";
 import { PersonalNotificationJobData } from "../workers/personal.worker";
-import { BroadcastInitiateJobData } from "../workers/broadcast.worker";
+import { BroadcastInitiateJobData, ActivityGapReminderJobData } from "../workers/broadcast.worker";
 
 export interface QueuePersonalNotificationDto {
   receiverId: string;
@@ -10,6 +10,9 @@ export interface QueuePersonalNotificationDto {
   moduleId?: string;
   senderId?: string;
   fcmToken?: string;
+  name?: string;
+  phone?: string;
+  email?: string;
 }
 
 export interface QueueBroadcastNotificationDto {
@@ -20,6 +23,15 @@ export interface QueueBroadcastNotificationDto {
   senderId?: string;
   useTopic?: boolean;
   topicName?: string;
+}
+
+export interface QueueActivityGapReminderDto {
+  activityType: "notPosted" | "notAsked" | "notGiven" | "notRequirements";
+  subject: string;
+  content: string;
+  senderId?: string;
+  regionId?: string;
+  categoryId?: string;
 }
 
 export class NotificationProducerService {
@@ -36,6 +48,9 @@ export class NotificationProducerService {
       moduleId: dto.moduleId,
       senderId: dto.senderId,
       fcmToken: dto.fcmToken,
+      name: dto.name,
+      phone: dto.phone,
+      email: dto.email,
     };
 
     const job = await personalNotificationQueue.add("personal-send", jobPayload);
@@ -67,6 +82,27 @@ export class NotificationProducerService {
   /**
    * Helper to queue bulk personal notifications using BullMQ addBulk
    */
+  /**
+   * Enqueue an Activity Gap Reminder job.
+   * API returns immediately in < 5ms while BullMQ streams active members matching the activity gap.
+   */
+  public static async enqueueActivityGapReminder(dto: QueueActivityGapReminderDto): Promise<{ reminderId: string; jobId: string }> {
+    const reminderId = `gap_${dto.activityType}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const jobPayload: ActivityGapReminderJobData = {
+      reminderId,
+      activityType: dto.activityType,
+      subject: dto.subject,
+      content: dto.content,
+      senderId: dto.senderId,
+      regionId: dto.regionId,
+      categoryId: dto.categoryId,
+    };
+
+    const job = await broadcastNotificationQueue.add("activity-gap-reminder", jobPayload);
+    return { reminderId, jobId: job.id! };
+  }
+
   public static async enqueuePersonalBatch(dtos: QueuePersonalNotificationDto[]): Promise<void> {
     if (!dtos || dtos.length === 0) return;
 

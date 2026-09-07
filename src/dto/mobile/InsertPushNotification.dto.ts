@@ -38,6 +38,15 @@ import {
  *         senderId:
  *           type: string
  *           example: "6891a4c5f7c12d001245xyz"
+ *         name:
+ *           type: string
+ *           example: "John Doe"
+ *         phone:
+ *           type: string
+ *           example: "+1234567890"
+ *         email:
+ *           type: string
+ *           example: "john@example.com"
  */
 
 export class InsertPushNotificationDto {
@@ -68,4 +77,16 @@ export class InsertPushNotificationDto {
     @IsString()
     @IsOptional()
       senderId?: string;
+
+    @IsString()
+    @IsOptional()
+      name?: string;
+
+    @IsString()
+    @IsOptional()
+      phone?: string;
+
+    @IsString()
+    @IsOptional()
+      email?: string;
 }
