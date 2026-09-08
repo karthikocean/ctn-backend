@@ -20,6 +20,7 @@ import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
+import { notifyAdminOnSupport } from "../../services/pushnotification.service";
 
 @JsonController("/support")
 export class MobileSupportController {
@@ -57,6 +58,16 @@ export class MobileSupportController {
       support.isDeleted = false;
 
       const saved = await this.supportRepo.save(support);
+
+      // Enqueue notification for active admins and broadcast realtime socket
+      notifyAdminOnSupport({
+        _id: saved._id,
+        name: saved.name,
+        phone: saved.phone,
+        email: saved.email,
+        category: saved.category,
+        description: saved.description,
+      }).catch((err) => console.error("Support admin notify error:", err));
 
       return res.status(StatusCodes.CREATED).json({
         success: true,

@@ -19,6 +19,7 @@ import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
+import { notifyAdminOnEnquiry } from "../../services/pushnotification.service";
 
 /**
  * @swagger
@@ -65,6 +66,16 @@ export class WebsiteEnquiryController {
       enquiry.isDeleted = false;
 
       const saved = await this.enquiryRepo.save(enquiry);
+
+      // Enqueue notification for active admins and broadcast realtime socket
+      notifyAdminOnEnquiry({
+        _id: saved._id,
+        name: saved.name,
+        email: saved.email,
+        phoneNumber: saved.phoneNumber,
+        enquiryType: saved.enquiryType,
+        comment: saved.comment,
+      }).catch((err) => console.error("Enquiry admin notify error:", err));
 
       return res.status(StatusCodes.CREATED).json({
         success: true,

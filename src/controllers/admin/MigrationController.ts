@@ -18,6 +18,9 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { canAccess } from "../../middlewares/PermissionMiddleware";
 import { parseExcelBufferToJson } from "../../utils/excelHelper";
+import { Plan } from "../../entity/Plan";
+import { Member } from "../../entity/Member";
+import { MemberSubscription } from "../../entity/MemberSubscription";
 
 @JsonController("/migrations")
 @UseBefore(AuthMiddleware)
@@ -27,6 +30,9 @@ export class MigrationController {
   private regionRepo = AppDataSource.getMongoRepository(BusinessRegion);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
   private marketplaceCategoryRepo = AppDataSource.getMongoRepository(MarketplaceCategory);
+  private planRepo = AppDataSource.getMongoRepository(Plan);
+  private memberRepo = AppDataSource.getMongoRepository(Member);
+  private subsRepo = AppDataSource.getMongoRepository(MemberSubscription);
 
   /**
    * @swagger
@@ -417,6 +423,73 @@ export class MigrationController {
           skipped: skippedCount
         }
       });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  @Post("/plan")
+  async migratePlan(@Req() req: any, @Res() res: any) {
+    try {
+
+      const plans = await this.planRepo.findOneBy({ title: "App Experience" });
+      const members = await this.memberRepo.find({
+        mobileNumber: {
+          $nin: [
+            "9361570434",
+            "6385395991",
+            "9751679232",
+            "9344039232",
+            "9655076609",
+            "9344629232"
+          ]
+        },
+        isDeleted: false
+      });
+      for (const val of members) {
+        await this.subsRepo.updateOne(
+          {
+            memberId: new ObjectId(val._id),
+            planId: new ObjectId(val.planId)
+          },
+          {
+            $set: {
+              planId: new ObjectId(plans?._id),
+              type: "standard"
+            }
+          }
+        );
+
+      }
+      await this.memberRepo.updateMany(
+        {
+          isDeleted: false,
+          mobileNumber: {
+            $nin: [
+              "9361570434",
+              "6385395991",
+              "9751679232",
+              "9344039232",
+              "9655076609",
+              "9344629232"
+            ]
+          }
+        },
+        {
+          $set: {
+            planId: new ObjectId(plans?._id)
+          }
+        }
+      );
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Plan migrated successfully.",
+        data: {
+          membersUpdated: members.length
+        }
+      });
+
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

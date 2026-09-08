@@ -38,7 +38,10 @@ export enum NotificationModule {
   DAILY_TASK = "DAILY_TASK",
   ANNOUNCEMENT = "ANNOUNCEMENT",
   SUGGESTION = "SUGGESTION",
-  ANNIVERSARY = "ANNIVERSARY"
+  ANNIVERSARY = "ANNIVERSARY",
+  ENQUIRY = "ENQUIRY",
+  SUPPORT = "SUPPORT",
+  FRANCHISE_APPLICATION = "FRANCHISE_APPLICATION"
 }
 
 @Entity("push_notifications")
@@ -66,8 +69,8 @@ export class PushNotification {
   @Column({ nullable: true })
     senderId?: ObjectId;
 
-  @Column()
-    receiverId!: ObjectId;
+  @Column({ nullable: true })
+    receiverId?: ObjectId;
 
   @Column({ nullable: true })
     name?: string;

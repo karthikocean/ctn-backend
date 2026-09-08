@@ -349,13 +349,264 @@ export async function notifyAnnouncementAudience(dto: {
 }
 
 /**
- * Sends push notification & socket notification to active admins on new suggestions.
+ * Sends push notification & socket notification to admin room on new suggestions.
  */
 export async function notifyAdminOnSuggestion(dto: {
   suggestionId: string | ObjectId;
   title: string;
   description: string;
   memberId: string | ObjectId;
+}) {
+  try {
+    const { PushNotification, NotificationModule } = await import("../entity/PushNotifications");
+    const notificationRepo = AppDataSource.getMongoRepository(PushNotification);
+    const suggestionOid = new ObjectId(dto.suggestionId);
+
+    // Prevent duplicate notification for the same suggestion
+    const existing = await notificationRepo.findOne({
+      where: {
+        moduleId: suggestionOid,
+        moduleName: NotificationModule.SUGGESTION,
+        isDeleted: false,
+      } as any,
+    });
+
+    if (existing) {
+      console.log(`[notifyAdminOnSuggestion] Notification already exists for suggestion ${dto.suggestionId}, skipping duplicate.`);
+      return;
+    }
+
+    const subject = `New Suggestion: ${dto.title}`;
+    const content = dto.description || "";
+    const now = new Date();
+
+    const notification = new PushNotification();
+    notification.sub = subject;
+    notification.msg = content;
+    notification.moduleName = NotificationModule.SUGGESTION;
+    notification.moduleId = suggestionOid;
+    notification.senderId = new ObjectId(dto.memberId);
+    notification.isRead = false;
+    notification.isDeleted = false;
+    notification.createdAt = now;
+    notification.updatedAt = now;
+
+    const savedNotif = await notificationRepo.save(notification);
+
+    // Live Socket Notification to admin room
+    try {
+      const io = getIO();
+      if (io) {
+        const payload = {
+          _id: savedNotif._id.toString(),
+          suggestionId: dto.suggestionId.toString(),
+          moduleId: dto.suggestionId.toString(),
+          moduleName: "SUGGESTION",
+          sub: subject,
+          msg: content,
+          memberId: dto.memberId.toString(),
+          createdAt: now,
+        };
+        io.to("admin_room").emit("new_admin_notification", payload);
+        emitAdminUnreadCount().catch(() => {});
+      }
+    } catch (socketErr: any) {
+      console.error("[notifyAdminOnSuggestion] Socket emission error:", socketErr.message);
+    }
+  } catch (error: any) {
+    console.error("Failed to notify admin on suggestion:", error.message);
+  }
+}
+
+/**
+ * Broadcast live unread count of notifications to admin room
+ */
+export async function emitAdminUnreadCount(): Promise<void> {
+  try {
+    const io = getIO();
+    if (!io) return;
+    const { PushNotification, NotificationModule } = await import("../entity/PushNotifications");
+    const repo = AppDataSource.getMongoRepository(PushNotification);
+    const count = await repo.count({
+      moduleName: {
+        $in: [
+          NotificationModule.SUGGESTION,
+          NotificationModule.ENQUIRY,
+          NotificationModule.SUPPORT,
+          NotificationModule.FRANCHISE_APPLICATION
+        ]
+      },
+      isRead: false,
+      isDeleted: false
+    } as any);
+    io.to("admin_room").emit("admin_unread_count", { unreadCount: count });
+    io.to("admin_room").emit("unread_count", { unreadCount: count });
+  } catch (err: any) {
+    console.error("[emitAdminUnreadCount] Error:", err.message);
+  }
+}
+
+/**
+ * Sends notification & socket to active admins on new website enquiries.
+ */
+export async function notifyAdminOnEnquiry(enquiry: {
+  _id: string | ObjectId;
+  name: string;
+  email?: string;
+  phoneNumber?: string;
+  enquiryType?: string;
+  comment?: string;
+}) {
+  try {
+    const { PushNotification, NotificationModule } = await import("../entity/PushNotifications");
+    const notificationRepo = AppDataSource.getMongoRepository(PushNotification);
+    const enquiryOid = new ObjectId(enquiry._id);
+
+    // Prevent duplicate notification for the same enquiry
+    const existing = await notificationRepo.findOne({
+      where: {
+        moduleId: enquiryOid,
+        moduleName: NotificationModule.ENQUIRY,
+        isDeleted: false,
+      } as any,
+    });
+
+    if (existing) {
+      console.log(`[notifyAdminOnEnquiry] Notification already exists for enquiry ${enquiry._id}, skipping duplicate.`);
+      return;
+    }
+
+    const subject = `New Website Enquiry: ${enquiry.name || "Visitor"}`;
+    const content = enquiry.comment || enquiry.enquiryType || "A new enquiry has been submitted through the website.";
+    const now = new Date();
+
+    const notification = new PushNotification();
+    notification.sub = subject;
+    notification.msg = content;
+    notification.moduleName = NotificationModule.ENQUIRY;
+    notification.moduleId = enquiryOid;
+    notification.name = enquiry.name;
+    notification.phone = enquiry.phoneNumber;
+    notification.email = enquiry.email;
+    notification.isRead = false;
+    notification.isDeleted = false;
+    notification.createdAt = now;
+    notification.updatedAt = now;
+
+    const savedNotif = await notificationRepo.save(notification);
+
+    try {
+      const io = getIO();
+      if (io) {
+        const payload = {
+          _id: savedNotif._id.toString(),
+          moduleId: enquiry._id.toString(),
+          moduleName: "ENQUIRY",
+          sub: subject,
+          msg: content,
+          name: enquiry.name,
+          phoneNumber: enquiry.phoneNumber,
+          email: enquiry.email,
+          createdAt: now,
+        };
+        io.to("admin_room").emit("new_admin_notification", payload);
+      }
+    } catch (socketErr: any) {
+      console.error("[notifyAdminOnEnquiry] Socket emission error:", socketErr.message);
+    }
+
+    emitAdminUnreadCount().catch(() => {});
+  } catch (error: any) {
+    console.error("Failed to notify admin on enquiry:", error.message);
+  }
+}
+
+/**
+ * Sends notification & socket to active admins on new support requests.
+ */
+export async function notifyAdminOnSupport(support: {
+  _id: string | ObjectId;
+  name: string;
+  phone: string;
+  email?: string;
+  category?: string;
+  description?: string;
+}) {
+  try {
+    const { PushNotification, NotificationModule } = await import("../entity/PushNotifications");
+    const notificationRepo = AppDataSource.getMongoRepository(PushNotification);
+    const supportOid = new ObjectId(support._id);
+
+    // Prevent duplicate notification for the same support request
+    const existing = await notificationRepo.findOne({
+      where: {
+        moduleId: supportOid,
+        moduleName: NotificationModule.SUPPORT,
+        isDeleted: false,
+      } as any,
+    });
+
+    if (existing) {
+      console.log(`[notifyAdminOnSupport] Notification already exists for support ${support._id}, skipping duplicate.`);
+      return;
+    }
+
+    const subject = `New Support Request: ${support.name || "Member"}`;
+    const content = support.description || support.category || "A new support request has been submitted.";
+    const now = new Date();
+
+    const notification = new PushNotification();
+    notification.sub = subject;
+    notification.msg = content;
+    notification.moduleName = NotificationModule.SUPPORT;
+    notification.moduleId = supportOid;
+    notification.name = support.name;
+    notification.phone = support.phone;
+    notification.email = support.email;
+    notification.isRead = false;
+    notification.isDeleted = false;
+    notification.createdAt = now;
+    notification.updatedAt = now;
+
+    const savedNotif = await notificationRepo.save(notification);
+
+    try {
+      const io = getIO();
+      if (io) {
+        const payload = {
+          _id: savedNotif._id.toString(),
+          moduleId: support._id.toString(),
+          moduleName: "SUPPORT",
+          sub: subject,
+          msg: content,
+          name: support.name,
+          phone: support.phone,
+          email: support.email,
+          createdAt: now,
+        };
+        io.to("admin_room").emit("new_admin_notification", payload);
+      }
+    } catch (socketErr: any) {
+      console.error("[notifyAdminOnSupport] Socket emission error:", socketErr.message);
+    }
+
+    emitAdminUnreadCount().catch(() => {});
+  } catch (error: any) {
+    console.error("Failed to notify admin on support:", error.message);
+  }
+}
+
+/**
+ * Sends notification & socket to active admins on new franchise applications.
+ */
+export async function notifyAdminOnFranchiseApplication(app: {
+  _id: string | ObjectId;
+  fullName: string;
+  phoneNumber?: string;
+  email?: string;
+  city?: string;
+  state?: string;
+  companyName?: string;
 }) {
   try {
     const adminRepo = AppDataSource.getMongoRepository(AdminUser);
@@ -365,34 +616,45 @@ export async function notifyAdminOnSuggestion(dto: {
 
     if (activeAdmins.length === 0) return;
 
+    const subject = `New Franchise Application: ${app.fullName || "Applicant"}`;
+    const locationPart = [app.city, app.state].filter(Boolean).join(", ");
+    const content = `New franchise application submitted ${locationPart ? "for " + locationPart : ""}${app.companyName ? " (" + app.companyName + ")" : ""}`.trim();
+
     const personalDtos = activeAdmins.map((admin) => ({
       receiverId: admin.id.toString(),
-      subject: `New Suggestion: ${dto.title}`,
-      content: dto.description || "",
-      moduleName: NotificationModule.SUGGESTION,
-      moduleId: dto.suggestionId.toString(),
-      senderId: dto.memberId.toString(),
+      subject,
+      content,
+      moduleName: NotificationModule.FRANCHISE_APPLICATION,
+      moduleId: app._id.toString(),
+      name: app.fullName,
+      phone: app.phoneNumber,
+      email: app.email,
     }));
 
     await NotificationProducerService.enqueuePersonalBatch(personalDtos);
 
-    // Live Socket Notification to admin room
     try {
       const io = getIO();
       if (io) {
         const payload = {
-          suggestionId: dto.suggestionId.toString(),
-          title: dto.title,
-          description: dto.description,
-          memberId: dto.memberId.toString(),
+          _id: app._id.toString(),
+          moduleId: app._id.toString(),
+          moduleName: "FRANCHISE_APPLICATION",
+          sub: subject,
+          msg: content,
+          name: app.fullName,
+          phone: app.phoneNumber,
+          email: app.email,
           createdAt: new Date(),
         };
-        io.to("admin_room").emit("new_suggestion", payload);
+        io.to("admin_room").emit("new_admin_notification", payload);
       }
     } catch (socketErr: any) {
-      console.error("[notifyAdminOnSuggestion] Socket emission error:", socketErr.message);
+      console.error("[notifyAdminOnFranchiseApplication] Socket emission error:", socketErr.message);
     }
+
+    emitAdminUnreadCount().catch(() => {});
   } catch (error: any) {
-    console.error("Failed to notify admin on suggestion:", error.message);
+    console.error("Failed to notify admin on franchise application:", error.message);
   }
 }

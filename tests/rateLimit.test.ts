@@ -1,3 +1,21 @@
+jest.mock("../src/config/appRedis", () => ({
+  appRedis: {
+    status: "end",
+    on: jest.fn(),
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue("OK"),
+    del: jest.fn().mockResolvedValue(1),
+    quit: jest.fn().mockResolvedValue("OK"),
+    disconnect: jest.fn(),
+    call: jest.fn().mockImplementation((cmd: string) => {
+      if (cmd === "SCRIPT") return Promise.resolve("mock-sha");
+      return Promise.resolve(1);
+    }),
+  },
+  appRedisConfig: {},
+  checkRedisHealth: jest.fn().mockResolvedValue({ status: "connected", latencyMs: 1 }),
+}));
+
 import { userOrIpKey, identifierOrIpKey } from "../src/middlewares/rateLimit.middleware";
 import { rateLimitConfig } from "../src/config/rateLimit.config";
 import express, { Request, Response } from "express";

@@ -2,6 +2,18 @@
  * Tests for Redis Health Check & Monitoring (P3-3)
  */
 
+jest.mock("ioredis", () => {
+  const EventEmitter = require("events");
+  return jest.fn().mockImplementation(() => {
+    const emitter = new EventEmitter();
+    emitter.status = "wait";
+    emitter.ping = jest.fn().mockResolvedValue("PONG");
+    emitter.disconnect = jest.fn();
+    emitter.quit = jest.fn().mockResolvedValue("OK");
+    return emitter;
+  });
+});
+
 import { checkRedisHealth, appRedis } from "../src/config/appRedis";
 import express, { Request, Response } from "express";
 import request from "supertest";
@@ -80,5 +92,13 @@ describe("Redis Health Check & Availability Monitoring (P3-3)", () => {
     const responseString = JSON.stringify(res.body);
     expect(responseString).not.toContain("password");
     expect(responseString).not.toContain("REDIS");
+  });
+
+  afterAll(async () => {
+    try {
+      if (appRedis) {
+        appRedis.disconnect();
+      }
+    } catch {}
   });
 });

@@ -52,7 +52,7 @@ describe("UserToken Indexing & Query Verification (P2-4)", () => {
 
     const result = await ensureMongoIndexes(mockDataSource);
 
-    expect(result.totalIndexes).toBe(3);
+    expect(result.totalIndexes).toBe(4);
     expect(result.errors).toHaveLength(0);
     expect(mockCreateCollectionIndex).toHaveBeenCalledWith(
       { token: 1 },

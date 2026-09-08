@@ -1,12 +1,38 @@
-﻿/**
+/**
  * Tests for the consolidated, idempotent graceful shutdown handler.
  */
+
+jest.mock("../src/workers/personal.worker", () => ({
+  personalWorker: { close: jest.fn().mockResolvedValue(undefined) }
+}));
+jest.mock("../src/workers/broadcast.worker", () => ({
+  broadcastWorker: { close: jest.fn().mockResolvedValue(undefined) }
+}));
+jest.mock("../src/workers/dlq.worker", () => ({
+  dlqWorker: { close: jest.fn().mockResolvedValue(undefined) }
+}));
+jest.mock("../src/queues/notification.queue", () => ({
+  personalNotificationQueue: { close: jest.fn().mockResolvedValue(undefined) },
+  broadcastNotificationQueue: { close: jest.fn().mockResolvedValue(undefined) },
+  dlqNotificationQueue: { close: jest.fn().mockResolvedValue(undefined) }
+}));
+jest.mock("../src/config/appRedis", () => ({
+  appRedis: { quit: jest.fn().mockResolvedValue("OK"), disconnect: jest.fn() }
+}));
+jest.mock("../src/data-source", () => ({
+  AppDataSource: { isInitialized: false, destroy: jest.fn().mockResolvedValue(undefined) }
+}));
+jest.mock("../src/utils/socket", () => ({
+  getIO: jest.fn().mockReturnValue(null),
+  waitForDisconnects: jest.fn().mockResolvedValue(undefined)
+}));
 
 describe("Graceful Shutdown Handler", () => {
   let mockExit: jest.SpyInstance;
   let mockConsoleLog: jest.SpyInstance;
 
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.resetModules();
     mockExit = jest.spyOn(process, "exit").mockImplementation((() => {}) as any);
     mockConsoleLog = jest.spyOn(console, "log").mockImplementation(() => {});
@@ -14,6 +40,8 @@ describe("Graceful Shutdown Handler", () => {
   });
 
   afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
     mockExit.mockRestore();
     mockConsoleLog.mockRestore();
   });
