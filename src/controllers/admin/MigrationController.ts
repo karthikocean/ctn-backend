@@ -489,7 +489,6 @@ export class MigrationController {
           membersUpdated: members.length
         }
       });
-
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }
