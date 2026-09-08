@@ -481,7 +481,6 @@ export class MigrationController {
           }
         }
       );
-
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Plan migrated successfully.",
