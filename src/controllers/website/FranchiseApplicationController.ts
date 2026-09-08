@@ -19,6 +19,7 @@ import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
+import { notifyAdminOnFranchiseApplication } from "../../services/pushnotification.service";
 
 /**
  * @swagger
@@ -64,6 +65,17 @@ export class WebsiteFranchiseApplicationController {
       application.isDeleted = false;
 
       const saved = await this.applicationRepo.save(application);
+
+      // Enqueue notification for active admins and broadcast realtime socket
+      notifyAdminOnFranchiseApplication({
+        _id: saved._id,
+        fullName: saved.fullName,
+        phoneNumber: saved.phoneNumber,
+        email: saved.email,
+        city: saved.city,
+        state: saved.state,
+        companyName: saved.companyName,
+      }).catch((err) => console.error("Franchise application admin notify error:", err));
 
       return res.status(StatusCodes.CREATED).json({
         success: true,

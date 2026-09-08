@@ -43,13 +43,20 @@ export class AdminPushNotificationController {
         isDeleted: false
       };
 
-      const orConditions = [
-        ...(adminUserId ? [{ receiverId: adminUserId }] : []),
-        { moduleName: NotificationModule.SUGGESTION }
+      const adminModules = [
+        NotificationModule.SUGGESTION,
+        NotificationModule.ENQUIRY,
+        NotificationModule.SUPPORT,
+        NotificationModule.FRANCHISE_APPLICATION
       ];
 
-      if (orConditions.length > 0) {
-        query.$or = orConditions;
+      if (adminUserId) {
+        query.$or = [
+          { receiverId: adminUserId },
+          { receiverId: { $in: [null, undefined] }, moduleName: { $in: adminModules } }
+        ];
+      } else {
+        query.moduleName = { $in: adminModules };
       }
 
       const count = await this.pushNotificationRepo.countDocuments(query);
@@ -87,16 +94,54 @@ export class AdminPushNotificationController {
       page = Number(page) || 0;
       limit = Number(limit) || 10;
 
+      const adminModules = [
+        NotificationModule.SUGGESTION,
+        NotificationModule.ENQUIRY,
+        NotificationModule.SUPPORT,
+        NotificationModule.FRANCHISE_APPLICATION
+      ];
+
       const where: any = {
-        $or: [
-          ...(adminUserId ? [{ receiverId: adminUserId }] : []),
-          { moduleName: NotificationModule.SUGGESTION }
-        ],
         isDeleted: false
       };
 
-      if (moduleName) {
+      if (adminUserId) {
+        where.$or = [
+          { receiverId: adminUserId },
+          { receiverId: { $in: [null, undefined] }, moduleName: { $in: adminModules } }
+        ];
+      } else {
+        where.moduleName = { $in: adminModules };
+      }
+
+      if (moduleName && moduleName !== "ALL") {
         where.moduleName = moduleName;
+      }
+
+      const isReadParam = req.query?.isRead;
+      if (isReadParam !== undefined && isReadParam !== "") {
+        where.isRead = isReadParam === "true";
+      }
+
+      const searchParam = (req.query?.search || "").trim();
+      if (searchParam) {
+        const regex = new RegExp(searchParam, "i");
+        const searchConditions = [
+          { sub: { $regex: regex } },
+          { msg: { $regex: regex } },
+          { name: { $regex: regex } },
+          { phone: { $regex: regex } },
+          { email: { $regex: regex } },
+        ];
+        if (where.$or) {
+          where.$and = [
+            { $or: where.$or },
+            { $or: searchConditions }
+          ];
+          delete where.$or;
+        } else {
+          where.$or = searchConditions;
+        }
       }
 
       const [notifications, total] = await this.pushNotificationRepo.findAndCount({
@@ -158,17 +203,37 @@ export class AdminPushNotificationController {
     try {
       const adminUserId = req.user?._id ? new ObjectId(req.user._id) : (req.user?.id ? new ObjectId(req.user.id) : null);
 
+      const adminModules = [
+        NotificationModule.SUGGESTION,
+        NotificationModule.ENQUIRY,
+        NotificationModule.SUPPORT,
+        NotificationModule.FRANCHISE_APPLICATION
+      ];
+
+      const updateFilter: any = {
+        isRead: false,
+        isDeleted: false
+      };
+
+      if (adminUserId) {
+        updateFilter.$or = [
+          { receiverId: adminUserId },
+          { receiverId: { $in: [null, undefined] }, moduleName: { $in: adminModules } }
+        ];
+      } else {
+        updateFilter.moduleName = { $in: adminModules };
+      }
+
       await this.pushNotificationRepo.updateMany(
-        {
-          $or: [
-            ...(adminUserId ? [{ receiverId: adminUserId }] : []),
-            { moduleName: NotificationModule.SUGGESTION }
-          ],
-          isRead: false,
-          isDeleted: false
-        } as any,
+        updateFilter as any,
         { $set: { isRead: true } } as any
       );
+
+      // Emit zero unread count
+      try {
+        const { emitAdminUnreadCount } = await import("../../services/pushnotification.service");
+        emitAdminUnreadCount().catch(() => {});
+      } catch {}
 
       return res.status(StatusCodes.OK).json({
         success: true,
