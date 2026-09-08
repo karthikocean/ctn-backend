@@ -33,6 +33,8 @@ import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 import { MailService } from "../../services/mail.service";
 import { WelcomeCardService } from "../../services/welcomeCard.service";
+import { Plan } from "../../entity/Plan";
+import { MemberSubscription } from "../../entity/MemberSubscription";
 
 @JsonController("/members")
 @UseBefore(AuthMiddleware, franchiseFilter)
@@ -40,6 +42,8 @@ export class AdminMemberController {
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private categoryRepo = AppDataSource.getMongoRepository(Category);
   private businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
+  private planRepo = AppDataSource.getMongoRepository(Plan);
+  private subscriptionRepo = AppDataSource.getMongoRepository(MemberSubscription);
 
   /**
    * @swagger
@@ -254,6 +258,17 @@ export class AdminMemberController {
 
       const categoryMap = new Map(categories.map(c => [c._id.toString(), { _id: c._id, name: c.name }]));
 
+      // Populate Plans
+      const planIds = members
+        .map(m => m.planId)
+        .filter((id): id is ObjectId => !!id && ObjectId.isValid(id));
+
+      const plans = planIds.length > 0
+        ? await this.planRepo.find({ where: { _id: { $in: planIds } } as any })
+        : [];
+
+      const planMap = new Map(plans.map(p => [p._id.toString(), p.title]));
+
       // Populate Areas
       const stateCities = members
         .filter(m => m.state && m.city && m.businessRegion)
@@ -324,7 +339,8 @@ export class AdminMemberController {
           ...m,
           businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) : null,
           subCategory: m.subCategory ? categoryMap.get(m.subCategory.toString()) : null,
-          businessRegion: areaInfo || m.businessRegion
+          businessRegion: areaInfo || m.businessRegion,
+          planName: (m.planId && planMap.get(m.planId.toString())) || null
         };
       });
 
@@ -368,6 +384,12 @@ export class AdminMemberController {
       if (member.subCategory) {
         const subCat = await this.categoryRepo.findOneBy({ _id: member.subCategory });
         populated.subCategory = subCat ? { _id: subCat._id, name: subCat.name } : null;
+      }
+      if (member.planId) {
+        const plan = await this.planRepo.findOneBy({ _id: member.planId });
+        populated.planName = plan ? plan.title : null;
+      } else {
+        populated.planName = null;
       }
       if (member.businessRegion && member.state && member.city) {
         const stateRepo = AppDataSource.getMongoRepository(State);
