@@ -2,8 +2,12 @@ import { ObjectId } from "mongodb";
 import { ReferralService } from "../src/services/referral.service";
 import { Member, MemberStatus } from "../src/entity/Member";
 import { UserReferral, UserReferralStatus } from "../src/entity/UserReferral";
+import { MemberPoints } from "../src/entity/MemberPoints";
+import { PointHistory } from "../src/entity/PointHistory";
+import { AppDataSource } from "../src/data-source";
 import { DefaultDeepLinkService } from "../src/services/deep-link/default-deep-link.service";
 import { DeplDeepLinkService } from "../src/services/deep-link/depl-deep-link.service";
+import { REFERRAL_CONFIG } from "../src/config/referral.config";
 
 describe("ReferralService Unit Tests", () => {
   let referralService: ReferralService;
@@ -39,10 +43,17 @@ describe("ReferralService Unit Tests", () => {
       save: jest.fn().mockImplementation((h) => Promise.resolve({ ...h, _id: new ObjectId() }))
     };
 
-    (referralService as any).memberRepo = mockMemberRepo;
-    (referralService as any).userReferralRepo = mockUserReferralRepo;
-    (referralService as any).memberPointsRepo = mockMemberPointsRepo;
-    (referralService as any).historyRepo = mockHistoryRepo;
+    jest.spyOn(AppDataSource, "getMongoRepository").mockImplementation((entity: any) => {
+      if (entity === Member || entity?.name === "Member") return mockMemberRepo;
+      if (entity === UserReferral || entity?.name === "UserReferral") return mockUserReferralRepo;
+      if (entity === MemberPoints || entity?.name === "MemberPoints") return mockMemberPointsRepo;
+      if (entity === PointHistory || entity?.name === "PointHistory") return mockHistoryRepo;
+      return {} as any;
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   describe("Code Generation & Normalization", () => {
@@ -164,7 +175,7 @@ describe("ReferralService Unit Tests", () => {
       } as any;
     });
 
-    it("should process referral and disburse rewards atomically", async () => {
+    it("should process referral and register referral in pending status until plan/trial activation", async () => {
       mockMemberRepo.findOne.mockResolvedValueOnce(mockReferrer);
       mockUserReferralRepo.findOne.mockResolvedValueOnce(null); // No previous referral
 
@@ -173,8 +184,8 @@ describe("ReferralService Unit Tests", () => {
         referralCode: "REFR1234"
       });
 
-      expect(result.referrerReward).toBe(50);
-      expect(result.referredReward).toBe(20);
+      expect(result.referrerReward).toBe(0);
+      expect(result.referredReward).toBe(0);
       expect(mockReferred.referredBy).toEqual(referrerId);
       expect(mockUserReferralRepo.save).toHaveBeenCalled();
       expect(mockMemberRepo.updateOne).toHaveBeenCalledWith(
@@ -250,13 +261,15 @@ describe("ReferralService Unit Tests", () => {
     it("DefaultDeepLinkService should create correct direct link", async () => {
       const service = new DefaultDeepLinkService();
       const link = await service.createReferralLink("ANBU8F42");
-      expect(link).toBe("https://trustednetwork.in/ref/ANBU8F42");
+      const expectedBase = REFERRAL_CONFIG.baseUrl.replace(/\/+$/, "");
+      expect(link).toBe(`${expectedBase}/ANBU8F42`);
     });
 
     it("DeplDeepLinkService should fall back to URL if credentials are not configured", async () => {
       const service = new DeplDeepLinkService();
       const link = await service.createReferralLink("ANBU8F42");
-      expect(link).toBe("https://trustednetwork.in/ref/ANBU8F42");
+      const expectedBase = REFERRAL_CONFIG.baseUrl.replace(/\/+$/, "");
+      expect(link).toBe(`${expectedBase}/ANBU8F42`);
     });
   });
 });

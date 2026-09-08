@@ -1,6 +1,58 @@
-﻿/**
+/**
  * Tests for Subscription Analytics and Batching in SubscriptionCronService.
  */
+
+jest.mock("../src/queues/notification.queue", () => ({
+  QUEUE_NAMES: {
+    PERSONAL: "notification-personal",
+    BROADCAST: "notification-broadcast",
+    CLEANUP: "notification-cleanup",
+    DLQ: "notification-dlq",
+  },
+  defaultJobOptions: {},
+  personalNotificationQueue: {
+    add: jest.fn().mockResolvedValue({ id: "mock-job-id" }),
+    addBulk: jest.fn().mockResolvedValue([]),
+    close: jest.fn().mockResolvedValue(undefined),
+  },
+  broadcastNotificationQueue: {
+    add: jest.fn().mockResolvedValue({ id: "mock-job-id" }),
+    close: jest.fn().mockResolvedValue(undefined),
+  },
+  dlqNotificationQueue: {
+    add: jest.fn().mockResolvedValue({ id: "mock-job-id" }),
+    close: jest.fn().mockResolvedValue(undefined),
+  },
+  personalQueueEvents: {
+    on: jest.fn(),
+    close: jest.fn().mockResolvedValue(undefined),
+  },
+  broadcastQueueEvents: {
+    on: jest.fn(),
+    close: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
+jest.mock("../src/config/appRedis", () => ({
+  appRedis: {
+    status: "end",
+    on: jest.fn(),
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue("OK"),
+    del: jest.fn().mockResolvedValue(1),
+    quit: jest.fn().mockResolvedValue("OK"),
+    disconnect: jest.fn(),
+    call: jest.fn().mockResolvedValue(1),
+  },
+  appRedisConfig: {},
+  checkRedisHealth: jest.fn().mockResolvedValue({ status: "connected", latencyMs: 1 }),
+}));
+
+jest.mock("../src/services/mail.service", () => ({
+  MailService: {
+    sendEmail: jest.fn().mockResolvedValue({ messageId: "mock-mail-id" }),
+  },
+}));
 
 import { ObjectId } from "mongodb";
 import { SubscriptionCronService } from "../src/services/subscriptionCron.service";

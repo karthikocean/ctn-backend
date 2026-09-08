@@ -1,16 +1,83 @@
+jest.mock("../src/queues/notification.queue", () => ({
+  QUEUE_NAMES: {
+    PERSONAL: "notification-personal",
+    BROADCAST: "notification-broadcast",
+    CLEANUP: "notification-cleanup",
+    DLQ: "notification-dlq",
+  },
+  defaultJobOptions: {},
+  personalNotificationQueue: {
+    add: jest.fn().mockResolvedValue({ id: "mock-job-id" }),
+    addBulk: jest.fn().mockResolvedValue([]),
+    close: jest.fn().mockResolvedValue(undefined),
+  },
+  broadcastNotificationQueue: {
+    add: jest.fn().mockResolvedValue({ id: "mock-job-id" }),
+    close: jest.fn().mockResolvedValue(undefined),
+  },
+  dlqNotificationQueue: {
+    add: jest.fn().mockResolvedValue({ id: "mock-job-id" }),
+    close: jest.fn().mockResolvedValue(undefined),
+  },
+  personalQueueEvents: {
+    on: jest.fn(),
+    close: jest.fn().mockResolvedValue(undefined),
+  },
+  broadcastQueueEvents: {
+    on: jest.fn(),
+    close: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
+jest.mock("../src/config/appRedis", () => ({
+  appRedis: {
+    status: "end",
+    on: jest.fn(),
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue("OK"),
+    del: jest.fn().mockResolvedValue(1),
+    quit: jest.fn().mockResolvedValue("OK"),
+    disconnect: jest.fn(),
+  },
+  appRedisConfig: {},
+  checkRedisHealth: jest.fn().mockResolvedValue({ status: "connected", latencyMs: 1 }),
+}));
+
 import { ObjectId } from "mongodb";
 import { BadRequestError } from "routing-controllers";
 import { MobileReferralController } from "../src/controllers/mobile/ReferralController";
 import { MobileMemberController } from "../src/controllers/mobile/MemberController";
 import { Member, MemberStatus } from "../src/entity/Member";
-import { UserReferral, UserReferralStatus } from "../src/entity/UserReferral";
+import { UserReferralStatus } from "../src/entity/UserReferral";
+import { ReferralService } from "../src/services/referral.service";
+import { WelcomeCardService } from "../src/services/welcomeCard.service";
+import { GstAlertService } from "../src/services/gstAlert.service";
+import { AppDataSource } from "../src/data-source";
 
 describe("Referral Controller & Registration Integration Tests", () => {
   let referralController: MobileReferralController;
   let memberController: MobileMemberController;
   let mockRes: any;
+  let mockMemberRepo: any;
 
   beforeEach(() => {
+    mockMemberRepo = {
+      findOne: jest.fn(),
+      findOneBy: jest.fn(),
+      find: jest.fn().mockResolvedValue([]),
+      save: jest.fn().mockImplementation((m: any) => Promise.resolve({ ...m, _id: m._id || new ObjectId() })),
+      updateOne: jest.fn().mockResolvedValue({ acknowledged: true, modifiedCount: 1 })
+    };
+
+    jest.spyOn(AppDataSource, "getMongoRepository").mockImplementation((entity: any) => {
+      if (entity === Member || entity?.name === "Member") return mockMemberRepo as any;
+      return {} as any;
+    });
+
+    jest.spyOn(WelcomeCardService, "sendRegistrationWelcomeEmailToAdmin").mockResolvedValue(undefined as any);
+    jest.spyOn(GstAlertService, "notifySecondUserRegistered").mockResolvedValue(undefined as any);
+    jest.spyOn(GstAlertService, "notifySuspiciousAttempt").mockResolvedValue(undefined as any);
+
     referralController = new MobileReferralController();
     memberController = new MobileMemberController();
 
@@ -18,6 +85,19 @@ describe("Referral Controller & Registration Integration Tests", () => {
       status: jest.fn().mockReturnThis(),
       json: jest.fn().mockReturnThis()
     };
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  afterAll(async () => {
+    try {
+      const { appRedis } = await import("../src/config/appRedis");
+      if (appRedis) {
+        appRedis.disconnect();
+      }
+    } catch {}
   });
 
   describe("GET /mobile-api/referrals/me", () => {
@@ -36,7 +116,7 @@ describe("Referral Controller & Registration Integration Tests", () => {
         totalRewards: 400
       };
 
-      jest.spyOn((referralController as any).referralService, "getMyReferralInfo")
+      jest.spyOn(ReferralService.prototype, "getMyReferralInfo")
         .mockResolvedValueOnce(mockInfo);
 
       await referralController.getMyReferralInfo(mockReq, mockRes);
@@ -49,7 +129,7 @@ describe("Referral Controller & Registration Integration Tests", () => {
     });
   });
 
-  describe("GET /mobile-api/referrals/history", () => {
+  describe("GET /mobile-api/referrals/list", () => {
     it("should return paginated list of referrals", async () => {
       const memberId = new ObjectId();
       const mockReq = {
@@ -71,10 +151,10 @@ describe("Referral Controller & Registration Integration Tests", () => {
         pagination: { total: 1, page: 1, limit: 20, totalPages: 1 }
       };
 
-      jest.spyOn((referralController as any).referralService, "getReferralHistory")
+      jest.spyOn(ReferralService.prototype, "getReferralHistory")
         .mockResolvedValueOnce(mockHistoryResult);
 
-      await referralController.getReferralHistory(mockReq, { page: 1, limit: 20 }, mockRes);
+      await referralController.getReferralList(mockReq, { page: 1, limit: 20 } as any, mockRes);
 
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
@@ -99,17 +179,16 @@ describe("Referral Controller & Registration Integration Tests", () => {
         isDeleted: false
       } as any;
 
-      jest.spyOn((referralController as any).memberRepo, "findOneBy")
-        .mockResolvedValueOnce(mockMember);
+      mockMemberRepo.findOneBy.mockResolvedValueOnce(mockMember);
 
-      jest.spyOn((referralController as any).referralService, "processReferral")
+      jest.spyOn(ReferralService.prototype, "processReferral")
         .mockResolvedValueOnce({
           userReferral: { status: UserReferralStatus.COMPLETED } as any,
           referrerReward: 50,
           referredReward: 20
         });
 
-      await referralController.applyReferral(mockReq, { referralCode: "ANBU8F42" }, mockRes);
+      await referralController.applyReferral(mockReq, { referralCode: "ANBU8F42" } as any, mockRes);
 
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
@@ -136,10 +215,9 @@ describe("Referral Controller & Registration Integration Tests", () => {
         isDeleted: false
       } as any;
 
-      jest.spyOn((referralController as any).memberRepo, "findOneBy")
-        .mockResolvedValueOnce(mockMember);
+      mockMemberRepo.findOneBy.mockResolvedValueOnce(mockMember);
 
-      await referralController.applyReferral(mockReq, { referralCode: "ANBU8F42" }, mockRes);
+      await referralController.applyReferral(mockReq, { referralCode: "ANBU8F42" } as any, mockRes);
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
       expect(mockRes.json).toHaveBeenCalledWith(
@@ -168,24 +246,22 @@ describe("Referral Controller & Registration Integration Tests", () => {
         referralCode: "ANBU8F42"
       };
 
-      jest.spyOn((memberController as any).memberRepo, "findOneBy")
-        .mockResolvedValue(null); // No duplicates for mobile/email
+      const savedMemberId = new ObjectId();
+      mockMemberRepo.findOneBy.mockResolvedValue(null);
+      mockMemberRepo.find.mockResolvedValue([]);
+      mockMemberRepo.save.mockImplementationOnce((m: any) => Promise.resolve({ ...m, _id: savedMemberId }));
 
-      jest.spyOn((memberController as any).referralService, "validateReferralCode")
+      jest.spyOn(ReferralService.prototype, "validateReferralCode")
         .mockResolvedValueOnce(mockReferrer);
 
-      jest.spyOn((memberController as any).referralService, "generateUniqueReferralCode")
+      jest.spyOn(ReferralService.prototype, "generateUniqueReferralCode")
         .mockResolvedValueOnce("NEWM1234");
 
-      const savedMemberId = new ObjectId();
-      jest.spyOn((memberController as any).memberRepo, "save")
-        .mockImplementationOnce((m: any) => Promise.resolve({ ...m, _id: savedMemberId }));
-
-      const processReferralSpy = jest.spyOn((memberController as any).referralService, "processReferral")
+      const processReferralSpy = jest.spyOn(ReferralService.prototype, "processReferral")
         .mockResolvedValueOnce({
           userReferral: {} as any,
-          referrerReward: 50,
-          referredReward: 20
+          referrerReward: 0,
+          referredReward: 0
         });
 
       await memberController.register(mockReq, registerData as any, mockRes);
@@ -210,10 +286,10 @@ describe("Referral Controller & Registration Integration Tests", () => {
         referralCode: "INVALID_CODE"
       };
 
-      jest.spyOn((memberController as any).memberRepo, "findOneBy")
-        .mockResolvedValue(null);
+      mockMemberRepo.findOneBy.mockResolvedValue(null);
+      mockMemberRepo.find.mockResolvedValue([]);
 
-      jest.spyOn((memberController as any).referralService, "validateReferralCode")
+      jest.spyOn(ReferralService.prototype, "validateReferralCode")
         .mockRejectedValueOnce(new BadRequestError("Invalid referral code"));
 
       await memberController.register(mockReq, registerData as any, mockRes);
