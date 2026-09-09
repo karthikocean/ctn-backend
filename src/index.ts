@@ -36,6 +36,10 @@ import { DataRetentionCronService } from "./services/dataRetentionCron.service";
 import { ensureMongoIndexes } from "./utils/ensureIndexes";
 import { logger } from "./utils/logger";
 import { checkRedisHealth } from "./config/appRedis";
+import { isCronNotificationEnabled } from "./config/env";
+import { setupBullBoard } from "./admin/bullboard.config";
+import { registerGracefulShutdown } from "./utils/gracefulShutdown";
+import { adminApiLimiter, apiLimiter, authLimiter, mobileApiLimiter, otpLimiter, passwordResetLimiter, paymentLimiter, uploadLimiter } from "./middlewares/rateLimit.middleware";
 
 // ─────────────────────────────────────────────────────────
 // 🚀 STEP 1: Create app & HTTP server IMMEDIATELY
@@ -146,36 +150,33 @@ app.get("/", async (_req: Request, res: Response) => {
 // 🛡️ Route-Specific Rate Limiting Middleware
 // ─────────────────────────────────────────────────────────
 // Auth & Security Specific Limiters
-// app.use("/api/admin/auth/forgot-pin", passwordResetLimiter);
-// app.use("/api/admin/auth/verify-otp", otpLimiter);
-// app.use("/api/admin/auth/login", authLimiter);
-// app.use("/api/admin/auth", authLimiter);
+app.use("/api/admin/auth/forgot-pin", passwordResetLimiter);
+app.use("/api/admin/auth/verify-otp", otpLimiter);
+app.use("/api/admin/auth/login", authLimiter);
+app.use("/api/admin/auth", authLimiter);
 
-// app.use("/mobile-api/verification/send-otp", otpLimiter);
-// app.use("/mobile-api/verification/verify-otp", otpLimiter);
-// app.use("/mobile-api/auth/send-otp", otpLimiter);
-// app.use("/mobile-api/auth/verify-otp", otpLimiter);
-// app.use("/mobile-api/auth/login", authLimiter);
-// app.use("/mobile-api/auth/reset-pin", passwordResetLimiter);
-// app.use("/mobile-api/auth", authLimiter);
+app.use("/mobile-api/verification/send-otp", otpLimiter);
+app.use("/mobile-api/verification/verify-otp", otpLimiter);
+app.use("/mobile-api/auth/send-otp", otpLimiter);
+app.use("/mobile-api/auth/verify-otp", otpLimiter);
+app.use("/mobile-api/auth/login", authLimiter);
+app.use("/mobile-api/auth/reset-pin", passwordResetLimiter);
+app.use("/mobile-api/auth", authLimiter);
 
 // File Upload & Import Limiters
-// app.use("/mobile-api/media/upload", uploadLimiter);
-// app.use("/api/admin/media/upload", uploadLimiter);
-// app.use("/api/admin/categories/import", uploadLimiter);
-// app.use("/api/admin/migrations", uploadLimiter);
+app.use("/mobile-api/media/upload", uploadLimiter);
+app.use("/api/admin/media/upload", uploadLimiter);
+app.use("/api/admin/categories/import", uploadLimiter);
+app.use("/api/admin/migrations", uploadLimiter);
 
-// // Payment & Subscription Limiters
-// app.use("/mobile-api/subscription/create-order", paymentLimiter);
-// app.use("/mobile-api/subscription/verify-payment", paymentLimiter);
+// Payment & Subscription Limiters
+app.use("/mobile-api/subscription/create-order", paymentLimiter);
+app.use("/mobile-api/subscription/verify-payment", paymentLimiter);
 
-// // Scoped API Group Limiters
-// app.use("/mobile-api", mobileApiLimiter);
-// app.use("/api/admin", adminApiLimiter);
-// app.use("/api", apiLimiter);
-
-import { setupBullBoard } from "./admin/bullboard.config";
-import { registerGracefulShutdown } from "./utils/gracefulShutdown";
+// Scoped API Group Limiters
+app.use("/mobile-api", mobileApiLimiter);
+app.use("/api/admin", adminApiLimiter);
+app.use("/api", apiLimiter);
 
 // ─────────────────────────────────────────────────────────
 // 🚀 STEP 2: Bind to port IMMEDIATELY — accepts connections right away
@@ -315,6 +316,9 @@ AppDataSource.initialize()
       }
 
       // Initialize Cron Jobs
+      if (!isCronNotificationEnabled()) {
+        console.log("🔔 Cron Notifications: DISABLED via env (NOTIFICATION=false). Notification cron dispatches are skipped.");
+      }
       SubscriptionCronService.init();
       SpotlightCronService.init();
       OnlineStallCronService.init();

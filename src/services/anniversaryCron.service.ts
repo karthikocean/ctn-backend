@@ -3,6 +3,7 @@ import { AppDataSource } from "../data-source";
 import { Member, MemberStatus } from "../entity/Member";
 import { insertPushNotification } from "./pushnotification.service";
 import { NotificationModule } from "../entity/PushNotifications";
+import { isCronNotificationEnabled } from "../config/env";
 
 export class AnniversaryCronService {
   private static memberRepo = AppDataSource.getMongoRepository(Member);
@@ -11,6 +12,11 @@ export class AnniversaryCronService {
    * Initializes the Anniversary cron job — runs every day at 8:00 AM
    */
   static init() {
+    if (!isCronNotificationEnabled()) {
+      console.log("🎉 Registration Anniversary Cron Job disabled (NOTIFICATION=false in env).");
+      return;
+    }
+
     console.log("🎉 Initializing Registration Anniversary Cron Job...");
 
     // Runs every day at 8:00 AM
@@ -31,6 +37,11 @@ export class AnniversaryCronService {
    * Finds all members celebrating their registration anniversary today and sends notifications strictly to those members
    */
   static async processAnniversaries() {
+    if (!isCronNotificationEnabled()) {
+      console.log("[AnniversaryCron] Cron notifications are disabled via env. Skipping anniversary processing.");
+      return;
+    }
+
     const now = new Date();
     const todayMonth = now.getMonth() + 1; // 1-based month
     const todayDay = now.getDate();

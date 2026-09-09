@@ -4,6 +4,7 @@ import { Reminder, ReminderStatus, RepeatType, NotifyBy } from "../entity/Remind
 import { Member } from "../entity/Member";
 import { insertPushNotification } from "./pushnotification.service";
 import { MailService } from "./mail.service";
+import { isCronNotificationEnabled } from "../config/env";
 
 export class ReminderCronService {
   private static reminderRepo = AppDataSource.getMongoRepository(Reminder);
@@ -13,6 +14,11 @@ export class ReminderCronService {
    * Initializes the Reminder cron job to run every minute
    */
   static init() {
+    if (!isCronNotificationEnabled()) {
+      console.log("⏰ Reminder Cron Job disabled (NOTIFICATION=false in env).");
+      return;
+    }
+
     console.log("⏰ Initializing Reminder Cron Job...");
 
     cron.schedule("* * * * *", async () => {
@@ -31,6 +37,11 @@ export class ReminderCronService {
    * Processes all active pending reminders that are due
    */
   static async processDueReminders() {
+    if (!isCronNotificationEnabled()) {
+      console.log("[ReminderCron] Cron notifications are disabled via env. Skipping due reminders processing.");
+      return;
+    }
+
     const now = new Date();
 
     // Query active, pending reminders where nextReminderDate is due

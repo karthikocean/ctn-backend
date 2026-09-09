@@ -46,27 +46,38 @@ export const franchiseFilter = async (req: any, res: Response, next: NextFunctio
 
     if (franchise && franchise.businessRegionId) {
       const businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
-      const region = await businessRegionRepo.findOne({
+      const targetRegionIdStr = franchise.businessRegionId.toString();
+      const targetRegionOid = ObjectId.isValid(franchise.businessRegionId)
+        ? new ObjectId(franchise.businessRegionId)
+        : null;
+
+      const region = targetRegionOid ? await businessRegionRepo.findOne({
         where: {
           $or: [
-            { _id: new ObjectId(franchise.businessRegionId) },
-            { "areas._id": new ObjectId(franchise.businessRegionId) }
+            { _id: targetRegionOid },
+            { "areas._id": targetRegionOid }
           ],
           isDeleted: false
         } as any
-      });
+      }) : null;
 
       const areaIds: ObjectId[] = [];
 
       if (region) {
-        if (region._id) areaIds.push(region._id);
-        if (region.areas && Array.isArray(region.areas)) {
-          region.areas.forEach((area: any) => {
-            if (area._id) areaIds.push(new ObjectId(area._id));
-          });
+        const isParentRegion = region._id && region._id.toString() === targetRegionIdStr;
+        if (isParentRegion) {
+          if (region._id) areaIds.push(region._id);
+          if (region.areas && Array.isArray(region.areas)) {
+            region.areas.forEach((area: any) => {
+              if (area._id) areaIds.push(new ObjectId(area._id));
+            });
+          }
+        } else {
+          // Franchise is assigned specifically to a sub-area (e.g., Capital), NOT the entire parent region
+          areaIds.push(targetRegionOid!);
         }
-      } else {
-        areaIds.push(new ObjectId(franchise.businessRegionId));
+      } else if (targetRegionOid) {
+        areaIds.push(targetRegionOid);
       }
 
       req.isFranchise = true;

@@ -6,6 +6,7 @@ import { MailService } from "./mail.service";
 import cron from "node-cron";
 import { NotificationModule } from "../entity/PushNotifications";
 import { ObjectId } from "mongodb";
+import { isCronNotificationEnabled } from "../config/env";
 
 export class SubscriptionCronService {
   private static get memberRepo() {
@@ -34,16 +35,20 @@ export class SubscriptionCronService {
     });
 
     // 2. Run daily at 10:00 AM for Trial plan remaining days notification: "0 10 * * *"
-    cron.schedule("0 10 * * *", async () => {
-      try {
-        console.log("🕒 Running Trial Plan Daily Remaining Days Notification Cron (10:00 AM)...");
-        await this.runTrialPlanDailyNotificationJob();
-      } catch (error: any) {
-        console.error("❌ Trial Plan Daily Notification Cron Failed:", error.message);
-      }
-    }, {
-      timezone: "Asia/Kolkata"
-    });
+    if (!isCronNotificationEnabled()) {
+      console.log("⏰ Trial Plan Daily Remaining Days Notification Cron disabled (NOTIFICATION=false in env).");
+    } else {
+      cron.schedule("0 10 * * *", async () => {
+        try {
+          console.log("🕒 Running Trial Plan Daily Remaining Days Notification Cron (10:00 AM)...");
+          await this.runTrialPlanDailyNotificationJob();
+        } catch (error: any) {
+          console.error("❌ Trial Plan Daily Notification Cron Failed:", error.message);
+        }
+      }, {
+        timezone: "Asia/Kolkata"
+      });
+    }
   }
 
   /**
@@ -102,32 +107,36 @@ export class SubscriptionCronService {
       );
 
       // Send notifications
-      for (const sub of expiredSubscriptions) {
-        try {
-          const member = memberMap.get(sub.memberId.toString());
-          if (!member) continue;
+      if (!isCronNotificationEnabled()) {
+        console.log("[Cron] Skipping expired subscription notifications (NOTIFICATION=false in env).");
+      } else {
+        for (const sub of expiredSubscriptions) {
+          try {
+            const member = memberMap.get(sub.memberId.toString());
+            if (!member) continue;
 
-          const messageText = `Your ${sub.type} subscription expired today and has been downgraded to Guest Access. Upgrade to continue enjoying premium benefits!`;
+            const messageText = `Your ${sub.type} subscription expired today and has been downgraded to Guest Access. Upgrade to continue enjoying premium benefits!`;
 
-          if (member.email) {
-            MailService.sendEmail(
-              member.email,
-              "Your Subscription Has Expired - Trusted Network",
-              `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-            ).catch(e => console.error(`[Cron] Email error for ${member.email}:`, e.message));
+            if (member.email) {
+              MailService.sendEmail(
+                member.email,
+                "Your Subscription Has Expired - Trusted Network",
+                `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
+              ).catch(e => console.error(`[Cron] Email error for ${member.email}:`, e.message));
+            }
+
+            if (member.fcmToken) {
+              insertPushNotification({
+                token: member.fcmToken,
+                subject: "Subscription Expired",
+                content: messageText,
+                moduleName: NotificationModule.PLAN_EXPIRY,
+                receiverId: member._id.toString()
+              }).catch(e => console.error(`[Cron] Push error for member ${member._id}:`, e.message));
+            }
+          } catch (err: any) {
+            console.error(`[Cron] Error processing expired sub ${sub._id}:`, err.message);
           }
-
-          if (member.fcmToken) {
-            insertPushNotification({
-              token: member.fcmToken,
-              subject: "Subscription Expired",
-              content: messageText,
-              moduleName: NotificationModule.PLAN_EXPIRY,
-              receiverId: member._id.toString()
-            }).catch(e => console.error(`[Cron] Push error for member ${member._id}:`, e.message));
-          }
-        } catch (err: any) {
-          console.error(`[Cron] Error processing expired sub ${sub._id}:`, err.message);
         }
       }
     }
@@ -160,32 +169,36 @@ export class SubscriptionCronService {
       const nonFreeSubs = expiringIn30DaysSubs.filter(s => s.type !== "FREE");
       const memberMap = await this.getMembersMap(nonFreeSubs.map(s => s.memberId));
 
-      for (const sub of nonFreeSubs) {
-        try {
-          const member = memberMap.get(sub.memberId.toString());
-          if (!member) continue;
+      if (!isCronNotificationEnabled()) {
+        console.log("[Cron 30d] Skipping 30-day subscription notifications (NOTIFICATION=false in env).");
+      } else {
+        for (const sub of nonFreeSubs) {
+          try {
+            const member = memberMap.get(sub.memberId.toString());
+            if (!member) continue;
 
-          const messageText = "Your subscription plan will expire in 30 days. Renew your plan to continue enjoying Trusted Network benefits.";
+            const messageText = "Your subscription plan will expire in 30 days. Renew your plan to continue enjoying Trusted Network benefits.";
 
-          if (member.email) {
-            MailService.sendEmail(
-              member.email,
-              "Plan Expiring Soon",
-              `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-            ).catch(e => console.error("[Cron 30d] Email error:", e.message));
+            if (member.email) {
+              MailService.sendEmail(
+                member.email,
+                "Plan Expiring Soon",
+                `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
+              ).catch(e => console.error("[Cron 30d] Email error:", e.message));
+            }
+
+            if (member.fcmToken) {
+              insertPushNotification({
+                token: member.fcmToken,
+                subject: "Plan Expiring Soon",
+                content: messageText,
+                moduleName: NotificationModule.PLAN_EXPIRY,
+                receiverId: member._id.toString()
+              }).catch(e => console.error("[Cron 30d] Push error:", e.message));
+            }
+          } catch (err: any) {
+            console.error(`[Cron] Error sending 30 days notification for sub ${sub._id}:`, err.message);
           }
-
-          if (member.fcmToken) {
-            insertPushNotification({
-              token: member.fcmToken,
-              subject: "Plan Expiring Soon",
-              content: messageText,
-              moduleName: NotificationModule.PLAN_EXPIRY,
-              receiverId: member._id.toString()
-            }).catch(e => console.error("[Cron 30d] Push error:", e.message));
-          }
-        } catch (err: any) {
-          console.error(`[Cron] Error sending 30 days notification for sub ${sub._id}:`, err.message);
         }
       }
     }
@@ -218,32 +231,36 @@ export class SubscriptionCronService {
       const nonFreeSubs = expiringIn15DaysSubs.filter(s => s.type !== "FREE");
       const memberMap = await this.getMembersMap(nonFreeSubs.map(s => s.memberId));
 
-      for (const sub of nonFreeSubs) {
-        try {
-          const member = memberMap.get(sub.memberId.toString());
-          if (!member) continue;
+      if (!isCronNotificationEnabled()) {
+        console.log("[Cron 15d] Skipping 15-day subscription notifications (NOTIFICATION=false in env).");
+      } else {
+        for (const sub of nonFreeSubs) {
+          try {
+            const member = memberMap.get(sub.memberId.toString());
+            if (!member) continue;
 
-          const messageText = "Your subscription plan will expire in 15 days. Renew your plan to continue enjoying Trusted Network benefits.";
+            const messageText = "Your subscription plan will expire in 15 days. Renew your plan to continue enjoying Trusted Network benefits.";
 
-          if (member.email) {
-            MailService.sendEmail(
-              member.email,
-              "Plan Expiring Soon",
-              `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-            ).catch(e => console.error("[Cron 15d] Email error:", e.message));
+            if (member.email) {
+              MailService.sendEmail(
+                member.email,
+                "Plan Expiring Soon",
+                `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
+              ).catch(e => console.error("[Cron 15d] Email error:", e.message));
+            }
+
+            if (member.fcmToken) {
+              insertPushNotification({
+                token: member.fcmToken,
+                subject: "Plan Expiring Soon",
+                content: messageText,
+                moduleName: NotificationModule.PLAN_EXPIRY,
+                receiverId: member._id.toString()
+              }).catch(e => console.error("[Cron 15d] Push error:", e.message));
+            }
+          } catch (err: any) {
+            console.error(`[Cron] Error sending 15 days notification for sub ${sub._id}:`, err.message);
           }
-
-          if (member.fcmToken) {
-            insertPushNotification({
-              token: member.fcmToken,
-              subject: "Plan Expiring Soon",
-              content: messageText,
-              moduleName: NotificationModule.PLAN_EXPIRY,
-              receiverId: member._id.toString()
-            }).catch(e => console.error("[Cron 15d] Push error:", e.message));
-          }
-        } catch (err: any) {
-          console.error(`[Cron] Error sending 15 days notification for sub ${sub._id}:`, err.message);
         }
       }
     }
@@ -276,32 +293,36 @@ export class SubscriptionCronService {
       const nonFreeSubs = expiringSoonSubs.filter(s => s.type !== "FREE");
       const memberMap = await this.getMembersMap(nonFreeSubs.map(s => s.memberId));
 
-      for (const sub of nonFreeSubs) {
-        try {
-          const member = memberMap.get(sub.memberId.toString());
-          if (!member) continue;
+      if (!isCronNotificationEnabled()) {
+        console.log("[Cron 3d] Skipping 3-day subscription notifications (NOTIFICATION=false in env).");
+      } else {
+        for (const sub of nonFreeSubs) {
+          try {
+            const member = memberMap.get(sub.memberId.toString());
+            if (!member) continue;
 
-          const messageText = "Your subscription plan will expire in 3 days. Renew your plan to continue enjoying Trusted Network benefits.";
+            const messageText = "Your subscription plan will expire in 3 days. Renew your plan to continue enjoying Trusted Network benefits.";
 
-          if (member.email) {
-            MailService.sendEmail(
-              member.email,
-              "Plan Expiring Soon",
-              `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
-            ).catch(e => console.error("[Cron 3d] Email error:", e.message));
+            if (member.email) {
+              MailService.sendEmail(
+                member.email,
+                "Plan Expiring Soon",
+                `<p>Dear ${member.fullName},</p><p>${messageText}</p><p>Best regards,<br>Trusted Network Support</p>`
+              ).catch(e => console.error("[Cron 3d] Email error:", e.message));
+            }
+
+            if (member.fcmToken) {
+              insertPushNotification({
+                token: member.fcmToken,
+                subject: "Plan Expiring Soon",
+                content: messageText,
+                moduleName: NotificationModule.PLAN_EXPIRY,
+                receiverId: member._id.toString()
+              }).catch(e => console.error("[Cron 3d] Push error:", e.message));
+            }
+          } catch (err: any) {
+            console.error(`[Cron] Error sending ending soon notification for sub ${sub._id}:`, err.message);
           }
-
-          if (member.fcmToken) {
-            insertPushNotification({
-              token: member.fcmToken,
-              subject: "Plan Expiring Soon",
-              content: messageText,
-              moduleName: NotificationModule.PLAN_EXPIRY,
-              receiverId: member._id.toString()
-            }).catch(e => console.error("[Cron 3d] Push error:", e.message));
-          }
-        } catch (err: any) {
-          console.error(`[Cron] Error sending ending soon notification for sub ${sub._id}:`, err.message);
         }
       }
     }
@@ -312,6 +333,11 @@ export class SubscriptionCronService {
    * Calculates remaining days until trial expiry and sends push notification (e.g. "29 days left", "28 days left").
    */
   static async runTrialPlanDailyNotificationJob() {
+    if (!isCronNotificationEnabled()) {
+      console.log("[Cron 10:00 AM] Skipping trial plan notifications (NOTIFICATION=false in env).");
+      return;
+    }
+
     const now = new Date();
 
     const activeTrialSubs = await this.subRepo.find({

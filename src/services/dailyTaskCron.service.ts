@@ -4,6 +4,7 @@ import { Member, MemberStatus } from "../entity/Member";
 import { DailyScoreHistory } from "../entity/DailyScoreHistory";
 import { NotificationModule, PushNotification } from "../entity/PushNotifications";
 import { sendPushNotification } from "./pushnotification.service";
+import { isCronNotificationEnabled } from "../config/env";
 
 export class DailyTaskCronService {
   private static memberRepo = AppDataSource.getMongoRepository(Member);
@@ -14,6 +15,11 @@ export class DailyTaskCronService {
    * Initializes the Daily Task Reminder Cron Jobs
    */
   static init() {
+    if (!isCronNotificationEnabled()) {
+      console.log("⏰ Daily Task Reminder Cron Jobs disabled (NOTIFICATION=false in env).");
+      return;
+    }
+
     console.log("⏰ Initializing Daily Task Reminder Cron Jobs...");
 
     // 1. Cron job for 11:00 AM: "0 11 * * *" (Runs only once daily at 11:00 AM IST)
@@ -69,6 +75,11 @@ export class DailyTaskCronService {
    * Processes members who have not completed daily tasks today and sends them reminders.
    */
   static async processDailyTaskReminders() {
+    if (!isCronNotificationEnabled()) {
+      console.log("[DailyTaskCron] Cron notifications are disabled via env. Skipping daily task reminders.");
+      return;
+    }
+
     // Get local date string YYYY-MM-DD (IST)
     const IST_OFFSET = 5.5 * 60 * 60 * 1000;
     const now = new Date(new Date().getTime() + IST_OFFSET);

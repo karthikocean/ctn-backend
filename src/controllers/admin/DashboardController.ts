@@ -153,8 +153,20 @@ export class AdminDashboardController {
         memberQuery.businessCategory = new ObjectId(categoryId);
       }
 
-      if (req.isFranchise && req.franchiseAreaIds && Array.isArray(req.franchiseAreaIds) && req.franchiseAreaIds.length > 0) {
-        memberQuery.businessRegion = { $in: req.franchiseAreaIds };
+      if (req.isFranchise) {
+        const allowedAreaIds = req.franchiseAreaIds || [];
+        if (allowedAreaIds.length === 0) {
+          memberQuery.businessRegion = { $in: [] };
+        } else if (regionId && ObjectId.isValid(regionId)) {
+          const isAllowed = allowedAreaIds.some((id: any) => id.toString() === regionId);
+          memberQuery.businessRegion = isAllowed
+            ? { $in: [new ObjectId(regionId), regionId] }
+            : { $in: [] };
+        } else {
+          const allowedOids = allowedAreaIds.map((id: any) => (ObjectId.isValid(id) ? new ObjectId(id) : id));
+          const allowedStrings = allowedAreaIds.map((id: any) => id.toString());
+          memberQuery.businessRegion = { $in: Array.from(new Set([...allowedOids, ...allowedStrings])) };
+        }
       }
 
       const allMembers = await this.memberRepo.find({ where: memberQuery });
@@ -371,8 +383,7 @@ export class AdminDashboardController {
 
       const regionOverview = Array.from(regionCounts.entries())
         .map(([name, data]) => ({ name, value: data.count, members: data.count, id: data.id }))
-        .sort((a, b) => b.members - a.members)
-        .slice(0, 6);
+        .sort((a, b) => b.members - a.members);
 
       // 4. Category Overview
       const allCategories = await this.categoryRepo.find({ where: { isDeleted: false } as any });
@@ -388,9 +399,8 @@ export class AdminDashboardController {
       });
 
       const categoryOverview = Array.from(categoryCounts.entries())
-        .map(([name, data]) => ({ name, count: data.count, id: data.id }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 6);
+        .map(([name, data]) => ({ name, count: data.count, value: data.count, id: data.id }))
+        .sort((a, b) => b.count - a.count);
 
       return res.status(StatusCodes.OK).json({
         success: true,

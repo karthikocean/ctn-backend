@@ -5,6 +5,7 @@ import { Connection, ConnectionStatus } from "../entity/Connection";
 import { sendPushNotification, insertPushNotification } from "./pushnotification.service";
 import { ObjectId } from "mongodb";
 import { NotificationModule } from "../entity/PushNotifications";
+import { isCronNotificationEnabled } from "../config/env";
 
 export class BirthdayCronService {
   private static memberRepo = AppDataSource.getMongoRepository(Member);
@@ -14,6 +15,11 @@ export class BirthdayCronService {
    * Initializes the Birthday cron job — runs every day at 8:00 AM
    */
   static init() {
+    if (!isCronNotificationEnabled()) {
+      console.log("🎂 Birthday Cron Job disabled (NOTIFICATION=false in env).");
+      return;
+    }
+
     console.log("🎂 Initializing Birthday Cron Job...");
 
     // Runs every day at 8:00 AM
@@ -33,6 +39,11 @@ export class BirthdayCronService {
    * Finds all members with a birthday today, sends them a direct birthday notification, and notifies their mutual friends
    */
   static async processBirthdays() {
+    if (!isCronNotificationEnabled()) {
+      console.log("[BirthdayCron] Cron notifications are disabled via env. Skipping birthday processing.");
+      return;
+    }
+
     const now = new Date();
     const todayMonth = now.getMonth() + 1; // 1-based month
     const todayDay = now.getDate();

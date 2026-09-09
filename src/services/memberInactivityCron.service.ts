@@ -3,6 +3,7 @@ import { AppDataSource } from "../data-source";
 import { Member, MemberStatus } from "../entity/Member";
 import { NotificationModule, PushNotification } from "../entity/PushNotifications";
 import { sendPushNotification } from "./pushnotification.service";
+import { isCronNotificationEnabled } from "../config/env";
 
 export class MemberInactivityCronService {
   private static memberRepo = AppDataSource.getMongoRepository(Member);
@@ -29,16 +30,20 @@ export class MemberInactivityCronService {
     });
 
     // 2. 09:00 AM - Send daily reminder push notification to members inactive for 5+ days
-    cron.schedule("0 9 * * *", async () => {
-      try {
-        console.log("🕒 Running Member Inactivity Reminder Notification Cron (09:00 AM)...");
-        await this.sendInactivityReminders();
-      } catch (error: any) {
-        console.error("❌ Member Inactivity Reminder Cron Failed:", error.message);
-      }
-    }, {
-      timezone: "Asia/Kolkata"
-    });
+    if (!isCronNotificationEnabled()) {
+      console.log("⏰ Member Inactivity Reminder Notification Cron (09:00 AM) disabled (NOTIFICATION=false in env).");
+    } else {
+      cron.schedule("0 9 * * *", async () => {
+        try {
+          console.log("🕒 Running Member Inactivity Reminder Notification Cron (09:00 AM)...");
+          await this.sendInactivityReminders();
+        } catch (error: any) {
+          console.error("❌ Member Inactivity Reminder Cron Failed:", error.message);
+        }
+      }, {
+        timezone: "Asia/Kolkata"
+      });
+    }
   }
 
   /**
@@ -82,6 +87,11 @@ export class MemberInactivityCronService {
    * who have not logged in for 5 or more consecutive days.
    */
   static async sendInactivityReminders() {
+    if (!isCronNotificationEnabled()) {
+      console.log("[MemberInactivityReminder] Cron notifications are disabled via env. Skipping inactivity reminders.");
+      return;
+    }
+
     const fiveDaysAgo = new Date();
     fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
 
