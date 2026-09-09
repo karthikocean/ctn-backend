@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { AppDataSource } from "../data-source";
 import { Announcement, AnnouncementStatus } from "../entity/Announcement";
 import { notifyAnnouncementAudience } from "./pushnotification.service";
+import { isCronNotificationEnabled } from "../config/env";
 
 export class AnnouncementCronService {
   private static announcementRepo = AppDataSource.getMongoRepository(Announcement);
@@ -63,15 +64,19 @@ export class AnnouncementCronService {
       if (result.modifiedCount > 0) {
         console.log(`✅ Announcement Activation: ${result.modifiedCount} announcements set to published.`);
 
-        for (const item of scheduledItems) {
-          notifyAnnouncementAudience({
-            announcementId: item._id.toString(),
-            title: item.title,
-            content: item.content,
-            regionId: item.regionId ? item.regionId.toString() : undefined,
-            regionIds: item.regionIds ? item.regionIds.map((id: any) => id.toString()) : undefined,
-            senderId: item.createdBy ? item.createdBy.toString() : undefined
-          }).catch(err => console.error("Error notifying scheduled announcement:", err));
+        if (!isCronNotificationEnabled()) {
+          console.log("[AnnouncementCron] Cron notifications are disabled via env. Skipping announcement audience notifications.");
+        } else {
+          for (const item of scheduledItems) {
+            notifyAnnouncementAudience({
+              announcementId: item._id.toString(),
+              title: item.title,
+              content: item.content,
+              regionId: item.regionId ? item.regionId.toString() : undefined,
+              regionIds: item.regionIds ? item.regionIds.map((id: any) => id.toString()) : undefined,
+              senderId: item.createdBy ? item.createdBy.toString() : undefined
+            }).catch(err => console.error("Error notifying scheduled announcement:", err));
+          }
         }
       }
     }

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Tests for FranchiseFilter middleware optimization and lazy member ID loading.
  */
 
@@ -140,5 +140,51 @@ describe("FranchiseFilter Middleware", () => {
 
     expect(reqA.isFranchise).toBe(false);
     expect(reqB.isFranchise).toBe(true);
+  });
+
+  test("4. Franchise user assigned to a specific sub-area -> only that sub-area is included, sister areas excluded", async () => {
+    const userId = new ObjectId();
+    const regionId = new ObjectId(); // e.g., Chennai
+    const areaId1 = new ObjectId();  // e.g., Capital
+    const areaId2 = new ObjectId();  // e.g., Coromandel
+
+    const mockReq: any = {
+      user: {
+        userId: userId.toString(),
+        role: { code: "FRANCHISE_OWNER", name: "Franchise Owner" }
+      }
+    };
+
+    const findOneFranchise = jest.fn().mockResolvedValue({
+      _id: new ObjectId(),
+      userId: [userId],
+      businessRegionId: areaId1, // Assigned specifically to Capital
+      isDeleted: false
+    });
+
+    const findOneRegion = jest.fn().mockResolvedValue({
+      _id: regionId,
+      areas: [{ _id: areaId1, name: "Capital" }, { _id: areaId2, name: "Coromandel" }],
+      isDeleted: false
+    });
+
+    jest.spyOn(AppDataSource, "getMongoRepository").mockImplementation((entity: any) => {
+      if (entity.name === "Franchise") {
+        return { findOne: findOneFranchise } as any;
+      }
+      if (entity.name === "BusinessRegion") {
+        return { findOne: findOneRegion } as any;
+      }
+      return { find: jest.fn().mockResolvedValue([]) } as any;
+    });
+
+    await franchiseFilter(mockReq, mockRes, mockNext);
+
+    expect(mockNext).toHaveBeenCalled();
+    expect(mockReq.isFranchise).toBe(true);
+    // Must ONLY contain areaId1 (Capital). Neither regionId (Chennai) nor areaId2 (Coromandel) should be present.
+    expect(mockReq.franchiseAreaIds).toEqual([areaId1]);
+    expect(mockReq.franchiseAreaIds.some((id: any) => id.equals(areaId2))).toBe(false);
+    expect(mockReq.franchiseAreaIds.some((id: any) => id.equals(regionId))).toBe(false);
   });
 });

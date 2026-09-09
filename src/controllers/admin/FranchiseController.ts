@@ -2,6 +2,9 @@ import {
   JsonController,
   Get,
   Post,
+  Put,
+  Delete,
+  Param,
   Body,
   QueryParam,
   NotFoundError,
@@ -14,9 +17,9 @@ import {
 import { AppDataSource } from "../../data-source";
 import { Franchise, FranchiseStatus } from "../../entity/Franchise";
 import { BusinessRegion } from "../../entity/BusinessRegion";
-import { resolveRegions } from "../../utils/region.helper";
+import { resolveRegions, resolveRegion } from "../../utils/region.helper";
 import { AdminUser } from "../../entity/AdminUser";
-import { CreateFranchiseDto } from "../../dto/admin/Franchise.dto";
+import { CreateFranchiseDto, UpdateFranchiseDto } from "../../dto/admin/Franchise.dto";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
@@ -495,6 +498,242 @@ export class FranchiseController {
       }
 
       await this.paymentHistoryRepo.save(record);
+
+      return res.status(StatusCodes.OK).json({
+        message: "Commission settlement updated successfully",
+        data: record
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/franchises/{id}:
+   *   get:
+   *     summary: Get single franchise by ID
+   *     tags: [Franchise]
+   */
+  @Get("/:id")
+  @UseBefore(canAccess("franchises", "view"))
+  async getOne(@Param("id") id: string, @Req() req: any, @Res() res: any) {
+    try {
+      if (!ObjectId.isValid(id)) {
+        throw new BadRequestError("Invalid franchise ID");
+      }
+
+      if (req.isFranchise && (!req.franchise || req.franchise._id.toString() !== id)) {
+        throw new BadRequestError("Access Denied: You cannot view other franchises");
+      }
+
+      const franchise = await this.franchiseRepo.findOneBy({
+        _id: new ObjectId(id),
+        isDeleted: false
+      });
+      if (!franchise) {
+        throw new NotFoundError("Franchise not found");
+      }
+
+      let businessRegion = null;
+      if (franchise.businessRegionId) {
+        const region = await this.regionRepo.findOne({
+          where: {
+            $or: [
+              { _id: franchise.businessRegionId },
+              { "areas._id": franchise.businessRegionId }
+            ],
+            isDeleted: false
+          } as any
+        });
+        if (region) {
+          const resolved = await resolveRegion(region);
+          const matchedArea = resolved?.areas?.find((a: any) => a._id.toString() === franchise.businessRegionId.toString());
+          businessRegion = {
+            _id: franchise.businessRegionId,
+            name: matchedArea ? matchedArea.name : (resolved ? `${resolved.city}, ${resolved.state}` : ""),
+            city: resolved?.city,
+            state: resolved?.state,
+            country: resolved?.country,
+            areas: resolved?.areas
+          };
+        }
+      }
+
+      let users: any[] = [];
+      if (franchise.userId && franchise.userId.length > 0) {
+        const adminUsers = await this.adminUserRepo.find({
+          where: { _id: { $in: franchise.userId } } as any
+        });
+        users = adminUsers.map(u => ({
+          _id: u.id,
+          fullName: u.name,
+          email: u.email,
+          mobileNumber: u.phoneNumber
+        }));
+      }
+
+      return res.status(StatusCodes.OK).json({
+        message: "Franchise fetched successfully",
+        data: {
+          ...franchise,
+          businessRegion,
+          users
+        }
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/franchises/{id}:
+   *   put:
+   *     summary: Update franchise
+   *     tags: [Franchise]
+   */
+  @Put("/:id")
+  @UseBefore(canAccess("franchises", "edit"))
+  async update(
+    @Param("id") id: string,
+    @Body() data: UpdateFranchiseDto,
+    @Req() req: any,
+    @Res() res: any
+  ) {
+    try {
+      if (!ObjectId.isValid(id)) {
+        throw new BadRequestError("Invalid franchise ID");
+      }
+
+      if (req.isFranchise && (!req.franchise || req.franchise._id.toString() !== id)) {
+        throw new BadRequestError("Access Denied: You cannot modify other franchises");
+      }
+
+      const franchise = await this.franchiseRepo.findOneBy({
+        _id: new ObjectId(id),
+        isDeleted: false
+      });
+      if (!franchise) {
+        throw new NotFoundError("Franchise not found");
+      }
+
+      // Check duplicate name if changing name
+      if (data.name && data.name.trim().toLowerCase() !== franchise.name.toLowerCase()) {
+        const existing = await this.franchiseRepo.findOne({
+          where: {
+            _id: { $ne: new ObjectId(id) },
+            name: { $regex: `^${data.name.trim()}$`, $options: "i" },
+            isDeleted: false
+          }
+        });
+        if (existing) {
+          throw new BadRequestError("Franchise with this name already exists");
+        }
+        franchise.name = data.name.trim();
+      }
+
+      // Check business region if changed
+      if (data.businessRegionId) {
+        if (!ObjectId.isValid(data.businessRegionId)) {
+          throw new BadRequestError("Invalid businessRegionId");
+        }
+        const region = await this.regionRepo.findOne({
+          where: {
+            $or: [
+              { _id: new ObjectId(data.businessRegionId) },
+              { "areas._id": new ObjectId(data.businessRegionId) }
+            ],
+            isDeleted: false
+          } as any
+        });
+        if (!region) {
+          throw new NotFoundError("Business region not found");
+        }
+
+        const regionExisting = await this.franchiseRepo.findOne({
+          where: {
+            _id: { $ne: new ObjectId(id) },
+            businessRegionId: new ObjectId(data.businessRegionId),
+            isDeleted: false
+          }
+        });
+        if (regionExisting) {
+          throw new BadRequestError("A franchise already exists for this business region");
+        }
+        franchise.businessRegionId = new ObjectId(data.businessRegionId);
+      }
+
+      // Validate userIds if provided
+      if (data.userId !== undefined) {
+        let userObjectIds: ObjectId[] = [];
+        if (data.userId.length > 0) {
+          for (const uid of data.userId) {
+            if (!ObjectId.isValid(uid)) {
+              throw new BadRequestError(`Invalid userId: ${uid}`);
+            }
+            userObjectIds.push(new ObjectId(uid));
+          }
+
+          const usersCount = await this.adminUserRepo.count({
+            _id: { $in: userObjectIds },
+            isDeleted: false
+          } as any);
+          if (usersCount !== userObjectIds.length) {
+            throw new BadRequestError("One or more userIds are invalid or do not exist");
+          }
+        }
+        franchise.userId = userObjectIds;
+      }
+
+      if (data.status) {
+        franchise.status = data.status;
+      }
+
+      if (data.commissionPercentage !== undefined) {
+        franchise.commissionPercentage = data.commissionPercentage;
+      }
+
+      const saved = await this.franchiseRepo.save(franchise);
+
+      return res.status(StatusCodes.OK).json({
+        message: "Franchise updated successfully",
+        data: saved
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/franchises/{id}:
+   *   delete:
+   *     summary: Delete franchise (Soft Delete)
+   *     tags: [Franchise]
+   */
+  @Delete("/:id")
+  @UseBefore(canAccess("franchises", "delete"))
+  async delete(@Param("id") id: string, @Req() req: any, @Res() res: any) {
+    try {
+      if (!ObjectId.isValid(id)) {
+        throw new BadRequestError("Invalid franchise ID");
+      }
+
+      if (req.isFranchise) {
+        throw new BadRequestError("Access Denied: Franchise users cannot delete franchises");
+      }
+
+      const franchise = await this.franchiseRepo.findOneBy({
+        _id: new ObjectId(id),
+        isDeleted: false
+      });
+      if (!franchise) {
+        throw new NotFoundError("Franchise not found");
+      }
+
+      franchise.isDeleted = true;
+      await this.franchiseRepo.save(franchise);
 
       return res.status(StatusCodes.OK).json({
         message: "Franchise deleted successfully"

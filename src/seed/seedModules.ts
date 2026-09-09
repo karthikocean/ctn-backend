@@ -25,7 +25,7 @@ export async function seedModules() {
     { name: "Referral Categories", parentSlug: "categories" },
 
     { name: "Announcements" },
-    { name: "Events" },
+    // { name: "Events" },
     { name: "Blogs" },
 
     { name: "Trainings" },

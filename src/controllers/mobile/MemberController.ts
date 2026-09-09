@@ -45,6 +45,7 @@ import { ReportedHistory } from "../../entity/ReportedHistory";
 import { ReferralService } from "../../services/referral.service";
 import { WelcomeCardService } from "../../services/welcomeCard.service";
 import { GstAlertService } from "../../services/gstAlert.service";
+import { resolveRegions } from "../../utils/region.helper";
 
 @JsonController("/members")
 export class MobileMemberController {
@@ -1620,72 +1621,52 @@ export class MobileMemberController {
   }
 
   private async getAreasMap(members: Member[]) {
-    const stateCities = members
-      .filter(m => m.state && m.city && m.businessRegion)
-      .map(m => ({ state: m.state!, city: m.city! }));
+    const regionIds = [
+      ...new Set(
+        members
+          .map(m => m.businessRegion)
+          .filter((id): id is ObjectId => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id))
+      )
+    ];
 
-    const uniqueStateCitiesMap = new Map<string, { state: string, city: string }>();
-    for (const sc of stateCities) {
-      uniqueStateCitiesMap.set(`${sc.state.toLowerCase()}|${sc.city.toLowerCase()}`, sc);
-    }
-    const uniqueStateCities = Array.from(uniqueStateCitiesMap.values());
-    const stateNames = uniqueStateCities.map(sc => sc.state);
-    const cityNames = uniqueStateCities.map(sc => sc.city);
+    const areaMap = new Map<string, { _id: ObjectId, name: string }>();
 
-    const stateRepo = AppDataSource.getMongoRepository(State);
-    const cityRepo = AppDataSource.getMongoRepository(City);
-
-    const matchingStates = stateNames.length > 0
-      ? await stateRepo.find({
+    if (regionIds.length > 0) {
+      const regions = await this.businessRegionRepo.find({
         where: {
-          name: { $in: stateNames.map(name => new RegExp(`^${name}$`, "i")) },
-          isDeleted: false
-        }
-      })
-      : [];
-
-    const matchingCities = cityNames.length > 0
-      ? await cityRepo.find({
-        where: {
-          name: { $in: cityNames.map(name => new RegExp(`^${name}$`, "i")) },
-          isDeleted: false
-        }
-      })
-      : [];
-
-    const stateIdMap = new Map(matchingStates.map(s => [s._id.toString(), s.name.toLowerCase()]));
-    const cityIdMap = new Map(matchingCities.map(c => [c._id.toString(), c.name.toLowerCase()]));
-
-    const stateIds = matchingStates.map(s => s._id);
-    const cityIds = matchingCities.map(c => c._id);
-
-    const regions = (stateIds.length > 0 && cityIds.length > 0)
-      ? await this.businessRegionRepo.find({
-        where: {
-          state: { $in: stateIds },
-          city: { $in: cityIds },
+          $or: [
+            { _id: { $in: regionIds } },
+            { "areas._id": { $in: regionIds } }
+          ],
           isDeleted: false
         } as any
-      })
-      : [];
+      });
 
-    const regionMap = new Map<string, Area[]>();
-    for (const r of regions) {
-      const stateName = stateIdMap.get(r.state.toString()) || "";
-      const cityName = cityIdMap.get(r.city.toString()) || "";
-      regionMap.set(`${stateName}|${cityName}`, r.areas || []);
+      const resolvedRegions = await resolveRegions(regions);
+      for (const r of resolvedRegions) {
+        if (r._id) {
+          areaMap.set(r._id.toString(), {
+            _id: r._id,
+            name: r.name || r.city || r.state || "Region"
+          });
+        }
+        if (r.areas && Array.isArray(r.areas)) {
+          for (const a of r.areas) {
+            if (a._id) {
+              areaMap.set(a._id.toString(), {
+                _id: a._id,
+                name: a.name
+              });
+            }
+          }
+        }
+      }
     }
 
     const areasMap = new Map<string, { _id: ObjectId, name: string } | null>();
     for (const m of members) {
-      let areaInfo = null;
-      if (m.businessRegion && m.state && m.city) {
-        const areasList = regionMap.get(`${m.state.toLowerCase()}|${m.city.toLowerCase()}`) || [];
-        const matchedArea = areasList.find(a => a._id?.toString() === m.businessRegion!.toString());
-        if (matchedArea) {
-          areaInfo = { _id: matchedArea._id, name: matchedArea.name };
-        }
-      }
+      const areaInfo = m.businessRegion ? areaMap.get(m.businessRegion.toString()) || null : null;
       areasMap.set(m._id.toString(), areaInfo);
     }
     return areasMap;

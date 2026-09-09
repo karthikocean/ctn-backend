@@ -19,6 +19,7 @@ import { AdminUser } from "../../entity/AdminUser";
 import { Role } from "../../entity/Role.Permission";
 import { Franchise } from "../../entity/Franchise";
 import { Member } from "../../entity/Member";
+import { BusinessRegion } from "../../entity/BusinessRegion";
 import { CreateAdminUserDto, UpdateAdminUserDto, UpdateAdminUserStatusDto } from "../../dto/admin/AdminUser.dto";
 import bcrypt from "bcryptjs";
 import { ObjectId } from "mongodb";
@@ -138,6 +139,7 @@ export class AdminUserController {
   @UseBefore(AuthMiddleware)
   async getFranchiseUsers(
     @QueryParam("excludeFranchiseId") excludeFranchiseId: string,
+    @QueryParam("regionId") regionId: string, // <-- Added regionId param
     @Res() res: any
   ) {
     try {
@@ -188,34 +190,85 @@ export class AdminUserController {
       // Filter out users who are already assigned to other franchises
       const filteredUsers = users.filter(user => !assignedUserIds.has(user.id.toString()));
 
-      // Look up linked members to get businessName
+      // Resolve businessRegion and area IDs if regionId is provided
+      let targetRegionAreaIds: string[] = [];
+      if (regionId && ObjectId.isValid(regionId)) {
+        const cleanRegionId = regionId.trim();
+        const businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
+        const region = await businessRegionRepo.findOne({
+          where: {
+            $or: [
+              { _id: new ObjectId(cleanRegionId) },
+              { "areas._id": new ObjectId(cleanRegionId) }
+            ],
+            isDeleted: false
+          } as any
+        });
+
+        if (region) {
+          const isParentRegion = region._id.toString() === cleanRegionId;
+          if (isParentRegion) {
+            // Parent region selected -> include parent ID and all its area IDs
+            targetRegionAreaIds.push(region._id.toString());
+            if (region.areas && Array.isArray(region.areas)) {
+              region.areas.forEach((a: any) => {
+                const aId = (a._id || a.id)?.toString();
+                if (aId) targetRegionAreaIds.push(aId);
+              });
+            }
+          } else {
+            // Specific area selected -> ONLY match that specific area ID
+            targetRegionAreaIds.push(cleanRegionId);
+          }
+        } else {
+          targetRegionAreaIds.push(cleanRegionId);
+        }
+      }
+
+      // Look up linked members to get businessName and businessRegion
       const memberIds = filteredUsers
         .filter(u => u.memberId)
         .map(u => new ObjectId(u.memberId!.toString()));
 
-      let memberMap = new Map<string, string>();
+      let memberMap = new Map<string, { businessName: string; businessRegion: string }>();
       if (memberIds.length > 0) {
         const memberRepo = AppDataSource.getMongoRepository(Member);
         const members = await memberRepo.find({
           where: { _id: { $in: memberIds } }
         });
         memberMap = new Map(
-          members.map(m => [m._id.toString(), m.businessName || ""])
+          members.map(m => [
+            m._id.toString(),
+            {
+              businessName: m.businessName || "",
+              businessRegion: m.businessRegion ? m.businessRegion.toString() : ""
+            }
+          ])
         );
       }
 
-      const mappedUsers = filteredUsers.map(user => ({
-        id: user.id,
-        name: user.name,
-        userId: user.userId,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        roleId: user.roleId,
-        roleName: roleMap.get(user.roleId.toString()) || "N/A",
-        isActive: user.isActive,
-        profileImage: user.profileImage,
-        businessName: user.memberId ? (memberMap.get(user.memberId.toString()) || "") : ""
-      }));
+      const mappedUsers = filteredUsers
+        .map(user => {
+          const mInfo = user.memberId ? memberMap.get(user.memberId.toString()) : null;
+          return {
+            id: user.id,
+            name: user.name,
+            userId: user.userId,
+            email: user.email,
+            phoneNumber: user.phoneNumber,
+            roleId: user.roleId,
+            roleName: roleMap.get(user.roleId.toString()) || "N/A",
+            isActive: user.isActive,
+            profileImage: user.profileImage,
+            businessName: mInfo ? mInfo.businessName : "",
+            businessRegion: mInfo ? mInfo.businessRegion : "",
+            memberRegionId: mInfo ? mInfo.businessRegion : ""
+          };
+        })
+        .filter(user => {
+          if (!regionId || targetRegionAreaIds.length === 0) return true;
+          return user.businessRegion && targetRegionAreaIds.includes(user.businessRegion);
+        });
 
       return res.status(StatusCodes.OK).json(mappedUsers);
     } catch (error: any) {

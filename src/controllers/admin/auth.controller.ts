@@ -87,16 +87,16 @@ export class AuthController {
 
       if (role.code === "FRANCHISE_OWNER") {
         const franchiseOwnerRepo = AppDataSource.getMongoRepository(Franchise);
-        const franchiseOwner = await franchiseOwnerRepo.findOne({ where: { userId: { $in: [user.id] } } });
+        const franchiseOwner = await franchiseOwnerRepo.findOne({ where: { userId: { $in: [user.id] }, isDeleted: false } });
         if (!franchiseOwner) {
           throw new UnauthorizedError("Franchise Owner not found");
         }
         if (franchiseOwner.status === FranchiseStatus.INACTIVE) {
           throw new UnauthorizedError("Franchise Owner is inactive. Please contact admin.");
         }
-        if (franchiseOwner.isDeleted) {
-          throw new UnauthorizedError("Franchise Owner is deleted. Please contact admin.");
-        }
+        // if (franchiseOwner.isDeleted) {
+        //   throw new UnauthorizedError("Franchise Owner is deleted. Please contact admin.");
+        // }
       }
 
       const credential = user.password || user.pin;
