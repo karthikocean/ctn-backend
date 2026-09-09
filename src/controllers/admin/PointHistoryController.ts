@@ -8,9 +8,7 @@ import {
 import { AppDataSource } from "../../data-source";
 import { PointHistory } from "../../entity/PointHistory";
 import { Member } from "../../entity/Member";
-import { BusinessRegion, Area } from "../../entity/BusinessRegion";
-import { State } from "../../entity/State";
-import { City } from "../../entity/City";
+import { BusinessRegion } from "../../entity/BusinessRegion";
 import { Category } from "../../entity/Category";
 import { Plan } from "../../entity/Plan";
 import { StatusCodes } from "http-status-codes";
