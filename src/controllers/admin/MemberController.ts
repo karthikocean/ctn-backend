@@ -585,4 +585,111 @@ export class AdminMemberController {
     }
   }
 
+  /**
+   * @swagger
+   * /api/admin/members/{id}/assign-plan:
+   *   post:
+   *     summary: Assign subscription plan to member (Admin)
+   *     tags: [Admin Member]
+   */
+  @Post("/:id/assign-plan")
+  async assignPlan(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { planId: string; trialDays?: number; startDate?: string; endDate?: string },
+    @Res() res: any
+  ) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid member ID");
+      if (!body.planId || !ObjectId.isValid(body.planId)) {
+        throw new BadRequestError("Valid plan ID is required");
+      }
+
+      const member = await this.memberRepo.findOneBy({ _id: new ObjectId(id), isDeleted: false });
+      if (!member) throw new NotFoundError("Member not found");
+
+      if (req.isFranchise) {
+        const regionId = member.businessRegion;
+        if (!regionId || !req.franchiseAreaIds.some((areaId: ObjectId) => areaId.toString() === regionId.toString())) {
+          throw new NotFoundError("Member not found");
+        }
+      }
+
+      const plan = await this.planRepo.findOneBy({
+        _id: new ObjectId(body.planId),
+        isDeleted: false
+      });
+      if (!plan) throw new NotFoundError("Plan not found");
+      if (plan.status !== "active") {
+        throw new BadRequestError("Selected plan is not active");
+      }
+
+      const now = new Date();
+      const start = body.startDate ? new Date(body.startDate) : now;
+
+      // Calculate trial period: use explicit trialDays if provided, else plan.trialDays, fallback to 30 days
+      const trialDays = Number(body.trialDays) > 0
+        ? Number(body.trialDays)
+        : (plan.trialDays && Number(plan.trialDays) > 0 ? Number(plan.trialDays) : 30);
+
+      let end: Date;
+      if (body.endDate) {
+        end = new Date(body.endDate);
+      } else {
+        end = new Date(start);
+        end.setDate(end.getDate() + trialDays);
+      }
+
+      // Expire any existing active subscriptions for this member
+      await this.subscriptionRepo.updateMany(
+        { memberId: member._id, status: "ACTIVE" },
+        { $set: { status: "EXPIRED" } }
+      );
+
+      const isTrial = true;
+
+      const newSub = new MemberSubscription();
+      newSub.memberId = member._id;
+      newSub.planId = plan._id;
+      newSub.type = (plan.billingType || "BASIC").toUpperCase();
+      newSub.status = "ACTIVE";
+      newSub.startDate = start;
+      newSub.endDate = end;
+      newSub.isTrial = isTrial;
+      newSub.isDeleted = false;
+
+      const savedSub = await this.subscriptionRepo.save(newSub);
+
+      member.planId = plan._id;
+      member.subscriptionId = savedSub._id;
+      member.subscriptionStartDate = start;
+      member.subscriptionEndDate = end;
+      member.hasUsedTrial = true;
+      await this.memberRepo.save(member);
+
+      try {
+        const { SubscriptionService } = await import("../../services/subscription.service");
+        await new SubscriptionService().invalidateMemberPlanCache(member._id);
+      } catch (cacheErr: any) {
+        console.warn("[AssignPlan] Cache invalidation notice:", cacheErr.message);
+      }
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: `Trial plan "${plan.title}" assigned successfully (${trialDays} days)`,
+        data: {
+          memberId: member._id,
+          planId: plan._id,
+          planTitle: plan.title,
+          subscriptionId: savedSub._id,
+          startDate: start,
+          endDate: end,
+          trialDays,
+          isTrial: true
+        }
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
 }

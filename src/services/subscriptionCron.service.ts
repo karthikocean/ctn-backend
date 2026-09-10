@@ -342,7 +342,10 @@ export class SubscriptionCronService {
 
     const activeTrialSubs = await this.subRepo.find({
       where: {
-        type: "TRIAL",
+        $or: [
+          { type: "TRIAL" },
+          { isTrial: true }
+        ],
         status: "ACTIVE",
         isDeleted: false
       } as any

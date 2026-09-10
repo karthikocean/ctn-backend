@@ -769,7 +769,16 @@ export class MobileSubscriptionController {
   @UseBefore(AuthMiddleware)
   async getAnalytics(@Res() res: any) {
     try {
-      const trialUsers = await this.subRepo.count({ type: "TRIAL", status: "ACTIVE", isDeleted: false });
+      const trialUsers = await this.subRepo.count({
+        where: {
+          $or: [
+            { type: "TRIAL" },
+            { isTrial: true }
+          ],
+          status: "ACTIVE",
+          isDeleted: false
+        } as any
+      });
       const premiumUsers = await this.subRepo.count({ type: "PREMIUM", status: "ACTIVE", isDeleted: false });
       const activeSubscribers = await this.subRepo.count({ status: "ACTIVE", isDeleted: false });
       const expiredSubscribers = await this.subRepo.count({ status: "EXPIRED", isDeleted: false });

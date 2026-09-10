@@ -29,7 +29,7 @@ export interface ServiceLocation {
 
 @Entity("members")
 @Index(["mobileNumber"])
-@Index(["email"], { unique: true, sparse: true })
+@Index(["email"])
 @Index(["referralCode"], { unique: true, sparse: true })
 @Index(["referredBy"])
 @Index(["status"])
