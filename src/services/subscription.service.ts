@@ -941,7 +941,7 @@ export class SubscriptionService {
           { $set: { invoiceNumber: payment.invoiceNumber } }
         );
       }
-      const activeSub = await this.activateSubscription(payment.memberId, payment.planId, payment._id);
+      const activeSub = await this.activateSubscription(payment.memberId, payment.planId!, payment._id);
       return {
         payment: payment,
         subscription: activeSub,

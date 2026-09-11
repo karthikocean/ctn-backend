@@ -25,8 +25,14 @@ export class Payment {
   @Column({ nullable: true })
     subscriptionId?: ObjectId;
 
-  @Column()
-    planId!: ObjectId;
+  @Column({ nullable: true })
+    planId?: ObjectId;
+
+  @Column({ nullable: true })
+    announcementId?: ObjectId;
+
+  @Column({ nullable: true })
+    bookingId?: ObjectId;
 
   @Column()
     amount!: number;

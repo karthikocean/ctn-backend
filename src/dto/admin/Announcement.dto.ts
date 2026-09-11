@@ -106,6 +106,11 @@ export class CreateAnnouncementDto {
   @Min(0)
     membersLimit?: number;
 
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+    amount?: number;
+
   @Type(() => Date)
   @IsOptional()
     scheduleDate?: Date;
@@ -199,6 +204,11 @@ export class UpdateAnnouncementDto {
   @IsOptional()
   @Min(0)
     membersLimit?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+    amount?: number;
 
   @Type(() => Date)
   @IsOptional()
