@@ -461,7 +461,7 @@ export class CommonController {
    * @swagger
    * /mobile-api/common/business-regions:
    *   get:
-   *     summary: Get business regions (areas) filtered by state and/or city IDs
+   *     summary: Get business regions (areas) filtered by state, city IDs, and/or search term
    *     tags: [Mobile Common]
    *     parameters:
    *       - in: query
@@ -480,6 +480,11 @@ export class CommonController {
    *           type: string
    *         description: Comma-separated list of city ObjectIds to filter results
    *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *         description: Search filter based on region/area name or city name (case-insensitive)
+   *       - in: query
    *         name: limit
    *         schema:
    *           type: integer
@@ -491,13 +496,14 @@ export class CommonController {
    *         description: Page number for pagination (0-based)
    *     responses:
    *       200:
-   *         description: List of areas sorted in alphabetical order, filtered by state and/or city
+   *         description: List of areas sorted in alphabetical order, filtered by state, city, and/or search term
    */
   @Get("/business-regions")
   async getBusinessRegions(
     @QueryParam("stateIds") stateIds: string,
     @QueryParam("states") states: string,
     @QueryParam("cityIds") cityIds: string,
+    @QueryParam("search") search: string,
     @QueryParam("limit") limit: number,
     @QueryParam("page") page: number,
     @Res() res: any
@@ -506,6 +512,9 @@ export class CommonController {
       const businessRegionRepository = AppDataSource.getMongoRepository(BusinessRegion);
       const stateRepo = AppDataSource.getMongoRepository(State);
       const cityRepo = AppDataSource.getMongoRepository(City);
+
+      const escapeRegex = (str: string) => str.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+      const searchFilter = (search || "").trim();
 
       let filterStateIds: ObjectId[] = [];
 
@@ -521,7 +530,7 @@ export class CommonController {
       if (filterStateIds.length === 0 && states) {
         const nameList = states.split(",").map(s => s.trim()).filter(Boolean);
         const stateConditions = nameList.map(s => ({
-          name: { $regex: new RegExp(`^${s.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&")}$`, "i") },
+          name: { $regex: new RegExp(`^${escapeRegex(s)}$`, "i") },
           isDeleted: false
         }));
         if (stateConditions.length > 0) {
@@ -539,7 +548,38 @@ export class CommonController {
           .map(id => new ObjectId(id));
       }
 
-      // Build query
+      const stateMap = new Map<string, { _id: ObjectId; name: string; country: string }>();
+      const cityMap = new Map<string, { _id: ObjectId; name: string }>();
+
+      // Prepare search filter based on region/area name and city name
+      let searchRegex: RegExp | null = null;
+      const searchMatchedCityIdSet = new Set<string>();
+
+      if (searchFilter) {
+        searchRegex = new RegExp(escapeRegex(searchFilter), "i");
+
+        // Find cities matching search term in City collection
+        const citySearchWhere: any = {
+          name: { $regex: searchRegex },
+          isDeleted: false
+        };
+        if (filterStateIds.length > 0) {
+          citySearchWhere.stateId = { $in: filterStateIds };
+        }
+        if (filterCityIds.length > 0) {
+          citySearchWhere._id = { $in: filterCityIds };
+        }
+        const citiesMatchingSearch = await cityRepo.find({
+          where: citySearchWhere,
+          select: ["_id", "name"]
+        });
+        for (const c of citiesMatchingSearch) {
+          searchMatchedCityIdSet.add(c._id.toString());
+          cityMap.set(c._id.toString(), { _id: c._id, name: c.name });
+        }
+      }
+
+      // Build business_regions query
       const where: any = { isDeleted: false, status: "active" };
       if (filterStateIds.length > 0) {
         where.state = { $in: filterStateIds };
@@ -547,32 +587,76 @@ export class CommonController {
       if (filterCityIds.length > 0) {
         where.city = { $in: filterCityIds };
       }
+      if (searchRegex) {
+        const searchOr: any[] = [
+          { "areas.name": { $regex: searchRegex } }
+        ];
+        if (searchMatchedCityIdSet.size > 0) {
+          const matchedCityIds = Array.from(searchMatchedCityIdSet).map(id => new ObjectId(id));
+          searchOr.push({ city: { $in: matchedCityIds } });
+        }
+        where.$or = searchOr;
+      }
 
-      const regions = await businessRegionRepository.find({ where });
+      const regions = await businessRegionRepository.find({
+        where,
+        select: ["_id", "country", "state", "city", "areas"]
+      });
 
-      // Resolve state and city names
+      if (regions.length === 0) {
+        return res.status(200).json({
+          success: true,
+          data: []
+        });
+      }
+
+      // Resolve state and city names only for IDs not already cached
       const allStateIds = [...new Set(regions.map(r => r.state?.toString()).filter(Boolean))];
       const allCityIds = [...new Set(regions.map(r => r.city?.toString()).filter(Boolean))];
 
-      const stateDocsRaw = allStateIds.length > 0
-        ? await stateRepo.find({ where: { _id: { $in: allStateIds.map(id => new ObjectId(id)) } } as any })
-        : [];
-      const cityDocsRaw = allCityIds.length > 0
-        ? await cityRepo.find({ where: { _id: { $in: allCityIds.map(id => new ObjectId(id)) } } as any })
-        : [];
+      const missingStateIds = allStateIds
+        .filter(id => !stateMap.has(id))
+        .map(id => new ObjectId(id));
+      if (missingStateIds.length > 0) {
+        const stateDocsRaw = await stateRepo.find({
+          where: { _id: { $in: missingStateIds } } as any,
+          select: ["_id", "name", "country"]
+        });
+        for (const s of stateDocsRaw) {
+          stateMap.set(s._id.toString(), { _id: s._id, name: s.name, country: s.country });
+        }
+      }
 
-      const stateMap = new Map(stateDocsRaw.map(s => [s._id.toString(), { _id: s._id, name: s.name, country: s.country }]));
-      const cityMap = new Map(cityDocsRaw.map(c => [c._id.toString(), { _id: c._id, name: c.name }]));
+      const missingCityIds = allCityIds
+        .filter(id => !cityMap.has(id))
+        .map(id => new ObjectId(id));
+      if (missingCityIds.length > 0) {
+        const cityDocsRaw = await cityRepo.find({
+          where: { _id: { $in: missingCityIds } } as any,
+          select: ["_id", "name"]
+        });
+        for (const c of cityDocsRaw) {
+          cityMap.set(c._id.toString(), { _id: c._id, name: c.name });
+        }
+      }
 
-      // Flatten all areas into a single combined array
+      // Flatten areas and apply search filter (matches if area name or city name matches)
       const combinedAreas: any[] = [];
 
       for (const region of regions) {
         const stateInfo = stateMap.get(region.state?.toString() ?? "");
         const cityInfo = cityMap.get(region.city?.toString() ?? "");
+        const isCityMatchedBySearch = region.city && searchMatchedCityIdSet.has(region.city.toString());
 
         if (region.areas && Array.isArray(region.areas)) {
           for (const area of region.areas) {
+            if (!area || !area.name) continue;
+
+            // Search filter check: matches if area's city matched, or area name matches
+            if (searchRegex && !isCityMatchedBySearch && !searchRegex.test(area.name)) {
+              continue;
+            }
+
             combinedAreas.push({
               _id: area._id,
               name: area.name,
@@ -584,15 +668,16 @@ export class CommonController {
         }
       }
 
-      // Sort alphabetically by area name, with city name as tie-breaker
+      // Pre-instantiate collator for optimal sort performance
+      const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
       const result = combinedAreas.sort((a, b) => {
         const nameA = (a.name || "").trim();
         const nameB = (b.name || "").trim();
-        const cmp = nameA.localeCompare(nameB, undefined, { sensitivity: "base", numeric: true });
+        const cmp = collator.compare(nameA, nameB);
         if (cmp !== 0) return cmp;
         const cityA = (a.city?.name || "").trim();
         const cityB = (b.city?.name || "").trim();
-        return cityA.localeCompare(cityB, undefined, { sensitivity: "base", numeric: true });
+        return collator.compare(cityA, cityB);
       });
 
       let finalData = result;
