@@ -1,3 +1,4 @@
+
 import rateLimit, { Options } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import { appRedis } from "../config/appRedis";
@@ -5,50 +6,86 @@ import { rateLimitConfig } from "../config/rateLimit.config";
 import { Request, Response } from "express";
 
 /**
- * Creates a Redis-backed store instance with Redis command delegation.
+ * Test environment:
+ * Do NOT initialize Redis-backed rate limiting.
+ *
+ * Jest will use express-rate-limit's default MemoryStore.
+ *
+ * Development/Production:
+ * Use Redis-backed rate limiting.
+ */
+const isTestEnvironment = process.env.NODE_ENV === "test";
+
+/**
+ * Creates a Redis-backed store instance.
+ *
+ * Redis is intentionally disabled during tests to avoid:
+ * - Redis connection attempts
+ * - RedisStore initialization errors
+ * - Lua script initialization
+ * - unnecessary CI delays
  */
 const getRedisStore = (prefixSuffix: string) => {
-  try {
-    return new RedisStore({
-      // @ts-expect-error - ioredis sendCommand compatibility
-      sendCommand: (...args: string[]) => appRedis.call(args[0], ...args.slice(1)),
-      prefix: `${rateLimitConfig.redisPrefix}${prefixSuffix}:`
-    });
-  } catch (err: any) {
-    console.warn(`⚠️ [RateLimit] Failed to initialize RedisStore for ${prefixSuffix}, falling back to MemoryStore:`, err.message);
+  if (isTestEnvironment) {
     return undefined;
   }
+
+  return new RedisStore({
+    // @ts-expect-error - ioredis sendCommand compatibility
+    sendCommand: (...args: string[]) =>
+      appRedis.call(args[0], ...args.slice(1)),
+    prefix: `${rateLimitConfig.redisPrefix}${prefixSuffix}:`
+  });
 };
 
 /**
- * Key generator helper: Uses authenticated User ID if available, falling back to IP.
+ * Key generator helper:
+ * Uses authenticated User ID if available,
+ * falling back to IP.
  */
 export const userOrIpKey = (req: Request): string => {
   const user = (req as any).user;
   const userId = user?.userId || user?.id || user?._id;
+
   if (userId) {
     return `user:${userId.toString()}`;
   }
+
   return req.ip || "127.0.0.1";
 };
 
 /**
- * Key generator helper for Auth/OTP: Combines IP + target identifier (email/phone).
+ * Key generator helper for Auth/OTP:
+ * Combines IP + target identifier (email/phone).
  */
 export const identifierOrIpKey = (req: Request): string => {
   const body = req.body || {};
-  const identifier = body.identifier || body.phone || body.mobileNumber || body.email || "";
+
+  const identifier =
+    body.identifier ||
+    body.phone ||
+    body.mobileNumber ||
+    body.email ||
+    "";
+
   const cleanId = String(identifier).trim().toLowerCase();
   const ip = req.ip || "127.0.0.1";
 
   if (cleanId) {
     return `${ip}_${cleanId}`;
   }
+
   return ip;
 };
 
 /**
- * Factory function to build standardized, production-grade rate limiters.
+ * Factory function to build standardized rate limiters.
+ *
+ * Test:
+ *   MemoryStore
+ *
+ * Development/Production:
+ *   RedisStore
  */
 const createLimiter = (
   key: string,
@@ -57,16 +94,44 @@ const createLimiter = (
   message: string,
   keyGenerator?: (req: Request) => string
 ) => {
+  const redisStore = getRedisStore(key);
+
   const options: Partial<Options> = {
     windowMs,
     max,
+
     standardHeaders: true,
     legacyHeaders: false,
-    passOnStoreError: true, // Fail-Open design: Redis outages do not crash or block the application
-    keyGenerator: keyGenerator || ((req: Request) => req.ip || "127.0.0.1"),
-    store: rateLimitConfig.enabled ? getRedisStore(key) : undefined,
+
+    /**
+     * Fail-open:
+     * Redis outages do not block the application.
+     */
+    passOnStoreError: true,
+
+    keyGenerator:
+      keyGenerator || ((req: Request) => req.ip || "127.0.0.1"),
+
+    /**
+     * Test environment:
+     * redisStore === undefined
+     * express-rate-limit automatically uses MemoryStore.
+     *
+     * Production/Development:
+     * RedisStore is used when rate limiting is enabled.
+     */
+    ...(rateLimitConfig.enabled && redisStore
+      ? {
+        store: redisStore
+      }
+      : {}),
+
     skip: () => !rateLimitConfig.enabled,
-    validate: { keyGeneratorIpFallback: false },
+
+    validate: {
+      keyGeneratorIpFallback: false
+    },
+
     handler: (_req: Request, res: Response) => {
       res.status(429).json({
         success: false,
@@ -113,7 +178,7 @@ export const authLimiter = createLimiter(
   identifierOrIpKey
 );
 
-// 5. OTP Limiter (Send & Verify OTP)
+// 5. OTP Limiter
 export const otpLimiter = createLimiter(
   "otp",
   rateLimitConfig.otp.windowMs,
