@@ -452,14 +452,14 @@ export class RazorpayVerificationService {
     // 4. Activate dynamic upgrade subscription
     const activeSub = await this.subService.activateSubscription(
       payment.memberId,
-      payment.planId,
+      payment.planId!,
       payment._id
     );
     const member = await this.memberRepo.findOneBy({ _id: new ObjectId(payment.memberId) });
     if (!member) {
       throw new BadRequestError("Member not found");
     }
-    const plan = await this.planRepo.findOneBy({ _id: new ObjectId(payment.planId) });
+    const plan = await this.planRepo.findOneBy({ _id: new ObjectId(payment.planId!) });
     const rawPlanName = plan?.title || "Advance";
     const planName = rawPlanName.toLowerCase().includes("plan") ? rawPlanName : `${rawPlanName} Plan`;
 
@@ -468,7 +468,7 @@ export class RazorpayVerificationService {
       subject: "Plan Upgraded",
       content: `Your subscription has been successfully upgraded to the ${planName}.`,
       moduleName: NotificationModule.UPGRADE,
-      moduleId: payment.planId.toString(),
+      moduleId: payment.planId!.toString(),
       receiverId: member._id.toString()
     });
 

@@ -23,6 +23,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { CreateAnnouncementDto, UpdateAnnouncementDto } from "../../dto/admin/Announcement.dto";
 import { Member } from "../../entity/Member";
 import { AnnouncementBooking } from "../../entity/AnnouncementBooking";
+import { Attendance } from "../../entity/Attendance";
 import { notifyAnnouncementAudience } from "../../services/pushnotification.service";
 import { StallBooking } from "../../entity/StallBooking";
 import { AuthMiddleware } from "../../middlewares/AuthMiddleware";
@@ -91,6 +92,12 @@ export class AdminAnnouncementController {
 
       const announcement = new Announcement();
       Object.assign(announcement, data);
+
+      if (announcement.announcementType === AnnouncementType.EVENT && data.amount !== undefined) {
+        announcement.amount = (data.amount !== null && (data.amount as any) !== "" && !isNaN(Number(data.amount))) ? Number(data.amount) : undefined;
+      } else if (announcement.announcementType !== AnnouncementType.EVENT) {
+        announcement.amount = undefined;
+      }
 
       if (data.regionIds && Array.isArray(data.regionIds)) {
         announcement.regionIds = data.regionIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
@@ -266,6 +273,12 @@ export class AdminAnnouncementController {
       const oldVideo = announcement.video;
       const previousStatus = announcement.status;
       Object.assign(announcement, data);
+
+      if (announcement.announcementType === AnnouncementType.EVENT && data.amount !== undefined) {
+        announcement.amount = (data.amount !== null && (data.amount as any) !== "" && !isNaN(Number(data.amount))) ? Number(data.amount) : undefined;
+      } else if (announcement.announcementType !== AnnouncementType.EVENT) {
+        announcement.amount = undefined;
+      }
 
       if (data.regionIds && Array.isArray(data.regionIds)) {
         announcement.regionIds = data.regionIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
@@ -449,13 +462,32 @@ export class AdminAnnouncementController {
         members.map(m => [m._id.toString(), m])
       );
 
-      // 4. Build event bookings response
+      // 4. Get attendance records for this announcement
+      const attendanceRepo = AppDataSource.getMongoRepository(Attendance);
+      const attendances = await attendanceRepo.find({
+        where: {
+          $or: [
+            { eventId: announcementOid },
+            { announcementId: announcementOid }
+          ]
+        } as any
+      });
+
+      const attendanceMap = new Map<string, Attendance>(
+        attendances.map(a => [a.memberId.toString(), a])
+      );
+
+      // 5. Build event bookings response
       const eventBookedMembers = eventBookings.map(b => {
         const member = memberMap.get(b.memberId.toString());
+        const attendance = attendanceMap.get(b.memberId.toString());
         return {
           bookingId: b._id,
           pointsSpent: b.pointsSpent,
           createdAt: b.createdAt,
+          isAttended: !!attendance,
+          attendedAt: attendance?.date || attendance?.createdAt || null,
+          checkInTime: attendance?.checkInTime || null,
           member: member ? {
             _id: member._id,
             fullName: member.fullName,
@@ -467,17 +499,21 @@ export class AdminAnnouncementController {
         };
       });
 
-      // 5. Build stall bookings response
+      // 6. Build stall bookings response
       const stallBookedMembers = stallBookings.map(b => {
         const member = memberMap.get(b.memberId.toString());
         const stallInfo = announcement.stallConfig?.stalls?.find(
           (s: any) => s._id?.toString() === b.stallId.toString()
         );
+        const attendance = attendanceMap.get(b.memberId.toString());
 
         return {
           bookingId: b._id,
           pointsSpent: b.pointsSpent,
           createdAt: b.createdAt,
+          isAttended: !!attendance,
+          attendedAt: attendance?.date || attendance?.createdAt || null,
+          checkInTime: attendance?.checkInTime || null,
           stall: stallInfo ? {
             _id: stallInfo._id,
             name: stallInfo.name,
@@ -515,6 +551,9 @@ export class AdminAnnouncementController {
           location: announcement.location,
           points: announcement.points,
           membersLimit: announcement.membersLimit,
+          amount: announcement.amount,
+          totalBookingsCount: eventBookings.length + stallBookings.length,
+          totalAttendedCount: attendances.length,
           stallConfig: announcement.stallConfig,
           eventBookings: eventBookedMembers,
           stallBookings: stallBookedMembers

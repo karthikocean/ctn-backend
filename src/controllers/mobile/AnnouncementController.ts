@@ -21,14 +21,24 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { StallBooking } from "../../entity/StallBooking";
 import { BookStallDto } from "../../dto/mobile/StallBooking.dto";
 import { PointService } from "../../services/point.service";
-import { Member } from "../../entity/Member";
+import { Member, MemberStatus } from "../../entity/Member";
 import { AnnouncementBooking } from "../../entity/AnnouncementBooking";
 import { validateModuleUsage } from "../../services/moduleUsage.service";
+import { Attendance, AttendanceStatus } from "../../entity/Attendance";
+import { MarkAttendanceDto } from "../../dto/mobile/Attendance.dto";
+import { PointConfigType } from "../../entity/PointConfig";
+import { EventRazorpayService } from "../../services/eventRazorpay.service";
+import {
+  BuyEventAnnouncementDto,
+  VerifyEventPaymentDto,
+  CancelEventPaymentDto
+} from "../../dto/mobile/AnnouncementPayment.dto";
 
 @JsonController("/announcements")
 @UseBefore(MobileAuthMiddleware)
 export class MobileAnnouncementController {
   private announcementRepo = AppDataSource.getMongoRepository(Announcement);
+  private eventRazorpayService = new EventRazorpayService();
 
   /**
    * @swagger
@@ -324,6 +334,85 @@ export class MobileAnnouncementController {
 
   /**
    * @swagger
+   * /mobile-api/announcements/my-attendances:
+   *   get:
+   *     summary: Get list of logged in member's attended announcement meetings (Mobile)
+   *     tags: [Mobile Announcement]
+   *     security:
+   *       - bearerAuth: []
+   */
+  @Get("/my-attendances")
+  async getMyAttendances(@Req() req: any, @Res() res: any) {
+    try {
+      const userId = req.user.userId;
+      const memberOid = new ObjectId(userId);
+
+      const attendanceRepo = AppDataSource.getMongoRepository(Attendance);
+      const attendances = await attendanceRepo.find({
+        where: {
+          memberId: memberOid
+        },
+        order: { date: "DESC", createdAt: "DESC" }
+      });
+
+      if (attendances.length === 0) {
+        return res.status(StatusCodes.OK).json({
+          success: true,
+          data: []
+        });
+      }
+
+      const announcementIds = Array.from(
+        new Set(attendances.map(a => (a.eventId || a.announcementId)?.toString()).filter(Boolean))
+      ).map(id => new ObjectId(id));
+
+      const announcements = await this.announcementRepo.find({
+        where: {
+          _id: { $in: announcementIds }
+        } as any
+      });
+
+      const annMap = new Map<string, Announcement>(
+        announcements.map(a => [a._id.toString(), a])
+      );
+
+      const result = attendances.map(att => {
+        const targetId = (att.eventId || att.announcementId)?.toString();
+        const ann = targetId ? annMap.get(targetId) : null;
+
+        return {
+          attendanceId: att._id,
+          eventId: att.eventId,
+          announcementId: att.announcementId,
+          bookingId: att.bookingId,
+          date: att.date,
+          checkInTime: att.checkInTime,
+          status: att.status,
+          remarks: att.remarks,
+          createdAt: att.createdAt,
+          announcement: ann ? {
+            _id: ann._id,
+            title: ann.title,
+            announcementType: ann.announcementType,
+            date: ann.date,
+            time: ann.time,
+            location: ann.location,
+            image: ann.image
+          } : null
+        };
+      });
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: result
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
    * /mobile-api/announcements/book-stall:
    *   post:
    *     summary: Book an offline event stall using points (Mobile)
@@ -405,11 +494,9 @@ export class MobileAnnouncementController {
         // Check registration limit for the event
         if (announcement.membersLimit > 0) {
           const bookedCount = await eventBookingRepo.count({
-            where: {
-              announcementId: announcementOid,
-              status: "booked"
-            }
-          });
+            announcementId: announcementOid,
+            status: "booked"
+          } as any);
 
           if (bookedCount >= announcement.membersLimit) {
             throw new BadRequestError("The event is fully booked, so you cannot book a stall");
@@ -496,6 +583,138 @@ export class MobileAnnouncementController {
 
   /**
    * @swagger
+   * /mobile-api/announcements/buy:
+   *   post:
+   *     summary: Create Razorpay checkout order for paid event booking via body (Mobile)
+   *     tags: [Mobile Announcement]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/BuyEventAnnouncementDto'
+   *     responses:
+   *       200:
+   *         description: Razorpay order created for event booking
+   */
+  @Post("/buy")
+  async buyEventAnnouncementViaBody(@Req() req: any, @Body() body: BuyEventAnnouncementDto, @Res() res: any) {
+    try {
+      const announcementId = body?.announcementId;
+      if (!announcementId) throw new BadRequestError("announcementId is required");
+      const data = await this.eventRazorpayService.initiateBuy(req.user.userId, announcementId);
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Razorpay payment transaction initiated.",
+        data
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/announcements/verify-payment:
+   *   post:
+   *     summary: Verify Razorpay payment signature and complete event booking (Mobile)
+   *     tags: [Mobile Announcement]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/VerifyEventPaymentDto'
+   *     responses:
+   *       200:
+   *         description: Payment verified and event booked successfully
+   */
+  @Post("/verify-payment")
+  async verifyEventPayment(@Req() req: any, @Body() body: VerifyEventPaymentDto, @Res() res: any) {
+    try {
+      const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = body;
+      const result = await this.eventRazorpayService.verifyPayment(
+        req.user.userId,
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature
+      );
+      return res.status(StatusCodes.OK).json(result);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/announcements/cancel-payment:
+   *   post:
+   *     summary: Cancel a pending Razorpay payment for event booking (Mobile)
+   *     tags: [Mobile Announcement]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/CancelEventPaymentDto'
+   *     responses:
+   *       200:
+   *         description: Payment transaction cancelled successfully
+   */
+  @Post("/cancel-payment")
+  async cancelEventPayment(@Req() req: any, @Body() body: CancelEventPaymentDto, @Res() res: any) {
+    try {
+      const { razorpayOrderId } = body;
+      const result = await this.eventRazorpayService.cancelPayment(
+        req.user.userId,
+        razorpayOrderId
+      );
+      return res.status(StatusCodes.OK).json(result);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/announcements/{id}/buy:
+   *   post:
+   *     summary: Create Razorpay checkout order for paid event booking via path param (Mobile)
+   *     tags: [Mobile Announcement]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: Razorpay order created for event booking
+   */
+  @Post("/:id/buy")
+  async buyEventAnnouncement(@Req() req: any, @Param("id") id: string, @Res() res: any) {
+    try {
+      const data = await this.eventRazorpayService.initiateBuy(req.user.userId, id);
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Razorpay payment transaction initiated.",
+        data
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
    * /mobile-api/announcements/{id}/book:
    *   post:
    *     summary: Book/register for an event announcement using points if configured (Mobile)
@@ -553,11 +772,9 @@ export class MobileAnnouncementController {
       // Check registration limits
       if (announcement.membersLimit > 0) {
         const bookedCount = await eventBookingRepo.count({
-          where: {
-            announcementId: announcementOid,
-            status: "booked"
-          }
-        });
+          announcementId: announcementOid,
+          status: "booked"
+        } as any);
 
         if (bookedCount >= announcement.membersLimit) {
           throw new BadRequestError("This event is fully booked");
@@ -712,11 +929,9 @@ export class MobileAnnouncementController {
       if (announcement.announcementType === AnnouncementType.EVENT) {
         const eventBookingRepo = AppDataSource.getMongoRepository(AnnouncementBooking);
         bookedMembersCount = await eventBookingRepo.count({
-          where: {
-            announcementId: announcement._id,
-            status: "booked"
-          }
-        });
+          announcementId: announcement._id,
+          status: "booked"
+        } as any);
 
         if (userId) {
           const userBooking = await eventBookingRepo.findOne({
@@ -730,15 +945,404 @@ export class MobileAnnouncementController {
         }
       }
 
+      // Check attendance details
+      let isAttended = false;
+      let attendedMembersCount = 0;
+      const attendanceRepo = AppDataSource.getMongoRepository(Attendance);
+      attendedMembersCount = await attendanceRepo.count({
+        $or: [
+          { eventId: announcement._id },
+          { announcementId: announcement._id }
+        ]
+      } as any);
+
+      if (userId) {
+        const userAttendance = await attendanceRepo.findOne({
+          where: {
+            $or: [
+              { eventId: announcement._id, memberId: new ObjectId(userId) },
+              { announcementId: announcement._id, memberId: new ObjectId(userId) }
+            ]
+          } as any
+        });
+        isAttended = !!userAttendance;
+      }
+
       return res.status(StatusCodes.OK).json({
         success: true,
         data: {
           ...announcement,
           stallConfig,
           isBooked,
-          bookedMembersCount
+          bookedMembersCount,
+          isAttended,
+          attendedMembersCount
         }
       });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * Helper method to process attendance marking with proper booking checks
+   */
+  private async processMarkAttendance(
+    targetAnnouncementId: string,
+    targetMemberId: string | undefined,
+    currentUserId: string,
+    body: MarkAttendanceDto | undefined,
+    res: any
+  ) {
+    if (!ObjectId.isValid(targetAnnouncementId)) {
+      throw new BadRequestError("Invalid announcement ID");
+    }
+
+    const effectiveMemberIdStr = targetMemberId || currentUserId;
+    if (!ObjectId.isValid(effectiveMemberIdStr)) {
+      throw new BadRequestError("Invalid member ID");
+    }
+
+    const announcementOid = new ObjectId(targetAnnouncementId);
+    const memberOid = new ObjectId(effectiveMemberIdStr);
+    const markerOid = new ObjectId(currentUserId);
+
+    // 1. Verify announcement meeting exists and is active / not deleted
+    const announcement = await this.announcementRepo.findOne({
+      where: {
+        _id: announcementOid,
+        isDeleted: false
+      }
+    });
+
+    if (!announcement) {
+      throw new NotFoundError("Announcement meeting not found");
+    }
+
+    // 2. Verify member exists and is active
+    const memberRepo = AppDataSource.getMongoRepository(Member);
+    const member = await memberRepo.findOne({
+      where: {
+        _id: memberOid,
+        isDeleted: false
+      }
+    });
+
+    if (!member) {
+      throw new NotFoundError("Member not found");
+    }
+
+    if (member.status === MemberStatus.INACTIVE || member.status === MemberStatus.BLOCKED) {
+      throw new BadRequestError("Member account is inactive or blocked");
+    }
+
+    // 3. Proper check: verify member has booked the meeting
+    const eventBookingRepo = AppDataSource.getMongoRepository(AnnouncementBooking);
+    const eventBooking = await eventBookingRepo.findOne({
+      where: {
+        announcementId: announcementOid,
+        memberId: memberOid,
+        status: "booked"
+      }
+    });
+
+    let bookingId: ObjectId | undefined = eventBooking?._id;
+
+    if (!eventBooking) {
+      // Also check stall bookings if member booked via offline stall
+      const stallBookingRepo = AppDataSource.getMongoRepository(StallBooking);
+      const stallBooking = await stallBookingRepo.findOne({
+        where: {
+          announcementId: announcementOid,
+          memberId: memberOid,
+          status: "booked"
+        }
+      });
+
+      if (stallBooking) {
+        bookingId = stallBooking._id;
+      }
+    }
+
+    if (!bookingId) {
+      throw new BadRequestError(
+        "Member has not booked this announcement meeting. Attendance can only be recorded for booked members."
+      );
+    }
+
+    // 4. Duplicate attendance check
+    const attendanceRepo = AppDataSource.getMongoRepository(Attendance);
+    const existingAttendance = await attendanceRepo.findOne({
+      where: {
+        $or: [
+          { eventId: announcementOid, memberId: memberOid },
+          { announcementId: announcementOid, memberId: memberOid }
+        ]
+      } as any
+    });
+
+    if (existingAttendance) {
+      throw new BadRequestError("Attendance has already been marked for this meeting");
+    }
+
+    // 5. Build and save attendance record
+    const attendanceDate = body?.date ? new Date(body.date) : new Date();
+    const now = new Date();
+    const timeFormatter = new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true
+    });
+    const checkInTime = body?.checkInTime || timeFormatter.format(now);
+
+    const attendance = attendanceRepo.create({
+      memberId: memberOid,
+      eventId: announcementOid,
+      announcementId: announcementOid,
+      bookingId: bookingId,
+      date: attendanceDate,
+      checkInTime: checkInTime,
+      status: body?.status || AttendanceStatus.PRESENT,
+      markedBy: markerOid,
+      remarks: body?.remarks || ""
+    });
+
+    const savedAttendance = await attendanceRepo.save(attendance);
+
+    // 6. Optionally award points for attendance if configured in PointConfig
+    try {
+      const pointService = new PointService();
+      await pointService.awardPoints({
+        memberId: memberOid,
+        moduleName: "Attendance",
+        type: PointConfigType.RESPONSE,
+        referenceId: savedAttendance._id
+      });
+    } catch {
+      // Optional point awarding does not fail attendance marking
+    }
+
+    return res.status(StatusCodes.CREATED).json({
+      success: true,
+      message: "Attendance marked successfully",
+      data: {
+        attendanceId: savedAttendance._id,
+        memberId: savedAttendance.memberId,
+        eventId: savedAttendance.eventId,
+        announcementId: savedAttendance.announcementId,
+        bookingId: savedAttendance.bookingId,
+        date: savedAttendance.date,
+        checkInTime: savedAttendance.checkInTime,
+        status: savedAttendance.status,
+        remarks: savedAttendance.remarks,
+        createdAt: savedAttendance.createdAt
+      }
+    });
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/announcements/attendance:
+   *   post:
+   *     summary: Mark attendance for an announcement meeting via body payload (Mobile)
+   *     tags: [Mobile Announcement]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/MarkAttendanceDto'
+   *     responses:
+   *       201:
+   *         description: Attendance marked successfully
+   *       400:
+   *         description: Member not booked or duplicate attendance
+   */
+  @Post("/attendance")
+  async markAttendance(@Req() req: any, @Body() body: MarkAttendanceDto, @Res() res: any) {
+    try {
+      const targetAnnouncementId = body?.eventId || body?.announcementId;
+      if (!targetAnnouncementId) {
+        throw new BadRequestError("eventId is required");
+      }
+
+      return await this.processMarkAttendance(
+        targetAnnouncementId,
+        body?.memberId,
+        req.user.userId,
+        body,
+        res
+      );
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/announcements/{id}/attendance:
+   *   get:
+   *     summary: Check attendance status for logged-in member for an announcement meeting (Mobile)
+   *     tags: [Mobile Announcement]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: Attendance and booking status
+   */
+  @Get("/:id/attendance")
+  async getAttendanceStatus(@Req() req: any, @Param("id") id: string, @Res() res: any) {
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid announcement ID");
+      const userId = req.user.userId;
+      const announcementOid = new ObjectId(id);
+      const memberOid = new ObjectId(userId);
+
+      const eventBookingRepo = AppDataSource.getMongoRepository(AnnouncementBooking);
+      const stallBookingRepo = AppDataSource.getMongoRepository(StallBooking);
+      const attendanceRepo = AppDataSource.getMongoRepository(Attendance);
+
+      const [eventBooking, stallBooking, attendance] = await Promise.all([
+        eventBookingRepo.findOne({
+          where: { announcementId: announcementOid, memberId: memberOid, status: "booked" }
+        }),
+        stallBookingRepo.findOne({
+          where: { announcementId: announcementOid, memberId: memberOid, status: "booked" }
+        }),
+        attendanceRepo.findOne({
+          where: {
+            $or: [
+              { eventId: announcementOid, memberId: memberOid },
+              { announcementId: announcementOid, memberId: memberOid }
+            ]
+          } as any
+        })
+      ]);
+
+      const isBooked = !!(eventBooking || stallBooking);
+      const isAttended = !!attendance;
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        data: {
+          announcementId: announcementOid,
+          memberId: memberOid,
+          isBooked,
+          isAttended,
+          booking: eventBooking || stallBooking || null,
+          attendance: attendance ? {
+            attendanceId: attendance._id,
+            eventId: attendance.eventId,
+            date: attendance.date,
+            checkInTime: attendance.checkInTime,
+            status: attendance.status,
+            remarks: attendance.remarks,
+            createdAt: attendance.createdAt
+          } : null
+        }
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/announcements/{id}/attendees:
+   *   get:
+   *     summary: Get list of attendees for an announcement meeting (Mobile)
+   *     tags: [Mobile Announcement]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       200:
+   *         description: List of attendees
+   */
+  @Get("/:id/attendees")
+  async getAttendees(
+    @Param("id") id: string,
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @Res() res: any
+  ) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+
+    try {
+      if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid announcement ID");
+      const announcementOid = new ObjectId(id);
+
+      const attendanceRepo = AppDataSource.getMongoRepository(Attendance);
+      const [attendances, total] = await attendanceRepo.findAndCount({
+        where: {
+          $or: [
+            { eventId: announcementOid },
+            { announcementId: announcementOid }
+          ]
+        } as any,
+        skip: page * limit,
+        take: limit,
+        order: { createdAt: "DESC" }
+      });
+
+      const memberIds = attendances.map(a => a.memberId);
+      const memberRepo = AppDataSource.getMongoRepository(Member);
+      const members = memberIds.length > 0
+        ? await memberRepo.find({
+          where: { _id: { $in: memberIds } } as any,
+          select: ["_id", "fullName", "mobileNumber", "email", "profilePhoto", "businessName"] as any
+        })
+        : [];
+
+      const memberMap = new Map<string, Member>(
+        members.map(m => [m._id.toString(), m])
+      );
+
+      const result = attendances.map(att => {
+        const member = memberMap.get(att.memberId.toString());
+        return {
+          attendanceId: att._id,
+          eventId: att.eventId,
+          memberId: att.memberId,
+          date: att.date,
+          checkInTime: att.checkInTime,
+          status: att.status,
+          remarks: att.remarks,
+          createdAt: att.createdAt,
+          member: member ? {
+            _id: member._id,
+            fullName: member.fullName,
+            mobileNumber: member.mobileNumber,
+            email: member.email,
+            profilePhoto: member.profilePhoto,
+            businessName: member.businessName
+          } : null
+        };
+      });
+
+      return pagination(total, result, limit, page, res);
     } catch (error: any) {
       return handleErrorResponse(error, res);
     }

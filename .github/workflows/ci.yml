@@ -46,4 +46,4 @@ jobs:
         run: npm run build
 
       - name: Run Jest Tests
-        run: npm test -- --runInBand --detectOpenHandles
+        run: npm test -- --maxWorkers=2

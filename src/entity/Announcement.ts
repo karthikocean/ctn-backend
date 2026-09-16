@@ -87,6 +87,9 @@ export class Announcement {
     membersLimit!: number;
 
   @Column({ nullable: true })
+    amount?: number;
+
+  @Column({ nullable: true })
     scheduleDate?: Date;
 
   @Column({ default: false })

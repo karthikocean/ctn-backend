@@ -18,6 +18,18 @@ export class AnnouncementBooking {
   @Column({ type: "number", default: 0 })
     pointsSpent!: number;
 
+  @Column({ nullable: true })
+    paymentId?: ObjectId;
+
+  @Column({ type: "number", nullable: true })
+    amountPaid?: number;
+
+  @Column({ default: "points" })
+    paymentMethod!: string; // "points" | "razorpay"
+
+  @Column({ nullable: true })
+    transactionId?: string;
+
   @Column({ default: "booked" })
     status!: string; // "booked" | "cancelled"
 

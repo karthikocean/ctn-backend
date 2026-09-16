@@ -246,6 +246,219 @@ export class BusinessRegionController {
 
   /**
    * @swagger
+   * /api/admin/business-regions/areas:
+   *   get:
+   *     summary: Get all individual areas across business regions with pagination and filtering by name and city
+   *     tags: [BusinessRegion]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema: { type: integer, default: 0 }
+   *       - in: query
+   *         name: limit
+   *         schema: { type: integer, default: 10 }
+   *       - in: query
+   *         name: name
+   *         schema: { type: string }
+   *         description: Filter by area name (case-insensitive)
+   *       - in: query
+   *         name: cityName
+   *         schema: { type: string }
+   *         description: Filter by city name (case-insensitive)
+   *       - in: query
+   *         name: search
+   *         schema: { type: string }
+   *         description: Search by area name or city name (case-insensitive)
+   *       - in: query
+   *         name: status
+   *         schema: { type: string, enum: [active, inactive] }
+   *     responses:
+   *       200:
+   *         description: Paginated list of areas with city and state details
+   */
+  @Get("/areas")
+  @UseBefore(canAccess("business_regions", "view"))
+  async getAreas(
+    @QueryParam("page") page: number,
+    @QueryParam("limit") limit: number,
+    @QueryParam("name") name: string,
+    @QueryParam("areaName") areaName: string,
+    @QueryParam("cityName") cityName: string,
+    @QueryParam("city") city: string,
+    @QueryParam("search") search: string,
+    @QueryParam("status") status: string,
+    @Res() res: any
+  ) {
+    page = Number(page) || 0;
+    limit = Number(limit) || 10;
+
+    try {
+      const escapeRegex = (str: string) => str.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+
+      const nameFilter = (name || areaName || "").trim();
+      const cityFilter = (cityName || city || "").trim();
+      const searchFilter = (search || "").trim();
+
+      const cityRepo = AppDataSource.getMongoRepository(City);
+      const stateRepo = AppDataSource.getMongoRepository(State);
+
+      const where: any = { isDeleted: false };
+      if (status) {
+        where.status = status;
+      }
+
+      const cityMap = new Map<string, string>();
+      const stateMap = new Map<string, string>();
+
+      // 1. City Name Filter
+      if (cityFilter) {
+        const cityRegex = new RegExp(escapeRegex(cityFilter), "i");
+        const matchingCities = await cityRepo.find({
+          where: { name: { $regex: cityRegex }, isDeleted: false },
+          select: ["_id", "name"]
+        });
+
+        if (matchingCities.length === 0) {
+          return pagination(0, [], limit, page, res);
+        }
+
+        matchingCities.forEach(c => cityMap.set(c._id.toString(), c.name));
+        where.city = { $in: matchingCities.map(c => c._id) };
+      }
+
+      // 2. Area Name Filter
+      let nameRegex: RegExp | null = null;
+      if (nameFilter) {
+        nameRegex = new RegExp(escapeRegex(nameFilter), "i");
+        where["areas.name"] = { $regex: nameRegex };
+      }
+
+      // 3. Unified Search Filter
+      let searchRegex: RegExp | null = null;
+      const searchMatchedCityIdSet = new Set<string>();
+
+      if (searchFilter) {
+        searchRegex = new RegExp(escapeRegex(searchFilter), "i");
+
+        const citySearchWhere: any = {
+          name: { $regex: searchRegex },
+          isDeleted: false
+        };
+        if (where.city && where.city.$in) {
+          citySearchWhere._id = { $in: where.city.$in };
+        }
+        const citiesMatchingSearch = await cityRepo.find({
+          where: citySearchWhere,
+          select: ["_id", "name"]
+        });
+        citiesMatchingSearch.forEach(c => {
+          searchMatchedCityIdSet.add(c._id.toString());
+          cityMap.set(c._id.toString(), c.name);
+        });
+
+        const searchOr: any[] = [
+          { "areas.name": { $regex: searchRegex } }
+        ];
+        if (searchMatchedCityIdSet.size > 0) {
+          const matchedCityIds = Array.from(searchMatchedCityIdSet).map(id => new ObjectId(id));
+          searchOr.push({ city: { $in: matchedCityIds } });
+        }
+        where.$or = searchOr;
+      }
+
+      // Query business_regions
+      const regions = await this.regionRepo.find({
+        where,
+        select: ["_id", "country", "state", "city", "status", "areas"]
+      });
+
+      if (regions.length === 0) {
+        return pagination(0, [], limit, page, res);
+      }
+
+      // Resolve uncached State and City names
+      const stateIdsToFetch: ObjectId[] = [];
+      const cityIdsToFetch: ObjectId[] = [];
+
+      for (const r of regions) {
+        if (r.state && !stateMap.has(r.state.toString())) {
+          stateIdsToFetch.push(new ObjectId(r.state));
+        }
+        if (r.city && !cityMap.has(r.city.toString())) {
+          cityIdsToFetch.push(new ObjectId(r.city));
+        }
+      }
+
+      const [missingStates, missingCities] = await Promise.all([
+        stateIdsToFetch.length > 0
+          ? stateRepo.find({ where: { _id: { $in: stateIdsToFetch } } as any, select: ["_id", "name"] })
+          : [],
+        cityIdsToFetch.length > 0
+          ? cityRepo.find({ where: { _id: { $in: cityIdsToFetch } } as any, select: ["_id", "name"] })
+          : []
+      ]);
+
+      missingStates.forEach(s => stateMap.set(s._id.toString(), s.name));
+      missingCities.forEach(c => cityMap.set(c._id.toString(), c.name));
+
+      // Flatten areas
+      const flattenedAreas: any[] = [];
+
+      for (const region of regions) {
+        const cityNameResolved = cityMap.get(region.city?.toString() ?? "") || "";
+        const stateNameResolved = stateMap.get(region.state?.toString() ?? "") || "";
+        const isCityMatchedBySearch = region.city && searchMatchedCityIdSet.has(region.city.toString());
+
+        if (region.areas && Array.isArray(region.areas)) {
+          for (const area of region.areas) {
+            if (!area || !area.name) continue;
+
+            // Name filter check
+            if (nameRegex && !nameRegex.test(area.name)) {
+              continue;
+            }
+
+            // Search filter check
+            if (searchRegex && !isCityMatchedBySearch && !searchRegex.test(area.name)) {
+              continue;
+            }
+
+            flattenedAreas.push({
+              _id: area._id,
+              name: area.name,
+              city: cityNameResolved,
+              state: stateNameResolved,
+              country: region.country,
+              businessRegionId: region._id,
+              cityId: region.city,
+              stateId: region.state,
+              status: region.status
+            });
+          }
+        }
+      }
+
+      // Sort alphabetically by area name, tie breaker city name
+      const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+      flattenedAreas.sort((a, b) => {
+        const cmp = collator.compare((a.name || "").trim(), (b.name || "").trim());
+        if (cmp !== 0) return cmp;
+        return collator.compare((a.city || "").trim(), (b.city || "").trim());
+      });
+
+      const total = flattenedAreas.length;
+      const pagedData = flattenedAreas.slice(page * limit, (page + 1) * limit);
+
+      return pagination(total, pagedData, limit, page, res);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
    * /api/admin/business-regions/{id}:
    *   get:
    *     summary: Get a single business region by ID

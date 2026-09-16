@@ -3,15 +3,22 @@ import { AppDataSource } from "../data-source";
 import { PostModel, PostType } from "../entity/Post";
 
 export class PostDeactivationCronService {
-  private static postRepo = AppDataSource.getMongoRepository(PostModel);
+  private static get postRepo() {
+    return AppDataSource.getMongoRepository(PostModel);
+  }
 
   /**
    * Initializes the Post Deactivation cron job.
-   * Runs every day at 12:05 AM to deactivate (soft-delete) posts
-   * of type PROMOTION and ASK that are older than 10 days.
+   * Runs on server startup and daily at 12:01 AM Asia/Kolkata
+   * to deactivate posts of type PROMOTION and ASK older than 10 days.
    */
   static init() {
     console.log("⏰ Initializing Post Deactivation Cron Job...");
+
+    // Run immediately on startup to deactivate any posts that expired during downtime
+    this.deactivateExpiredPosts().catch((error: any) => {
+      console.error("❌ Startup Post Deactivation Failed:", error.message);
+    });
 
     cron.schedule("1 0 * * *", async () => {
       try {
@@ -26,25 +33,25 @@ export class PostDeactivationCronService {
   }
 
   /**
-   * Deactivates (soft-deletes) posts of type PROMOTION and ASK
+   * Deactivates posts of type PROMOTION and ASK
    * that were created more than 10 days ago and are still active.
    */
   static async deactivateExpiredPosts() {
-    const tenDaysAgo = new Date();
-    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
-    tenDaysAgo.setHours(0, 0, 0, 0);
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
 
     const result = await this.postRepo.updateMany(
       {
         type: { $in: [PostType.PROMOTION, PostType.ASK] },
         createdAt: { $lte: tenDaysAgo },
+        isActive: true,
         isDeleted: false
       },
       {
         $set: {
           isActive: false,
           status: "inactive",
-          statusReason: "Deactivated due to time expiration"
+          statusReason: "Deactivated due to time expiration",
+          updatedAt: new Date()
         }
       }
     );
@@ -56,5 +63,7 @@ export class PostDeactivationCronService {
     } else {
       console.log("⏭️  Post Deactivation: No expired posts found.");
     }
+    return result;
   }
 }
+
