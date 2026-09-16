@@ -70,7 +70,8 @@ export class AdminContributionController {
           fMemberWhere.businessRegion = new ObjectId();
         }
         const fMembers = await this.memberRepo.find({
-          where: fMemberWhere
+          where: fMemberWhere,
+          select: ["_id"] as any
         });
         franchiseMemberIds = fMembers.map(m => m._id);
 
@@ -91,11 +92,13 @@ export class AdminContributionController {
       if (roleId && ObjectId.isValid(roleId)) {
         hasRoleFilter = true;
         const adminUsers = await this.adminUserRepo.find({
-          where: { roleId: new ObjectId(roleId), isDeleted: false }
+          where: { roleId: new ObjectId(roleId), isDeleted: false },
+          select: ["id"] as any
         });
         const adminUserIds = adminUsers.map(u => u.id);
         const members = await this.memberRepo.find({
-          where: { createdBy: { $in: adminUserIds }, isDeleted: false } as any
+          where: { createdBy: { $in: adminUserIds }, isDeleted: false } as any,
+          select: ["_id"] as any
         });
         roleMemberIds = members.map(m => m._id);
       }
@@ -105,7 +108,8 @@ export class AdminContributionController {
         const matchingMembers = await this.memberRepo.find({
           where: {
             fullName: { $regex: search, $options: "i" }
-          }
+          },
+          select: ["_id"] as any
         });
         const searchMemberIds = matchingMembers.map(m => m._id);
 
@@ -184,49 +188,58 @@ export class AdminContributionController {
         }
       }
 
-      // Count operations
-      let otoCount = 0;
-      let tyCount = 0;
-      let refCount = 0;
-
-      if (includeOneToOne) {
-        otoCount = await this.oneToOneRepo.count(oneToOneQuery);
-      }
-      if (includeThankYouSlip) {
-        tyCount = await this.tySlipRepo.count(tySlipQuery);
-      }
-      if (includeReferral) {
-        refCount = await this.referralRepo.count(referralQuery);
-      }
-
-      const totalCount = otoCount + tyCount + refCount;
       const takeCount = (page + 1) * limit;
 
-      let oneToOnes: any[] = [];
-      let thankYouSlips: any[] = [];
-      let referrals: any[] = [];
+      // ── CONCURRENT TRANSACTION COUNTS & CANDIDATE FETCHES (1 Atlas RTT) ───
+      const [
+        otoCount,
+        tyCount,
+        refCount,
+        oneToOnes,
+        thankYouSlips,
+        referrals
+      ] = await Promise.all([
+        includeOneToOne ? this.oneToOneRepo.count(oneToOneQuery) : Promise.resolve(0),
+        includeThankYouSlip ? this.tySlipRepo.count(tySlipQuery) : Promise.resolve(0),
+        includeReferral ? this.referralRepo.count(referralQuery) : Promise.resolve(0),
+        includeOneToOne
+          ? this.oneToOneRepo.find({
+              where: oneToOneQuery,
+              order: { createdAt: "DESC" },
+              take: takeCount,
+              select: ["_id", "senderId", "receiverId", "createdAt", "status"] as any
+            })
+          : Promise.resolve([]),
+        includeThankYouSlip
+          ? this.tySlipRepo.find({
+              where: tySlipQuery,
+              order: { createdAt: "DESC" },
+              take: takeCount,
+              select: ["_id", "senderId", "receiverId", "amount", "businessDetails", "createdAt", "status"] as any
+            })
+          : Promise.resolve([]),
+        includeReferral
+          ? this.referralRepo.find({
+              where: referralQuery,
+              order: { createdAt: "DESC" },
+              take: takeCount,
+              select: [
+                "_id",
+                "senderId",
+                "receiverId",
+                "referralName",
+                "referralMobile",
+                "referralEmail",
+                "location",
+                "comments",
+                "createdAt",
+                "status"
+              ] as any
+            })
+          : Promise.resolve([])
+      ]);
 
-      if (includeOneToOne) {
-        oneToOnes = await this.oneToOneRepo.find({
-          where: oneToOneQuery,
-          order: { createdAt: "DESC" },
-          take: takeCount
-        });
-      }
-      if (includeThankYouSlip) {
-        thankYouSlips = await this.tySlipRepo.find({
-          where: tySlipQuery,
-          order: { createdAt: "DESC" },
-          take: takeCount
-        });
-      }
-      if (includeReferral) {
-        referrals = await this.referralRepo.find({
-          where: referralQuery,
-          order: { createdAt: "DESC" },
-          take: takeCount
-        });
-      }
+      const totalCount = otoCount + tyCount + refCount;
 
       // Merge into unified list
       const merged: any[] = [
@@ -289,7 +302,8 @@ export class AdminContributionController {
       if (memberIdsToFetch.size > 0) {
         const objectIds = Array.from(memberIdsToFetch).map(id => new ObjectId(id));
         const members = await this.memberRepo.find({
-          where: { _id: { $in: objectIds } } as any
+          where: { _id: { $in: objectIds } } as any,
+          select: ["_id", "fullName", "profilePhoto", "businessName"] as any
         });
         members.forEach(m => {
           memberMap.set(m._id.toString(), {

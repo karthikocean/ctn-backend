@@ -25,6 +25,7 @@ import { MailService } from "../../services/mail.service";
 import { Role } from "../../entity/Role.Permission";
 import { generateSecureOtp } from "../../utils";
 import { Franchise, FranchiseStatus } from "../../entity/Franchise";
+import { invalidateAdminAuthCache } from "../../services/authCache.service";
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const PASSWORD_POLICY_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>_\-+=~`[\]\\;/]).{8,}$/;
@@ -243,6 +244,10 @@ export class AuthController {
       const authHeader = res.req.headers.authorization;
       const token = authHeader.split(" ")[1];
       const userId = (res.req as any).user.userId;
+
+      if (token) {
+        await invalidateAdminAuthCache(token);
+      }
 
       const tokenRepo = AppDataSource.getMongoRepository(UserToken);
       await tokenRepo.deleteMany({

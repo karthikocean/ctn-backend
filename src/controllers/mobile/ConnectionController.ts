@@ -583,9 +583,9 @@ export class MobileConnectionController {
 
       const paginatedMemberIds = members.map(m => m._id);
 
-      // Fetch connections between the logged-in user and the paginated members to determine status
-      const [myOutgoingConnections, myIncomingConnections] = paginatedMemberIds.length > 0 && loggedInUserId
-        ? await Promise.all([
+      // Fetch connections between the logged-in user and the paginated members concurrently with category details
+      const connectionsPromise = paginatedMemberIds.length > 0 && loggedInUserId
+        ? Promise.all([
           this.connectionRepo.find({
             where: {
               senderId: new ObjectId(loggedInUserId),
@@ -601,10 +601,7 @@ export class MobileConnectionController {
             } as any
           })
         ])
-        : [[], []];
-
-      const outgoingMap = new Map(myOutgoingConnections.map(c => [c.receiverId.toString(), c]));
-      const incomingMap = new Map(myIncomingConnections.map(c => [c.senderId.toString(), c]));
+        : Promise.resolve([[], []]);
 
       // Fetch Category details for Members
       const categoryIds = [...new Set(
@@ -614,9 +611,17 @@ export class MobileConnectionController {
           .map(id => id.toString())
       )].map(id => new ObjectId(id));
 
-      const categories = categoryIds.length > 0
-        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
-        : [];
+      const categoriesPromise = categoryIds.length > 0
+        ? this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : Promise.resolve([]);
+
+      const [[myOutgoingConnections, myIncomingConnections], categories] = await Promise.all([
+        connectionsPromise,
+        categoriesPromise
+      ]);
+
+      const outgoingMap = new Map(myOutgoingConnections.map(c => [c.receiverId.toString(), c]));
+      const incomingMap = new Map(myIncomingConnections.map(c => [c.senderId.toString(), c]));
       const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
 
       // Map data

@@ -276,7 +276,17 @@ export class ConnectionController {
         where,
         skip: page * limit,
         take: limit,
-        order: { createdAt: "DESC" }
+        order: { createdAt: "DESC" },
+        select: [
+          "_id",
+          "fullName",
+          "profilePhoto",
+          "businessName",
+          "businessCategory",
+          "subCategory",
+          "mobileNumber",
+          "city"
+        ] as any
       });
 
       if (members.length === 0) {
@@ -285,7 +295,7 @@ export class ConnectionController {
 
       const memberIds = members.map(m => m._id);
 
-      // Fetch Categories
+      // Extract Category IDs
       const categoryIds = Array.from(
         new Set(
           members
@@ -295,60 +305,69 @@ export class ConnectionController {
         )
       ).map(id => new ObjectId(id));
 
-      const categories = categoryIds.length > 0
-        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
-        : [];
+      // ── CONCURRENT SECONDARY LOOKUPS VIA PROMISE.ALL (1 Atlas RTT) ────────
+      const [
+        categories,
+        connections,
+        oneToOnes,
+        referrals,
+        thankYouSlips,
+        reportedHistories
+      ] = await Promise.all([
+        categoryIds.length > 0
+          ? this.categoryRepo.find({
+              where: { _id: { $in: categoryIds } } as any,
+              select: ["_id", "name"] as any
+            })
+          : Promise.resolve([]),
+        this.connectionRepo.find({
+          where: {
+            isDeleted: { $ne: true },
+            $or: [
+              { senderId: { $in: memberIds } },
+              { receiverId: { $in: memberIds } }
+            ]
+          } as any,
+          select: ["senderId", "receiverId", "status"] as any
+        }),
+        this.oneToOneRepo.find({
+          where: {
+            $or: [
+              { senderId: { $in: memberIds } },
+              { receiverId: { $in: memberIds } }
+            ]
+          } as any,
+          select: ["senderId", "receiverId"] as any
+        }),
+        this.referralRepo.find({
+          where: {
+            $or: [
+              { senderId: { $in: memberIds } },
+              { receiverId: { $in: memberIds } }
+            ]
+          } as any,
+          select: ["senderId", "receiverId"] as any
+        }),
+        this.thankYouSlipRepo.find({
+          where: {
+            $or: [
+              { receiverId: { $in: memberIds } },
+              { senderId: { $in: memberIds } }
+            ]
+          } as any,
+          select: ["receiverId", "amount"] as any
+        }),
+        this.reportedHistoryRepo.find({
+          where: {
+            targetUserId: { $in: memberIds },
+            status: "REPORTED",
+            isDeleted: { $ne: true }
+          } as any,
+          select: ["targetUserId"] as any
+        })
+      ]);
+
       const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
-
-      // 1. Fetch Connections for page members
-      const connections = await this.connectionRepo.find({
-        where: {
-          isDeleted: { $ne: true },
-          $or: [
-            { senderId: { $in: memberIds } },
-            { receiverId: { $in: memberIds } }
-          ]
-        } as any
-      });
-
-      // 2. Fetch Direct 1-to-1 Meetings
-      const oneToOnes = await this.oneToOneRepo.find({
-        where: {
-          $or: [
-            { senderId: { $in: memberIds } },
-            { receiverId: { $in: memberIds } }
-          ]
-        } as any
-      });
-
-      // 3. Fetch Recommendations / Referrals (Given & Received)
-      const referrals = await this.referralRepo.find({
-        where: {
-          $or: [
-            { senderId: { $in: memberIds } },
-            { receiverId: { $in: memberIds } }
-          ]
-        } as any
-      });
-
-      // 4. Fetch Thank You Slips (Business Done Received & Given)
-      const thankYouSlips = await this.thankYouSlipRepo.find({
-        where: {
-          $or: [
-            { receiverId: { $in: memberIds } },
-            { senderId: { $in: memberIds } }
-          ]
-        } as any
-      });
-
-      // 5. Fetch Reports against member
-      const reportedHistories = await this.reportedHistoryRepo.find({
-        where: {
-          targetUserId: { $in: memberIds },
-          status: "REPORTED",
-          isDeleted: { $ne: true }
-        } as any
-      });
 
       // Build Engagement Maps per Member
       const data = members.map(m => {

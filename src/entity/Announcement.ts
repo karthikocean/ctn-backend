@@ -13,7 +13,9 @@ export enum AnnouncementType {
   EVENT = "Event",
   ONLINE_STALL = "Online Stall",
   OTHERS = "Others",
-  TRAINING = "Training"
+  TRAINING = "Training",
+  MONTHLY_MEETING = "monthlymeeting",
+  MONTHLY_MEETING_SPACED = "Monthly Meeting"
 }
 
 export class StallItem {

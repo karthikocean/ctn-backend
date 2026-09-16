@@ -993,24 +993,21 @@ export class MobileMemberController {
         order: { fullName: "ASC" }
       });
 
-      // Populate Categories
+      // ── Concurrently populate Categories, Areas, and Connections ────────────
       const categoryIds = members
         .flatMap(m => [m.businessCategory, m.subCategory])
         .filter((id): id is ObjectId => !!id);
 
-      const categories = categoryIds.length > 0
-        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
-        : [];
+      const categoriesPromise = categoryIds.length > 0
+        ? this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : Promise.resolve([]);
 
-      const categoryMap = new Map(categories.map(c => [c._id.toString(), { _id: c._id, name: c.name }]));
+      const areasMapPromise = this.getAreasMap(members);
 
-      const areasMap = await this.getAreasMap(members);
-
-      // Fetch outgoing and incoming connections to map relationship status
       const memberIds = members.map(m => m._id);
 
-      const [outgoingConnections, incomingConnections] = memberIds.length > 0
-        ? await Promise.all([
+      const connectionsPromise = memberIds.length > 0
+        ? Promise.all([
           this.connectionRepo.find({
             where: {
               senderId: new ObjectId(userId),
@@ -1026,7 +1023,15 @@ export class MobileMemberController {
             } as any
           })
         ])
-        : [[], []];
+        : Promise.resolve([[], []]);
+
+      const [categories, areasMap, [outgoingConnections, incomingConnections]] = await Promise.all([
+        categoriesPromise,
+        areasMapPromise,
+        connectionsPromise
+      ]);
+
+      const categoryMap = new Map(categories.map(c => [c._id.toString(), { _id: c._id, name: c.name }]));
       const outgoingMap = new Map(outgoingConnections.map(c => [c.receiverId.toString(), c]));
       const incomingMap = new Map(incomingConnections.map(c => [c.senderId.toString(), c]));
 

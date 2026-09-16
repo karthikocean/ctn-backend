@@ -56,6 +56,28 @@ describe("Production Rate Limiting Audit & Verification Suite", () => {
       expect(key).toBe("192.168.1.50");
     });
 
+    it("should extract User ID from JWT Authorization header when req.user is undefined", () => {
+      const jwt = require("jsonwebtoken");
+      const token = jwt.sign({ userId: "jwt_user_999" }, process.env.JWT_SECRET || "secret");
+      const mockReq = {
+        headers: { authorization: `Bearer ${token}` },
+        ip: "192.168.1.50"
+      } as unknown as Request;
+
+      const key = userOrIpKey(mockReq);
+      expect(key).toBe("user:jwt_user_999");
+    });
+
+    it("should fallback to IP when JWT token is invalid or corrupted", () => {
+      const mockReq = {
+        headers: { authorization: "Bearer invalid.token.garbage" },
+        ip: "192.168.1.50"
+      } as unknown as Request;
+
+      const key = userOrIpKey(mockReq);
+      expect(key).toBe("192.168.1.50");
+    });
+
     it("should combine IP and identifier for OTP/Auth requests", () => {
       const mockReq = {
         ip: "10.0.0.1",
@@ -67,7 +89,7 @@ describe("Production Rate Limiting Audit & Verification Suite", () => {
     });
   });
 
-  describe("3. Express Middleware Route Throttling Behavior", () => {
+  describe("3. Express Middleware Route Throttling & Overlap Prevention Behavior", () => {
     let app: express.Application;
 
     beforeEach(() => {
@@ -91,6 +113,82 @@ describe("Production Rate Limiting Audit & Verification Suite", () => {
         expect(response.status).toBe(200);
         expect(response.body.status).toBe("ready");
       }
+    });
+
+    it("should prevent /api limiter from executing on /api/admin routes", async () => {
+      let adminLimiterHit = 0;
+      let apiLimiterHit = 0;
+
+      const testApp = express();
+      const withDedicatedLimiter = (limiter: any) => (req: any, res: any, next: any) => {
+        req._hasDedicatedRateLimiter = true;
+        return limiter(req, res, next);
+      };
+
+      testApp.use("/api/admin", (req, _res, next) => {
+        adminLimiterHit++;
+        next();
+      });
+
+      testApp.use("/api", (req, _res, next) => {
+        if (req.baseUrl.startsWith("/api/admin") || req.originalUrl.startsWith("/api/admin")) {
+          return next();
+        }
+        apiLimiterHit++;
+        next();
+      });
+
+      testApp.get("/api/admin/users", (_req, res) => res.json({ ok: true }));
+      testApp.get("/api/common", (_req, res) => res.json({ ok: true }));
+
+      // Request to /api/admin/users should hit admin limiter, but NOT api limiter
+      await request(testApp).get("/api/admin/users");
+      expect(adminLimiterHit).toBe(1);
+      expect(apiLimiterHit).toBe(0);
+
+      // Request to /api/common should hit api limiter
+      await request(testApp).get("/api/common");
+      expect(adminLimiterHit).toBe(1);
+      expect(apiLimiterHit).toBe(1);
+    });
+
+    it("should prevent outer group limiter from executing when dedicated limiter matched", async () => {
+      let dedicatedLimiterHit = 0;
+      let mobileGroupLimiterHit = 0;
+
+      const testApp = express();
+      const withDedicatedLimiter = (limiter: any) => (req: any, res: any, next: any) => {
+        req._hasDedicatedRateLimiter = true;
+        return limiter(req, res, next);
+      };
+
+      // Dedicated limiter on /mobile-api/verification/send-otp
+      testApp.use("/mobile-api/verification/send-otp", withDedicatedLimiter((_req: any, _res: any, next: any) => {
+        dedicatedLimiterHit++;
+        next();
+      }));
+
+      // Scoped group limiter
+      testApp.use("/mobile-api", (req: any, _res: any, next: any) => {
+        if (req._hasDedicatedRateLimiter) {
+          return next();
+        }
+        mobileGroupLimiterHit++;
+        next();
+      });
+
+      testApp.post("/mobile-api/verification/send-otp", (_req, res) => res.json({ ok: true }));
+      testApp.get("/mobile-api/posts", (_req, res) => res.json({ ok: true }));
+
+      // Dedicated route executes ONLY dedicated limiter
+      await request(testApp).post("/mobile-api/verification/send-otp");
+      expect(dedicatedLimiterHit).toBe(1);
+      expect(mobileGroupLimiterHit).toBe(0);
+
+      // Normal route executes mobile group limiter
+      await request(testApp).get("/mobile-api/posts");
+      expect(dedicatedLimiterHit).toBe(1);
+      expect(mobileGroupLimiterHit).toBe(1);
     });
   });
 });

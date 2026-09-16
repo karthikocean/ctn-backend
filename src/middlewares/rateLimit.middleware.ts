@@ -38,10 +38,13 @@ const getRedisStore = (prefixSuffix: string) => {
   });
 };
 
+import jwt, { JwtPayload } from "jsonwebtoken";
+
 /**
  * Key generator helper:
  * Uses authenticated User ID if available,
- * falling back to IP.
+ * falling back to cryptographically verified JWT token userId,
+ * and finally falling back to IP.
  */
 export const userOrIpKey = (req: Request): string => {
   const user = (req as any).user;
@@ -49,6 +52,28 @@ export const userOrIpKey = (req: Request): string => {
 
   if (userId) {
     return `user:${userId.toString()}`;
+  }
+
+  // When rate limiter runs globally before routing-controllers auth middleware,
+  // extract userId from Bearer token via local CPU HMAC verification (0 DB queries).
+  const authHeader = req.headers?.authorization;
+  if (authHeader && typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.substring(7).trim();
+    if (token) {
+      try {
+        const decoded = jwt.verify(
+          token,
+          (process.env.JWT_SECRET as string) || "secret",
+          { ignoreExpiration: true }
+        ) as JwtPayload;
+        const extractedId = (decoded as any)?.userId || (decoded as any)?.id || (decoded as any)?._id;
+        if (extractedId) {
+          return `user:${extractedId.toString()}`;
+        }
+      } catch {
+        // Invalid or corrupted token; safely fall back to IP
+      }
+    }
   }
 
   return req.ip || "127.0.0.1";

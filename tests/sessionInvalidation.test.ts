@@ -202,5 +202,47 @@ describe("Session & Token Invalidation", () => {
       expect(mockNext).not.toHaveBeenCalled();
       expect(mockRes.status).toHaveBeenCalledWith(401);
     });
+
+    test("3. Admin Auth Cache HIT -> request proceeds without querying MongoDB", async () => {
+      const authCache = require("../src/services/authCache.service");
+      jest.spyOn(authCache, "getAdminAuthCache").mockResolvedValue({
+        userId: adminId,
+        isActive: true,
+        isDeleted: false,
+        tokenRecordExists: true,
+        companyId: "comp_123",
+        roleId: "role_456",
+        role: { _id: "role_456", name: "Super Admin", permissions: [] }
+      });
+
+      const repoSpy = jest.spyOn(AppDataSource, "getMongoRepository");
+      repoSpy.mockClear();
+
+      await middleware.use(mockReq, mockRes, mockNext);
+
+      expect(mockNext).toHaveBeenCalled();
+      expect(mockReq.user.id).toBe(adminId);
+      expect(mockReq.user.companyId).toBe("comp_123");
+      expect(mockReq.user.role.name).toBe("Super Admin");
+      // MongoDB must NOT be queried on cache HIT
+      expect(repoSpy).not.toHaveBeenCalled();
+      repoSpy.mockRestore();
+    });
+
+    test("4. Admin Auth Cache with inactive account -> returns 401 Unauthorized", async () => {
+      const authCache = require("../src/services/authCache.service");
+      jest.spyOn(authCache, "getAdminAuthCache").mockResolvedValue({
+        userId: adminId,
+        isActive: false, // Inactive
+        isDeleted: false,
+        tokenRecordExists: true,
+        role: null
+      });
+
+      await middleware.use(mockReq, mockRes, mockNext);
+
+      expect(mockNext).not.toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+    });
   });
 });
