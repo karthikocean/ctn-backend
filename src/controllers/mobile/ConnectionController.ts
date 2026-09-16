@@ -27,6 +27,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { insertPushNotification } from "../../services/pushnotification.service";
 import { NotificationModule } from "../../entity/PushNotifications";
+import logger from "../../utils/logger";
 
 @JsonController("/connections")
 @UseBefore(MobileAuthMiddleware)
@@ -194,8 +195,6 @@ export class MobileConnectionController {
         connection.status = ConnectionStatus.ACCEPTED;
         connection.isDeleted = false;
       } else {
-        console.log("inisssssssssss");
-
         // Create new accepted connection
         connection = new Connection();
         connection.senderId = new ObjectId(senderId);
@@ -502,50 +501,42 @@ export class MobileConnectionController {
           where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
         });
         targetMemberIds = followings.map(f => f.receiverId);
-        console.log(`[RELATIONSHIP_LIST] Type: FOLLOWING, Target User ID: ${targetUserId}`);
-        console.log("[RELATIONSHIP_LIST] Following IDs from Connection table:", targetMemberIds.map(id => id?.toString()));
       }
       else if (type === "FOLLOWERS") {
         const followers = await this.connectionRepo.find({
           where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
         });
         targetMemberIds = followers.map(f => f.senderId);
-        console.log(`[RELATIONSHIP_LIST] Type: FOLLOWERS, Target User ID: ${targetUserId}`);
-        console.log("[RELATIONSHIP_LIST] Followers IDs from Connection table:", targetMemberIds.map(id => id?.toString()));
       }
       else if (type === "MUTUAL") {
-        // Mutual: Both followings and followers exist
-        const followings = await this.connectionRepo.find({
-          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
-        });
+        // Mutual: Both followings and followers — run concurrently
+        const [followings, followers] = await Promise.all([
+          this.connectionRepo.find({
+            where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
+          }),
+          this.connectionRepo.find({
+            where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
+          })
+        ]);
         const followingIds = new Set(followings.map(f => f.receiverId.toString()));
-
-        const followers = await this.connectionRepo.find({
-          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
-        });
-
         targetMemberIds = followers
           .filter(f => followingIds.has(f.senderId.toString()))
           .map(f => f.senderId);
-        console.log(`[RELATIONSHIP_LIST] Type: MUTUAL, Target User ID: ${targetUserId}`);
-        console.log("[RELATIONSHIP_LIST] Mutual IDs from Connection table:", targetMemberIds.map(id => id?.toString()));
       }
       else if (type === "ALL") {
-        // All: combined, unique list of both followings and followers
-        const followings = await this.connectionRepo.find({
-          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
-        });
+        // All: combined, unique list of both followings and followers — run concurrently
+        const [followings, followers] = await Promise.all([
+          this.connectionRepo.find({
+            where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
+          }),
+          this.connectionRepo.find({
+            where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
+          })
+        ]);
         const followingIds = followings.map(f => f.receiverId.toString());
-
-        const followers = await this.connectionRepo.find({
-          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
-        });
         const followerIds = followers.map(f => f.senderId.toString());
-
         targetMemberIds = Array.from(new Set([...followingIds, ...followerIds]))
           .map(id => new ObjectId(id));
-        console.log(`[RELATIONSHIP_LIST] Type: ALL, Target User ID: ${targetUserId}`);
-        console.log("[RELATIONSHIP_LIST] All IDs from Connection table:", targetMemberIds.map(id => id?.toString()));
       }
 
       if (targetMemberIds.length === 0) {
@@ -588,12 +579,7 @@ export class MobileConnectionController {
       });
       total = filteredCount;
 
-      console.log(`[RELATIONSHIP_LIST] Active Members returned from DB (${members.length}/${targetMemberIds.length}):`, members.map(m => m._id.toString()));
-      const returnedIds = new Set(members.map(m => m._id.toString()));
-      const missingIds = targetMemberIds.map(id => id.toString()).filter(id => !returnedIds.has(id));
-      if (missingIds.length > 0) {
-        console.log("[RELATIONSHIP_LIST] Missing / Inactive / Deleted / Filtered Member IDs:", missingIds);
-      }
+      logger.debug(`[RELATIONSHIP_LIST] Active Members: ${members.length}/${targetMemberIds.length}`, "ConnectionController");
 
       const paginatedMemberIds = members.map(m => m._id);
 

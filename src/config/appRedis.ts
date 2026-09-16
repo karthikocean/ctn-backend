@@ -8,7 +8,10 @@ export const appRedisConfig: RedisOptions = {
   port: Number(process.env.REDIS_PORT) || 6379,
   password: process.env.REDIS_PASSWORD || undefined,
   db: Number(process.env.REDIS_DB) || 0,
-  maxRetriesPerRequest: 20,
+  // 3 retries is sufficient for per-request commands (auth cache, rate limiter).
+  // Fail-open is configured at the call sites already.
+  // The persistent reconnect strategy is handled separately in retryStrategy.
+  maxRetriesPerRequest: 3,
   enableReadyCheck: true,
   retryStrategy(times: number) {
     const delay = Math.min(times * 100, 3000);

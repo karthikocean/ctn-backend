@@ -735,8 +735,6 @@ export class MobileAnnouncementController {
   async bookAnnouncement(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       const userId = req.user.userId;
-      console.log(userId, "userId");
-
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid announcement ID");
 
       const announcementOid = new ObjectId(id);
@@ -784,7 +782,6 @@ export class MobileAnnouncementController {
       const pointService = new PointService();
       let balance = await pointService.getMemberBalance(memberOid);
       const cost = announcement.points || 0;
-      console.log(balance, "balance", cost, "cost");
       if (cost > 0) {
         if (balance < cost) {
           throw new BadRequestError(`Insufficient points. Need ${cost} pts, you have ${balance}.`);

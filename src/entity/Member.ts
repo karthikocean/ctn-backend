@@ -40,6 +40,7 @@ export interface ServiceLocation {
 @Index(["status", "isDeleted", "city"])
 @Index(["businessRegion", "isDeleted"])
 @Index(["businessRegion"])
+@Index(["status", "isDeleted", "businessRegion"])
 export class Member {
   @ObjectIdColumn()
     _id!: ObjectId;

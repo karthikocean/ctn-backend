@@ -382,8 +382,6 @@ export class MobilePostController {
         where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
       });
 
-      console.log(`User ${userId} is following ${followings.length} members`);
-
       // Ensure all IDs are fresh ObjectIds for the Mongo query
       const followingIds = followings.map(f => new ObjectId(f.receiverId));
 
@@ -503,37 +501,40 @@ export class MobilePostController {
 
       let regionMemberIds: ObjectId[] = [];
       if (memberCity || memberBusinessRegion) {
-        // 2. Find members in the same region
+        // 2. Find members in the same region — project only _id to avoid loading full Member documents
         const locationCondition: any = { isDeleted: false };
         if (memberCity) locationCondition.city = memberCity;
         if (memberBusinessRegion) locationCondition.businessRegion = memberBusinessRegion;
 
-        const regionMembers = await this.memberRepo.find({ where: locationCondition });
+        const regionMembers = await this.memberRepo.find({
+          where: locationCondition,
+          select: ["_id"]
+        });
         regionMemberIds = regionMembers
           .filter(m => m._id.toString() !== userId)
           .map(m => m._id);
       }
 
       let memberStateId: ObjectId | null = null;
-      if (currentMember.state) {
-        const stateRepo = AppDataSource.getMongoRepository(State);
-        const stateDoc = await stateRepo.findOne({
-          where: { name: { $regex: new RegExp(`^${currentMember.state}$`, "i") }, isDeleted: false }
-        });
-        if (stateDoc) {
-          memberStateId = stateDoc._id;
-        }
+      // Run state lookup and mutual connections concurrently
+      const [stateDoc, following, followers] = await Promise.all([
+        currentMember.state
+          ? AppDataSource.getMongoRepository(State).findOne({
+            where: { name: { $regex: new RegExp(`^${currentMember.state}$`, "i") }, isDeleted: false }
+          })
+          : Promise.resolve(null),
+        this.connectionRepo.find({
+          where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
+        }),
+        this.connectionRepo.find({
+          where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
+        })
+      ]);
+      if (stateDoc) {
+        memberStateId = stateDoc._id;
       }
 
-      // Fetch mutual friends to evaluate MUTUAL_FRIEND requirement visibility
-      const following = await this.connectionRepo.find({
-        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
-      });
       const followingIds = following.map(f => f.receiverId.toString());
-
-      const followers = await this.connectionRepo.find({
-        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
-      });
       const followerIds = followers.map(f => f.senderId.toString());
 
       const mutualIds = followingIds
@@ -1093,48 +1094,64 @@ export class MobilePostController {
 
       if (type) where.type = type;
 
-      // 1. Find who current user follows (needed for GIVE and REQUIREMENT target filters)
-      const following = await this.connectionRepo.find({
-        where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
-      });
-      const followingIds = following.map(f => f.receiverId.toString());
+      // ── Group 1: Independent user-context queries run concurrently ───────────
+      // All 4 operations depend solely on userId and are completely independent.
+      const [following, followers, currentMember, reportedData] = await Promise.all([
+        this.connectionRepo.find({
+          where: { senderId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
+        }),
+        this.connectionRepo.find({
+          where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
+        }),
+        this.memberRepo.findOneBy({ _id: new ObjectId(userId) }),
+        this.getReportedDataForUser(userId)
+      ]);
 
-      // 2. Find who follows current user
-      const followers = await this.connectionRepo.find({
-        where: { receiverId: new ObjectId(userId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
-      });
+      if (!currentMember) {
+        throw new BadRequestError("Member not found");
+      }
+
+      const followingIds = following.map(f => f.receiverId.toString());
       const followerIds = followers.map(f => f.senderId.toString());
 
-      // 3. Mutual = Intersection
+      // Mutual = Intersection
       const mutualIds = followingIds
         .filter(id => followerIds.includes(id))
         .map(id => new ObjectId(id));
 
-      // 4. Find members in the same region
-      const currentMember = await this.memberRepo.findOneBy({ _id: new ObjectId(userId) });
+      // ── Group 2: Location and state queries run concurrently ─────────────────
+      // Both depend on currentMember's location fields, but are independent of each other.
       let regionMemberIds: ObjectId[] = [];
       let memberStateId: ObjectId | null = null;
-      if (currentMember) {
-        const locationCondition: any = { isDeleted: false };
-        if (currentMember.city) locationCondition.city = currentMember.city;
-        if (currentMember.businessRegion) locationCondition.businessRegion = currentMember.businessRegion;
 
-        const regionMembers = await this.memberRepo.find({ where: locationCondition });
-        regionMemberIds = regionMembers.map(m => m._id);
+      const locationCondition: any = { isDeleted: false };
+      if (currentMember.city) locationCondition.city = currentMember.city;
+      if (currentMember.businessRegion) locationCondition.businessRegion = currentMember.businessRegion;
 
-        if (currentMember.state) {
-          const stateRepo = AppDataSource.getMongoRepository(State);
-          const stateDoc = await stateRepo.findOne({
-            where: { name: { $regex: new RegExp(`^${currentMember.state}$`, "i") }, isDeleted: false }
-          });
-          if (stateDoc) {
-            memberStateId = stateDoc._id;
-          }
-        }
+      const hasLocationCondition = Boolean(currentMember.city || currentMember.businessRegion);
+
+      const regionMembersPromise = hasLocationCondition
+        ? this.memberRepo.find({ where: locationCondition })
+        : Promise.resolve([]);
+
+      const statePromise = currentMember.state
+        ? AppDataSource.getMongoRepository(State).findOne({
+          where: { name: { $regex: new RegExp(`^${currentMember.state}$`, "i") }, isDeleted: false }
+        })
+        : Promise.resolve(null);
+
+      const [regionMembers, stateDoc] = await Promise.all([
+        regionMembersPromise,
+        statePromise
+      ]);
+
+      regionMemberIds = regionMembers.map(m => m._id);
+      if (stateDoc) {
+        memberStateId = stateDoc._id;
       }
 
       const regionConditions: any[] = [];
-      if (currentMember?.businessRegion) {
+      if (currentMember.businessRegion) {
         regionConditions.push({ regionIds: currentMember.businessRegion });
       }
       if (memberStateId) {
@@ -1207,7 +1224,7 @@ export class MobilePostController {
       }
 
       // Auto-apply logged-in member's businessRegion as region filter if set
-      if (currentMember?.businessRegion) {
+      if (currentMember.businessRegion) {
         const memberRegionId = new ObjectId(currentMember.businessRegion);
         const regionCondition = {
           $or: [
@@ -1231,12 +1248,9 @@ export class MobilePostController {
         }
       }
 
-      if (!currentMember) {
-        throw new BadRequestError("Member not found");
-      }
       this.applyCategoryVisibilityFilter(where, currentMember);
 
-      const { reportedPostIds } = await this.getReportedDataForUser(userId);
+      const reportedPostIds = reportedData.reportedPostIds;
       if (reportedPostIds.length > 0) {
         const ninPostCondition = { _id: { $nin: reportedPostIds } };
         if (where.$and) {
@@ -1258,13 +1272,26 @@ export class MobilePostController {
         ]).toArray()) as PostEntity[]
         : [];
 
-      // Populate Member Info
+      // ── Group 3: Member details and Saved-Post status run concurrently ───────
+      // Both depend on post results, but are completely independent of each other.
       const memberIds = [...new Set(posts.map(p => p.memberId))];
-      const members = memberIds.length > 0
-        ? await this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
-        : [];
 
-      // Fetch Category Info for Members
+      const membersPromise = memberIds.length > 0
+        ? this.memberRepo.find({ where: { _id: { $in: memberIds } } as any })
+        : Promise.resolve([]);
+
+      const savedPostsPromise = posts.length > 0
+        ? this.savedPostRepo.find({
+          where: { memberId: new ObjectId(userId), postId: { $in: posts.map(p => p._id) } } as any
+        })
+        : Promise.resolve([]);
+
+      const [members, savedPosts] = await Promise.all([
+        membersPromise,
+        savedPostsPromise
+      ]);
+
+      // ── Group 4: Category info for members ──────────────────────────────────
       const categoryIds = [...new Set(members.map(m => m.businessCategory).filter((id): id is ObjectId => !!id))];
       const categories = categoryIds.length > 0
         ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
@@ -1282,10 +1309,6 @@ export class MobilePostController {
         businessCategory: m.businessCategory ? categoryMap.get(m.businessCategory.toString()) || null : null
       }]));
 
-      // Check which posts are saved by current user
-      const savedPosts = await this.savedPostRepo.find({
-        where: { memberId: new ObjectId(userId), postId: { $in: posts.map(p => p._id) } } as any
-      });
       const savedPostIds = new Set(savedPosts.map(s => s.postId.toString()));
 
       const data = posts.map(p => ({

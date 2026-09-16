@@ -76,7 +76,6 @@ export class MobileMemberController {
   @HttpCode(StatusCodes.CREATED)
   async register(@Req() req: any, @Body() data: CreateMemberDto, @Res() res: any) {
     try {
-      console.log(JSON.stringify(data), "aaa");
       // Check if mobile already exists
       const existingMobile = await this.memberRepo.findOneBy({ mobileNumber: data.mobileNumber, isDeleted: false });
       if (existingMobile) throw new BadRequestError("Mobile number already registered");
@@ -1009,32 +1008,26 @@ export class MobileMemberController {
 
       // Fetch outgoing and incoming connections to map relationship status
       const memberIds = members.map(m => m._id);
-      const userOids = [new ObjectId(userId), userId.toString()];
-      const memberTargetIds = [
-        ...memberIds.map(id => new ObjectId(id)),
-        ...memberIds.map(id => id.toString())
-      ];
 
-      const outgoingConnections = memberIds.length > 0
-        ? await this.connectionRepo.find({
-          where: {
-            senderId: { $in: userOids },
-            receiverId: { $in: memberTargetIds },
-            isDeleted: { $ne: true }
-          } as any
-        })
-        : [];
+      const [outgoingConnections, incomingConnections] = memberIds.length > 0
+        ? await Promise.all([
+          this.connectionRepo.find({
+            where: {
+              senderId: new ObjectId(userId),
+              receiverId: { $in: memberIds },
+              isDeleted: { $ne: true }
+            } as any
+          }),
+          this.connectionRepo.find({
+            where: {
+              receiverId: new ObjectId(userId),
+              senderId: { $in: memberIds },
+              isDeleted: { $ne: true }
+            } as any
+          })
+        ])
+        : [[], []];
       const outgoingMap = new Map(outgoingConnections.map(c => [c.receiverId.toString(), c]));
-
-      const incomingConnections = memberIds.length > 0
-        ? await this.connectionRepo.find({
-          where: {
-            receiverId: { $in: userOids },
-            senderId: { $in: memberTargetIds },
-            isDeleted: { $ne: true }
-          } as any
-        })
-        : [];
       const incomingMap = new Map(incomingConnections.map(c => [c.senderId.toString(), c]));
 
       logger.debug(`[getDirectory] User: ${userId} | Search: "${search || ""}" | Results: ${members.length}`, "MemberController");
@@ -1602,18 +1595,17 @@ export class MobileMemberController {
   private async getMemberCounts(memberId: string) {
     const id = new ObjectId(memberId);
 
-    const [followers, followings, postsCount] = await Promise.all([
-      this.connectionRepo.find({ where: { receiverId: id, status: ConnectionStatus.ACCEPTED, isDeleted: false } }),
-      this.connectionRepo.find({ where: { senderId: id, status: ConnectionStatus.ACCEPTED, isDeleted: false } }),
+    const [followersCount, followingsCount, postsCount] = await Promise.all([
+      this.connectionRepo.countBy({ receiverId: id, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any),
+      this.connectionRepo.countBy({ senderId: id, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any),
       this.postRepo.count({ memberId: id, isDeleted: false })
     ]);
 
-    // Removed verbose PROFILE_COUNTS console.logs — were serializing full ID arrays on every profile/detail load
-    logger.debug(`[PROFILE_COUNTS] Member: ${memberId} | followers: ${followers.length} | followings: ${followings.length}`, "MemberController");
+    logger.debug(`[PROFILE_COUNTS] Member: ${memberId} | followers: ${followersCount} | followings: ${followingsCount}`, "MemberController");
 
     return {
-      followersCount: followers.length,
-      followingsCount: followings.length,
+      followersCount,
+      followingsCount,
       postsCount
     };
   }

@@ -157,9 +157,10 @@ export class ReminderController {
    *         description: Reminder retrieved successfully
    */
   @Get("/:id")
-  async getOne(@Param("id") id: string, @Res() res: any) {
+  async getOne(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
-      const reminder = await this.reminderService.getReminder(id);
+      const userId = req.user?.userId;
+      const reminder = await this.reminderService.getReminder(id, userId);
       return res.status(StatusCodes.OK).json({
         success: true,
         data: reminder

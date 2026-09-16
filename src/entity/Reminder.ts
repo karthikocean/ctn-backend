@@ -38,6 +38,9 @@ export enum ReminderRecipientType {
 
 @Entity("reminders")
 @Index(["status", "isDeleted", "nextReminderDate"])
+@Index(["createdBy", "isDeleted", "createdAt"])
+@Index(["recipients", "isDeleted", "createdAt"])
+@Index(["isDeleted", "createdAt"])
 export class Reminder {
   @ObjectIdColumn()
     _id!: ObjectId;
@@ -114,4 +117,7 @@ export class Reminder {
 
   @UpdateDateColumn()
     updatedAt!: Date;
+
+  // Populated dynamically in queries
+  otherUser?: any;
 }
