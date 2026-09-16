@@ -393,6 +393,7 @@ export class MobilePostController {
       const where: any = {
         memberId: { $in: followingIds },
         isDeleted: false,
+        isActive: true,
         status: { $ne: "reported" }
       };
 
@@ -757,6 +758,7 @@ export class MobilePostController {
       const { reportedPostIds } = await this.getReportedDataForUser(userId);
       const where: any = {
         isDeleted: false,
+        isActive: true,
         status: { $ne: "reported" },
         memberId: { $ne: new ObjectId(userId) }
       };
@@ -955,6 +957,7 @@ export class MobilePostController {
       const allowedTypes = [PostType.PROMOTION, PostType.ASK];
       const where: any = {
         isDeleted: false,
+        isActive: true,
         status: { $ne: "reported" },
         memberId: { $ne: new ObjectId(userId) },
         $or: visibilityOrArray

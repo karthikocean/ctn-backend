@@ -1884,22 +1884,22 @@ export class MobileMemberController {
         this.getContributionSummary(id),
         Promise.all([
           this.postRepo.find({
-            where: { memberId: new ObjectId(id), type: PostType.PROMOTION, isDeleted: false },
+            where: { memberId: new ObjectId(id), type: PostType.PROMOTION, isDeleted: false, isActive: true },
             take: 9,
             order: { createdAt: "DESC" }
           }),
           this.postRepo.find({
-            where: { memberId: new ObjectId(id), type: PostType.REQUIREMENT, isDeleted: false },
+            where: { memberId: new ObjectId(id), type: PostType.REQUIREMENT, isDeleted: false, isActive: true },
             take: 9,
             order: { createdAt: "DESC" }
           }),
           this.postRepo.find({
-            where: { memberId: new ObjectId(id), type: PostType.GIVE, isDeleted: false },
+            where: { memberId: new ObjectId(id), type: PostType.GIVE, isDeleted: false, isActive: true },
             take: 9,
             order: { createdAt: "DESC" }
           }),
           this.postRepo.find({
-            where: { memberId: new ObjectId(id), type: PostType.ASK, isDeleted: false },
+            where: { memberId: new ObjectId(id), type: PostType.ASK, isDeleted: false, isActive: true },
             take: 9,
             order: { createdAt: "DESC" }
           })
