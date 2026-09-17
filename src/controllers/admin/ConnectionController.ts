@@ -316,9 +316,9 @@ export class ConnectionController {
       ] = await Promise.all([
         categoryIds.length > 0
           ? this.categoryRepo.find({
-              where: { _id: { $in: categoryIds } } as any,
-              select: ["_id", "name"] as any
-            })
+            where: { _id: { $in: categoryIds } } as any,
+            select: ["_id", "name"] as any
+          })
           : Promise.resolve([]),
         this.connectionRepo.find({
           where: {

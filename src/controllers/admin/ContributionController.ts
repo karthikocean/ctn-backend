@@ -204,38 +204,38 @@ export class AdminContributionController {
         includeReferral ? this.referralRepo.count(referralQuery) : Promise.resolve(0),
         includeOneToOne
           ? this.oneToOneRepo.find({
-              where: oneToOneQuery,
-              order: { createdAt: "DESC" },
-              take: takeCount,
-              select: ["_id", "senderId", "receiverId", "createdAt", "status"] as any
-            })
+            where: oneToOneQuery,
+            order: { createdAt: "DESC" },
+            take: takeCount,
+            select: ["_id", "senderId", "receiverId", "createdAt", "status"] as any
+          })
           : Promise.resolve([]),
         includeThankYouSlip
           ? this.tySlipRepo.find({
-              where: tySlipQuery,
-              order: { createdAt: "DESC" },
-              take: takeCount,
-              select: ["_id", "senderId", "receiverId", "amount", "businessDetails", "createdAt", "status"] as any
-            })
+            where: tySlipQuery,
+            order: { createdAt: "DESC" },
+            take: takeCount,
+            select: ["_id", "senderId", "receiverId", "amount", "businessDetails", "createdAt", "status"] as any
+          })
           : Promise.resolve([]),
         includeReferral
           ? this.referralRepo.find({
-              where: referralQuery,
-              order: { createdAt: "DESC" },
-              take: takeCount,
-              select: [
-                "_id",
-                "senderId",
-                "receiverId",
-                "referralName",
-                "referralMobile",
-                "referralEmail",
-                "location",
-                "comments",
-                "createdAt",
-                "status"
-              ] as any
-            })
+            where: referralQuery,
+            order: { createdAt: "DESC" },
+            take: takeCount,
+            select: [
+              "_id",
+              "senderId",
+              "receiverId",
+              "referralName",
+              "referralMobile",
+              "referralEmail",
+              "location",
+              "comments",
+              "createdAt",
+              "status"
+            ] as any
+          })
           : Promise.resolve([])
       ]);
 

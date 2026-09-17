@@ -36,6 +36,7 @@ export async function seedModules() {
     { name: "Allocate Points", parentSlug: "points" },
 
     { name: "Members" },
+    { name: "Incomplete Registrations" },
 
     { name: "Activities" },
     { name: "Asks", parentSlug: "activities" },

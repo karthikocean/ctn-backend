@@ -23,6 +23,7 @@ export class StallItem {
   name!: string;
   size!: string;
   points!: number;
+  amount?: number; // Optional Razorpay payment amount (₹) for this stall
 }
 
 export class StallConfig {

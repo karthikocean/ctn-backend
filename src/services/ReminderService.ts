@@ -374,11 +374,11 @@ export class ReminderService {
 
     const members = allOtherMemberIds.length > 0
       ? await this.memberRepo.find({
-          where: {
-            _id: { $in: allOtherMemberIds },
-            isDeleted: false
-          } as any
-        })
+        where: {
+          _id: { $in: allOtherMemberIds },
+          isDeleted: false
+        } as any
+      })
       : [];
     const memberMap = new Map<string, Member>();
     members.forEach(m => memberMap.set(m._id.toString(), m));
@@ -394,11 +394,11 @@ export class ReminderService {
 
     const categories = catObjectIds.length > 0
       ? await this.categoryRepo.find({
-          where: {
-            _id: { $in: catObjectIds },
-            isDeleted: false
-          } as any
-        })
+        where: {
+          _id: { $in: catObjectIds },
+          isDeleted: false
+        } as any
+      })
       : [];
     const categoryMap = new Map<string, string>();
     categories.forEach(c => categoryMap.set(c._id.toString(), c.name));

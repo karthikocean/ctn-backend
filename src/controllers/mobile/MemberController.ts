@@ -44,6 +44,7 @@ import { ReferralService } from "../../services/referral.service";
 import { WelcomeCardService } from "../../services/welcomeCard.service";
 import { GstAlertService } from "../../services/gstAlert.service";
 import { resolveRegions } from "../../utils/region.helper";
+import { IncompleteRegistration } from "../../entity/IncompleteRegistration";
 
 @JsonController("/members")
 export class MobileMemberController {
@@ -58,6 +59,7 @@ export class MobileMemberController {
   private businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
   private historyRepo = AppDataSource.getMongoRepository(PointHistory);
   private postReportRepo = AppDataSource.getMongoRepository(PostReport);
+  private incompleteRegRepo = AppDataSource.getMongoRepository(IncompleteRegistration);
   private referralService = new ReferralService();
   /**
    * @swagger
@@ -145,6 +147,11 @@ export class MobileMemberController {
       // }
 
       const saved = await this.memberRepo.save(member);
+
+      // Clean up any incomplete registration record for this mobile number (fire-and-forget)
+      this.incompleteRegRepo
+        .deleteOne({ mobileNumber: data.mobileNumber } as any)
+        .catch(err => console.error("[MemberRegistration] Failed to delete incomplete registration:", err.message));
 
       // If this was the 2nd user registering with this GST, notify the already registered member
       if (data.gstNumber && existingGstMembers.length === 1) {

@@ -34,6 +34,9 @@ export class Payment {
   @Column({ nullable: true })
     bookingId?: ObjectId;
 
+  @Column({ nullable: true })
+    stallId?: ObjectId;
+
   @Column()
     amount!: number;
 
