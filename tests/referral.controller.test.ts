@@ -43,6 +43,30 @@ jest.mock("../src/config/appRedis", () => ({
   checkRedisHealth: jest.fn().mockResolvedValue({ status: "connected", latencyMs: 1 }),
 }));
 
+jest.mock("../src/config/redis.config", () => ({
+  appRedis: {
+    status: "end",
+    on: jest.fn(),
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue("OK"),
+    del: jest.fn().mockResolvedValue(1),
+    quit: jest.fn().mockResolvedValue("OK"),
+    disconnect: jest.fn(),
+  },
+  redisConnection: {
+    status: "end",
+    on: jest.fn(),
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue("OK"),
+    del: jest.fn().mockResolvedValue(1),
+    quit: jest.fn().mockResolvedValue("OK"),
+    disconnect: jest.fn(),
+  },
+  appRedisConfig: {},
+  bullRedisConfig: {},
+  redisConfig: {},
+}));
+
 import { ObjectId } from "mongodb";
 import { BadRequestError } from "routing-controllers";
 import { MobileReferralController } from "../src/controllers/mobile/ReferralController";
@@ -69,9 +93,18 @@ describe("Referral Controller & Registration Integration Tests", () => {
       updateOne: jest.fn().mockResolvedValue({ acknowledged: true, modifiedCount: 1 })
     };
 
+    const defaultMockRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+      findOneBy: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
+      save: jest.fn().mockImplementation((m: any) => Promise.resolve({ ...m, _id: m._id || new ObjectId() })),
+      updateOne: jest.fn().mockResolvedValue({ acknowledged: true, modifiedCount: 1 }),
+      deleteOne: jest.fn().mockResolvedValue({ acknowledged: true, deletedCount: 1 })
+    };
+
     jest.spyOn(AppDataSource, "getMongoRepository").mockImplementation((entity: any) => {
       if (entity === Member || entity?.name === "Member") return mockMemberRepo as any;
-      return {} as any;
+      return defaultMockRepo as any;
     });
 
     jest.spyOn(WelcomeCardService, "sendRegistrationWelcomeEmailToAdmin").mockResolvedValue(undefined as any);
@@ -95,9 +128,13 @@ describe("Referral Controller & Registration Integration Tests", () => {
     try {
       const { appRedis } = await import("../src/config/appRedis");
       if (appRedis) {
-        appRedis.disconnect();
+        if (appRedis.status === "ready" || appRedis.status === "connecting") {
+          await appRedis.quit().catch(() => appRedis.disconnect());
+        } else {
+          appRedis.disconnect();
+        }
       }
-    } catch {}
+    } catch { }
   });
 
   describe("GET /mobile-api/referrals/me", () => {
@@ -228,6 +265,102 @@ describe("Referral Controller & Registration Integration Tests", () => {
     });
   });
 
+  describe("POST /mobile-api/referrals/verify", () => {
+    it("should successfully verify a valid active referral code", async () => {
+      const referrerId = new ObjectId();
+      const mockReferrer: Member = {
+        _id: referrerId,
+        fullName: "Anbu Elumalai",
+        businessName: "CTN Technologies",
+        profilePhoto: "https://example.com/avatar.jpg",
+        referralCode: "ANBU8F42",
+        status: MemberStatus.ACTIVE,
+        isDeleted: false
+      } as any;
+
+      jest.spyOn(ReferralService.prototype, "validateReferralCode")
+        .mockResolvedValueOnce(mockReferrer);
+
+      const mockReq = { headers: {} };
+      await referralController.verifyReferralCode(
+        mockReq,
+        { referralCode: "ANBU8F42" },
+        mockRes
+      );
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        message: "Referral code is valid",
+        data: {
+          isValid: true,
+          referralCode: "ANBU8F42",
+          referrer: {
+            id: referrerId.toString(),
+            fullName: "Anbu Elumalai",
+            businessName: "CTN Technologies",
+            profilePhoto: "https://example.com/avatar.jpg"
+          }
+        }
+      });
+    });
+
+    it("should fail verification with 400 when referral code is missing or empty", async () => {
+      const mockReq = { headers: {} };
+      await referralController.verifyReferralCode(
+        mockReq,
+        { referralCode: "" },
+        mockRes
+      );
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("Referral code is required")
+        })
+      );
+    });
+
+    it("should return 400 when referral code is invalid or not found", async () => {
+      jest.spyOn(ReferralService.prototype, "validateReferralCode")
+        .mockRejectedValueOnce(new BadRequestError("Invalid referral code. No member found with this code."));
+
+      const mockReq = { headers: {} };
+      await referralController.verifyReferralCode(
+        mockReq,
+        { referralCode: "NONEXIST1" },
+        mockRes
+      );
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("Invalid referral code")
+        })
+      );
+    });
+
+    it("should pass user email and phone to validateReferralCode to check self-referral", async () => {
+      const validateSpy = jest.spyOn(ReferralService.prototype, "validateReferralCode")
+        .mockRejectedValueOnce(new BadRequestError("You cannot use your own referral code."));
+
+      const mockReq = { headers: {} };
+      await referralController.verifyReferralCode(
+        mockReq,
+        { referralCode: "ANBU8F42", email: "anbu@example.com", mobileNumber: "9876543210" },
+        mockRes
+      );
+
+      expect(validateSpy).toHaveBeenCalledWith("ANBU8F42", undefined, "anbu@example.com", "9876543210");
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "You cannot use your own referral code."
+        })
+      );
+    });
+  });
+
   describe("POST /mobile-api/members/register", () => {
     it("should register member with generated referralCode and process referral if code provided", async () => {
       const referrerId = new ObjectId();
@@ -271,7 +404,9 @@ describe("Referral Controller & Registration Integration Tests", () => {
         expect.objectContaining({
           success: true,
           message: "Registration successful",
-          data: savedMemberId
+          data: {
+            memberId: savedMemberId.toString()
+          }
         })
       );
       expect(processReferralSpy).toHaveBeenCalled();

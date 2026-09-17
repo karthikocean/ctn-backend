@@ -44,6 +44,7 @@ import { ReferralService } from "../../services/referral.service";
 import { WelcomeCardService } from "../../services/welcomeCard.service";
 import { GstAlertService } from "../../services/gstAlert.service";
 import { resolveRegions } from "../../utils/region.helper";
+import { IncompleteRegistration } from "../../entity/IncompleteRegistration";
 
 @JsonController("/members")
 export class MobileMemberController {
@@ -58,6 +59,7 @@ export class MobileMemberController {
   private businessRegionRepo = AppDataSource.getMongoRepository(BusinessRegion);
   private historyRepo = AppDataSource.getMongoRepository(PointHistory);
   private postReportRepo = AppDataSource.getMongoRepository(PostReport);
+  private incompleteRegRepo = AppDataSource.getMongoRepository(IncompleteRegistration);
   private referralService = new ReferralService();
   /**
    * @swagger
@@ -76,7 +78,6 @@ export class MobileMemberController {
   @HttpCode(StatusCodes.CREATED)
   async register(@Req() req: any, @Body() data: CreateMemberDto, @Res() res: any) {
     try {
-      console.log(JSON.stringify(data), "aaa");
       // Check if mobile already exists
       const existingMobile = await this.memberRepo.findOneBy({ mobileNumber: data.mobileNumber, isDeleted: false });
       if (existingMobile) throw new BadRequestError("Mobile number already registered");
@@ -147,6 +148,13 @@ export class MobileMemberController {
 
       const saved = await this.memberRepo.save(member);
 
+      // Clean up any incomplete registration record for this mobile number (fire-and-forget)
+      if (this.incompleteRegRepo && typeof this.incompleteRegRepo.deleteOne === "function") {
+        this.incompleteRegRepo
+          .deleteOne({ mobileNumber: data.mobileNumber } as any)
+          .catch(err => console.error("[MemberRegistration] Failed to delete incomplete registration:", err.message));
+      }
+
       // If this was the 2nd user registering with this GST, notify the already registered member
       if (data.gstNumber && existingGstMembers.length === 1) {
         GstAlertService.notifySecondUserRegistered(existingGstMembers[0], saved).catch(err => {
@@ -174,7 +182,9 @@ export class MobileMemberController {
       return res.status(StatusCodes.CREATED).json({
         success: true,
         message: "Registration successful",
-        data: saved._id
+        data: {
+          memberId: saved._id.toString()
+        }
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
@@ -994,47 +1004,46 @@ export class MobileMemberController {
         order: { fullName: "ASC" }
       });
 
-      // Populate Categories
+      // ── Concurrently populate Categories, Areas, and Connections ────────────
       const categoryIds = members
         .flatMap(m => [m.businessCategory, m.subCategory])
         .filter((id): id is ObjectId => !!id);
 
-      const categories = categoryIds.length > 0
-        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
-        : [];
+      const categoriesPromise = categoryIds.length > 0
+        ? this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : Promise.resolve([]);
+
+      const areasMapPromise = this.getAreasMap(members);
+
+      const memberIds = members.map(m => m._id);
+
+      const connectionsPromise = memberIds.length > 0
+        ? Promise.all([
+          this.connectionRepo.find({
+            where: {
+              senderId: new ObjectId(userId),
+              receiverId: { $in: memberIds },
+              isDeleted: { $ne: true }
+            } as any
+          }),
+          this.connectionRepo.find({
+            where: {
+              receiverId: new ObjectId(userId),
+              senderId: { $in: memberIds },
+              isDeleted: { $ne: true }
+            } as any
+          })
+        ])
+        : Promise.resolve([[], []]);
+
+      const [categories, areasMap, [outgoingConnections, incomingConnections]] = await Promise.all([
+        categoriesPromise,
+        areasMapPromise,
+        connectionsPromise
+      ]);
 
       const categoryMap = new Map(categories.map(c => [c._id.toString(), { _id: c._id, name: c.name }]));
-
-      const areasMap = await this.getAreasMap(members);
-
-      // Fetch outgoing and incoming connections to map relationship status
-      const memberIds = members.map(m => m._id);
-      const userOids = [new ObjectId(userId), userId.toString()];
-      const memberTargetIds = [
-        ...memberIds.map(id => new ObjectId(id)),
-        ...memberIds.map(id => id.toString())
-      ];
-
-      const outgoingConnections = memberIds.length > 0
-        ? await this.connectionRepo.find({
-          where: {
-            senderId: { $in: userOids },
-            receiverId: { $in: memberTargetIds },
-            isDeleted: { $ne: true }
-          } as any
-        })
-        : [];
       const outgoingMap = new Map(outgoingConnections.map(c => [c.receiverId.toString(), c]));
-
-      const incomingConnections = memberIds.length > 0
-        ? await this.connectionRepo.find({
-          where: {
-            receiverId: { $in: userOids },
-            senderId: { $in: memberTargetIds },
-            isDeleted: { $ne: true }
-          } as any
-        })
-        : [];
       const incomingMap = new Map(incomingConnections.map(c => [c.senderId.toString(), c]));
 
       logger.debug(`[getDirectory] User: ${userId} | Search: "${search || ""}" | Results: ${members.length}`, "MemberController");
@@ -1602,18 +1611,17 @@ export class MobileMemberController {
   private async getMemberCounts(memberId: string) {
     const id = new ObjectId(memberId);
 
-    const [followers, followings, postsCount] = await Promise.all([
-      this.connectionRepo.find({ where: { receiverId: id, status: ConnectionStatus.ACCEPTED, isDeleted: false } }),
-      this.connectionRepo.find({ where: { senderId: id, status: ConnectionStatus.ACCEPTED, isDeleted: false } }),
+    const [followersCount, followingsCount, postsCount] = await Promise.all([
+      this.connectionRepo.countBy({ receiverId: id, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any),
+      this.connectionRepo.countBy({ senderId: id, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any),
       this.postRepo.count({ memberId: id, isDeleted: false })
     ]);
 
-    // Removed verbose PROFILE_COUNTS console.logs — were serializing full ID arrays on every profile/detail load
-    logger.debug(`[PROFILE_COUNTS] Member: ${memberId} | followers: ${followers.length} | followings: ${followings.length}`, "MemberController");
+    logger.debug(`[PROFILE_COUNTS] Member: ${memberId} | followers: ${followersCount} | followings: ${followingsCount}`, "MemberController");
 
     return {
-      followersCount: followers.length,
-      followingsCount: followings.length,
+      followersCount,
+      followingsCount,
       postsCount
     };
   }

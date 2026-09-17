@@ -33,12 +33,19 @@ import {
   VerifyEventPaymentDto,
   CancelEventPaymentDto
 } from "../../dto/mobile/AnnouncementPayment.dto";
+import { StallRazorpayService } from "../../services/stallRazorpay.service";
+import {
+  BuyStallDto,
+  VerifyStallPaymentDto,
+  CancelStallPaymentDto
+} from "../../dto/mobile/StallPayment.dto";
 
 @JsonController("/announcements")
 @UseBefore(MobileAuthMiddleware)
 export class MobileAnnouncementController {
   private announcementRepo = AppDataSource.getMongoRepository(Announcement);
   private eventRazorpayService = new EventRazorpayService();
+  private stallRazorpayService = new StallRazorpayService();
 
   /**
    * @swagger
@@ -735,8 +742,6 @@ export class MobileAnnouncementController {
   async bookAnnouncement(@Req() req: any, @Param("id") id: string, @Res() res: any) {
     try {
       const userId = req.user.userId;
-      console.log(userId, "userId");
-
       if (!ObjectId.isValid(id)) throw new BadRequestError("Invalid announcement ID");
 
       const announcementOid = new ObjectId(id);
@@ -784,7 +789,6 @@ export class MobileAnnouncementController {
       const pointService = new PointService();
       let balance = await pointService.getMemberBalance(memberOid);
       const cost = announcement.points || 0;
-      console.log(balance, "balance", cost, "cost");
       if (cost > 0) {
         if (balance < cost) {
           throw new BadRequestError(`Insufficient points. Need ${cost} pts, you have ${balance}.`);
@@ -1347,4 +1351,117 @@ export class MobileAnnouncementController {
       return handleErrorResponse(error, res);
     }
   }
+
+  /**
+   * @swagger
+   * /mobile-api/announcements/buy-stall:
+   *   post:
+   *     summary: Create Razorpay checkout order for booking a stall (Mobile)
+   *     tags: [Mobile Announcement]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/BuyStallDto'
+   *     responses:
+   *       200:
+   *         description: Razorpay order initiated for stall booking
+   */
+  @Post("/buy-stall")
+  async buyStall(@Req() req: any, @Body() body: BuyStallDto, @Res() res: any) {
+    try {
+      const memberId = req.user.userId;
+      const { announcementId, stallId } = body;
+
+      const paymentData = await this.stallRazorpayService.initiateBuy(
+        memberId,
+        announcementId,
+        stallId
+      );
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Razorpay payment transaction initiated for stall booking.",
+        data: paymentData
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/announcements/verify-stall-payment:
+   *   post:
+   *     summary: Verify Razorpay payment signature and complete stall booking (Mobile)
+   *     tags: [Mobile Announcement]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/VerifyStallPaymentDto'
+   *     responses:
+   *       200:
+   *         description: Stall booking confirmed
+   */
+  @Post("/verify-stall-payment")
+  async verifyStallPayment(@Req() req: any, @Body() body: VerifyStallPaymentDto, @Res() res: any) {
+    try {
+      const memberId = req.user.userId;
+      const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = body;
+
+      const result = await this.stallRazorpayService.verifyPayment(
+        memberId,
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature
+      );
+
+      return res.status(StatusCodes.OK).json(result);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/announcements/cancel-stall-payment:
+   *   post:
+   *     summary: Cancel pending Razorpay stall payment transaction (Mobile)
+   *     tags: [Mobile Announcement]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/CancelStallPaymentDto'
+   *     responses:
+   *       200:
+   *         description: Stall payment cancelled
+   */
+  @Post("/cancel-stall-payment")
+  async cancelStallPayment(@Req() req: any, @Body() body: CancelStallPaymentDto, @Res() res: any) {
+    try {
+      const memberId = req.user.userId;
+      const { razorpayOrderId } = body;
+
+      const result = await this.stallRazorpayService.cancelPayment(
+        memberId,
+        razorpayOrderId
+      );
+
+      return res.status(StatusCodes.OK).json(result);
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
 }
+

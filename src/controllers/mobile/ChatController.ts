@@ -330,7 +330,6 @@ export class MobileChatController {
         where: whereClause as any,
         order: { lastMessageTime: "DESC", createdAt: "DESC", updatedAt: "DESC" }
       });
-      console.log(conversationsRaw.length, "conversationsRaw");
       const groupedConversations = new Map<string, Conversation>();
       for (const conv of conversationsRaw) {
         const otherParticipantId = conv.participants.find(p => !p.equals(userId));
@@ -1492,7 +1491,6 @@ export class MobileChatController {
     @Res() res: any
   ) {
     try {
-      console.log(JSON.stringify(data), "datadata");
       const senderId = new ObjectId(req.user.userId);
       let pointsResult = { awarded: 0, balance: 0 };
       let { conversationId, content, type = MessageType.TEXT, replyToMessageId, media, businessActionId, actionData } = data;

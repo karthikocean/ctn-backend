@@ -90,24 +90,63 @@ export class WebsiteCommonController {
   @Get("/stats")
   async getWebsiteStats(@Res() res: any) {
     try {
-      // 1. Active Members Count
-      const activeMembersCount = await this.memberRepo.count({
-        isDeleted: false,
-        status: MemberStatus.ACTIVE
-      });
+      // ── CONCURRENT FETCH: Execute all 8 independent queries in a single round trip ──
+      const [
+        activeMembersCount,
+        categoryCount,
+        regions,
+        directMeetCount,
+        recommendationCount,
+        requirementsCount,
+        thankYouSlips,
+        activeFollowingCount
+      ] = await Promise.all([
+        // 1. Active Members Count
+        this.memberRepo.count({
+          isDeleted: false,
+          status: MemberStatus.ACTIVE
+        }),
 
-      // 2. Category Count (Main Category Count)
-      const categoryCount = await this.categoryRepo.count({
-        isDeleted: false,
-        status: CategoryStatus.ACTIVE,
-        type: CategoryType.MAIN
-      });
+        // 2. Category Count (Main Category Count)
+        this.categoryRepo.count({
+          isDeleted: false,
+          status: CategoryStatus.ACTIVE,
+          type: CategoryType.MAIN
+        }),
 
-      // 3. Total Regions (Sum of all areas inside Business Regions)
-      const regions = await this.businessRegionRepo.find({
-        isDeleted: false,
-        status: BusinessRegionStatus.ACTIVE
-      });
+        // 3. Total Regions (Sum of all areas inside Business Regions, projecting only areas)
+        this.businessRegionRepo.find({
+          where: {
+            isDeleted: false,
+            status: BusinessRegionStatus.ACTIVE
+          } as any,
+          select: ["areas"] as any
+        }),
+
+        // 4. Direct Meet (OneToOne / 121 count)
+        this.oneToOneRepo.count(),
+
+        // 5. Recommendation (Referral count)
+        this.referralRepo.count(),
+
+        // 6. Requirements Count
+        this.postRepo.count({
+          isDeleted: false,
+          type: PostType.REQUIREMENT
+        }),
+
+        // 7. Business Done (Thank You Slip count and total amount, projecting only amount)
+        this.tySlipRepo.find({
+          select: ["amount"] as any
+        }),
+
+        // 8. Active Total Following / Connections Count
+        this.connectionRepo.count({
+          isDeleted: false,
+          status: ConnectionStatus.ACCEPTED
+        })
+      ]);
+
       let totalRegions = 0;
       for (const region of regions) {
         if (Array.isArray(region.areas)) {
@@ -115,20 +154,6 @@ export class WebsiteCommonController {
         }
       }
 
-      // 4. Direct Meet (OneToOne / 121 count)
-      const directMeetCount = await this.oneToOneRepo.count();
-
-      // 5. Recommendation (Referral count)
-      const recommendationCount = await this.referralRepo.count();
-
-      // 6. Requirements Count
-      const requirementsCount = await this.postRepo.count({
-        isDeleted: false,
-        type: PostType.REQUIREMENT
-      });
-
-      // 7. Business Done (Thank You Slip count and total amount)
-      const thankYouSlips = await this.tySlipRepo.find();
       const businessDoneCount = thankYouSlips.length;
       const rawBusinessDoneAmount = thankYouSlips.reduce(
         (sum, slip) => sum + (Number(slip.amount) || 0),
@@ -136,12 +161,6 @@ export class WebsiteCommonController {
       );
 
       const businessDoneAmount = formatCompactNumber(rawBusinessDoneAmount);
-
-      // 8. Active Total Following / Connections Count
-      const activeFollowingCount = await this.connectionRepo.count({
-        isDeleted: false,
-        status: ConnectionStatus.ACCEPTED
-      });
 
       return res.status(StatusCodes.OK).json({
         success: true,

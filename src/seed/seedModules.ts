@@ -25,7 +25,7 @@ export async function seedModules() {
     { name: "Referral Categories", parentSlug: "categories" },
 
     { name: "Announcements" },
-    // { name: "Events" },
+    { name: "Monthly Meetings" },
     { name: "Blogs" },
 
     { name: "Trainings" },
@@ -36,6 +36,7 @@ export async function seedModules() {
     { name: "Allocate Points", parentSlug: "points" },
 
     { name: "Members" },
+    { name: "Incomplete Registrations" },
 
     { name: "Activities" },
     { name: "Asks", parentSlug: "activities" },

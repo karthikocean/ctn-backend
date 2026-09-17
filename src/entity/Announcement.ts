@@ -13,7 +13,9 @@ export enum AnnouncementType {
   EVENT = "Event",
   ONLINE_STALL = "Online Stall",
   OTHERS = "Others",
-  TRAINING = "Training"
+  TRAINING = "Training",
+  MONTHLY_MEETING = "monthlymeeting",
+  MONTHLY_MEETING_SPACED = "Monthly Meeting"
 }
 
 export class StallItem {
@@ -21,6 +23,7 @@ export class StallItem {
   name!: string;
   size!: string;
   points!: number;
+  amount?: number; // Optional Razorpay payment amount (₹) for this stall
 }
 
 export class StallConfig {

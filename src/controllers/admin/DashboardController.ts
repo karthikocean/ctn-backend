@@ -169,24 +169,92 @@ export class AdminDashboardController {
         }
       }
 
-      const allMembers = await this.memberRepo.find({ where: memberQuery });
+      const now = new Date();
+      const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+      // Generate 7-month date ranges for trends early to restrict historical training queries
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const last7Months: { name: string; year: number; monthIdx: number; start: Date; end: Date }[] = [];
+
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1, 0, 0, 0, 0);
+        const endOfMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+        last7Months.push({
+          name: monthNames[d.getMonth()],
+          year: d.getFullYear(),
+          monthIdx: d.getMonth(),
+          start: d,
+          end: endOfMonth
+        });
+      }
+
+      const sevenMonthsAgoStart = last7Months[0].start;
+      const sevenMonthsEnd = last7Months[last7Months.length - 1].end;
+
+      // ── PHASE 1: Concurrent Independent Initial Lookups (1 Atlas RTT) ───────
+      const [
+        allMembers,
+        paidSubscriptions,
+        allTrainings,
+        allMemberTrainings,
+        allRegions,
+        allStates,
+        allCategories
+      ] = await Promise.all([
+        this.memberRepo.find({
+          where: memberQuery,
+          select: [
+            "_id",
+            "status",
+            "subscriptionEndDate",
+            "createdAt",
+            "businessRegion",
+            "state",
+            "businessCategory",
+            "industry"
+          ] as any
+        }),
+        this.memberSubscriptionRepo.find({
+          where: {
+            isTrial: { $ne: true } as any,
+            isDeleted: false
+          },
+          select: ["memberId"] as any
+        }),
+        this.trainingRepo.find({
+          where: {
+            isDeleted: false,
+            createdAt: { $gte: sevenMonthsAgoStart, $lte: sevenMonthsEnd }
+          } as any,
+          select: ["createdAt"] as any
+        }),
+        this.memberTrainingRepo.find({
+          where: {
+            createdAt: { $gte: sevenMonthsAgoStart, $lte: sevenMonthsEnd }
+          } as any,
+          select: ["createdAt"] as any
+        }),
+        this.regionRepo.find({
+          where: { isDeleted: false } as any,
+          select: ["_id", "name", "regionName", "title", "areas", "state"] as any
+        }),
+        this.stateRepo.find({
+          where: { isDeleted: false } as any,
+          select: ["_id", "name"] as any
+        }),
+        this.categoryRepo.find({
+          where: { isDeleted: false } as any,
+          select: ["_id", "name"] as any
+        })
+      ]);
+
       const memberOidSet = new Set(allMembers.map(m => m._id.toString()));
       const memberOids = allMembers.map(m => m._id);
 
       const totalMembers = allMembers.length;
       const activeMembers = allMembers.filter(m => m.status === MemberStatus.ACTIVE).length;
 
-      const now = new Date();
-      const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-      // Paid members check (excludes trial users)
-      const paidSubscriptions = await this.memberSubscriptionRepo.find({
-        where: {
-          isTrial: { $ne: true } as any,
-          isDeleted: false
-        }
-      });
-      const paidMemberIds = new Set(paidSubscriptions.map(s => s.memberId.toString()));
+      const paidMemberIds = new Set(paidSubscriptions.map(s => s.memberId?.toString()).filter(Boolean));
 
       const expiringSoon = allMembers.filter(m => {
         if (!paidMemberIds.has(m._id.toString())) return false;
@@ -217,14 +285,47 @@ export class AdminDashboardController {
         postQuery.createdAt = { $lte: endDate };
       }
 
-      const matchingPosts = await this.postRepo.find({ where: postQuery });
+      // Date query for interactions (Overall counts unless explicit custom startDateParam is passed)
+      const interactionDateQuery: any = {};
+      if (startDateParam) {
+        const customStart = new Date(startDateParam);
+        customStart.setHours(0, 0, 0, 0);
+        interactionDateQuery.createdAt = { $gte: customStart, $lte: endDate };
+      } else {
+        interactionDateQuery.createdAt = { $lte: endDate };
+      }
 
+      // ── PHASE 2: Concurrent Dependent Data Lookups (1 Atlas RTT) ───────────
+      const [
+        matchingPosts,
+        allOneToOnes,
+        allReferrals,
+        allThankYouSlips
+      ] = await Promise.all([
+        this.postRepo.find({
+          where: postQuery,
+          select: ["type", "memberId"] as any
+        }),
+        this.oneToOneRepo.find({
+          where: interactionDateQuery,
+          select: ["senderId", "receiverId"] as any
+        }),
+        this.referralRepo.find({
+          where: interactionDateQuery,
+          select: ["senderId", "receiverId"] as any
+        }),
+        this.thankYouSlipRepo.find({
+          where: interactionDateQuery,
+          select: ["senderId", "receiverId", "amount"] as any
+        })
+      ]);
+
+      // Compute post metrics & activity gaps
       const todayPost = matchingPosts.filter(p => p.type === PostType.PROMOTION).length;
       const todayAsk = matchingPosts.filter(p => p.type === PostType.ASK).length;
       const todayGive = matchingPosts.filter(p => p.type === PostType.GIVE).length;
       const todayRequirement = matchingPosts.filter(p => p.type === PostType.REQUIREMENT).length;
 
-      // Activity gaps
       const activeMemberObjs = allMembers.filter(m => m.status === MemberStatus.ACTIVE);
 
       const membersWhoPosted = new Set(
@@ -245,32 +346,19 @@ export class AdminDashboardController {
       const notGiven = activeMemberObjs.filter(m => !membersWhoGiven.has(m._id.toString())).length;
       const notRequirements = activeMemberObjs.filter(m => !membersWhoRequired.has(m._id.toString())).length;
 
-      // Date query for interactions (Overall counts unless explicit custom startDateParam is passed)
-      const interactionDateQuery: any = {};
-      if (startDateParam) {
-        const customStart = new Date(startDateParam);
-        customStart.setHours(0, 0, 0, 0);
-        interactionDateQuery.createdAt = { $gte: customStart, $lte: endDate };
-      } else {
-        interactionDateQuery.createdAt = { $lte: endDate };
-      }
-
       // Direct Meet
-      const allOneToOnes = await this.oneToOneRepo.find({ where: interactionDateQuery });
       const filteredOneToOnes = (regionId || categoryId || req.isFranchise)
         ? allOneToOnes.filter(o => memberOidSet.has(o.senderId?.toString()) || memberOidSet.has(o.receiverId?.toString()))
         : allOneToOnes;
       const oneToOneCount = filteredOneToOnes.length;
 
       // Recommendations
-      const allReferrals = await this.referralRepo.find({ where: interactionDateQuery });
       const filteredReferrals = (regionId || categoryId || req.isFranchise)
         ? allReferrals.filter(r => memberOidSet.has(r.senderId?.toString()) || memberOidSet.has(r.receiverId?.toString()))
         : allReferrals;
       const referralCount = filteredReferrals.length;
 
       // Business Done
-      const allThankYouSlips = await this.thankYouSlipRepo.find({ where: interactionDateQuery });
       const filteredThankYouSlips = (regionId || categoryId || req.isFranchise)
         ? allThankYouSlips.filter(t => memberOidSet.has(t.senderId?.toString()) || memberOidSet.has(t.receiverId?.toString()))
         : allThankYouSlips;
@@ -281,26 +369,6 @@ export class AdminDashboardController {
       // =========================================================
       // DYNAMIC CHARTS DATA AGGREGATION
       // =========================================================
-
-      // 1. Month names generator for last 7 months
-      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const last7Months: { name: string; year: number; monthIdx: number; start: Date; end: Date }[] = [];
-
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1, 0, 0, 0, 0);
-        const endOfMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
-        last7Months.push({
-          name: monthNames[d.getMonth()],
-          year: d.getFullYear(),
-          monthIdx: d.getMonth(),
-          start: d,
-          end: endOfMonth
-        });
-      }
-
-      // Fetch all trainings & member trainings for training trend chart
-      const allTrainings = await this.trainingRepo.find({ where: { isDeleted: false } as any });
-      const allMemberTrainings = await this.memberTrainingRepo.find({});
 
       const trainingTrend = last7Months.map(m => {
         const trainingsInMonth = allTrainings.filter(t => {
@@ -346,10 +414,7 @@ export class AdminDashboardController {
         };
       });
 
-      // 3. Region Overview
-      const allRegions = await this.regionRepo.find({ where: { isDeleted: false } as any });
-      const allStates = await this.stateRepo.find({ where: { isDeleted: false } as any });
-
+      // 3. Region Overview (using Phase 1 allRegions and allStates)
       const stateMap = new Map<string, string>();
       allStates.forEach(s => stateMap.set(s._id.toString(), s.name));
 
@@ -385,8 +450,7 @@ export class AdminDashboardController {
         .map(([name, data]) => ({ name, value: data.count, members: data.count, id: data.id }))
         .sort((a, b) => b.members - a.members);
 
-      // 4. Category Overview
-      const allCategories = await this.categoryRepo.find({ where: { isDeleted: false } as any });
+      // 4. Category Overview (using Phase 1 allCategories)
       const categoryMap = new Map<string, string>();
       allCategories.forEach(c => categoryMap.set(c._id.toString(), c.name));
 

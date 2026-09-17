@@ -75,3 +75,71 @@ export async function invalidateAuthCache(rawToken: string): Promise<void> {
     console.warn("[AuthCache] Failed to invalidate cache entry:", err?.message);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🛡️ Admin Authentication Cache
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Redis key prefix for admin auth — never contains the raw token */
+const ADMIN_AUTH_KEY_PREFIX = "admin_auth:v1:";
+
+/**
+ * What we cache for Admin authentication.
+ * Stores authenticated admin user fields and attached role with permissions.
+ */
+export interface CachedAdminAuthData {
+  userId: string;
+  isActive: boolean;
+  isDeleted: boolean;
+  tokenRecordExists: boolean;
+  companyId?: string;
+  roleId?: string;
+  role: any;
+}
+
+function adminCacheKey(rawToken: string): string {
+  const hash = crypto.createHash("sha256").update(rawToken).digest("hex");
+  return `${ADMIN_AUTH_KEY_PREFIX}${hash}`;
+}
+
+/**
+ * Returns cached admin auth data for this token, or null on cache miss / Redis error.
+ * A Redis failure is treated as a cache miss — authentication falls back to MongoDB.
+ */
+export async function getAdminAuthCache(rawToken: string): Promise<CachedAdminAuthData | null> {
+  try {
+    if (appRedis.status !== "ready") return null;
+    const raw = await appRedis.get(adminCacheKey(rawToken));
+    if (!raw) return null;
+    return JSON.parse(raw) as CachedAdminAuthData;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stores a successful admin auth lookup result in Redis.
+ * Called only after all DB validations pass.
+ */
+export async function setAdminAuthCache(rawToken: string, data: CachedAdminAuthData): Promise<void> {
+  try {
+    if (appRedis.status !== "ready") return;
+    await appRedis.set(adminCacheKey(rawToken), JSON.stringify(data), "EX", AUTH_CACHE_TTL_SECONDS);
+  } catch {
+    // Non-fatal: next request will query DB
+  }
+}
+
+/**
+ * Removes the cached admin auth record for this specific token.
+ * Called on: admin logout.
+ */
+export async function invalidateAdminAuthCache(rawToken: string): Promise<void> {
+  try {
+    if (appRedis.status !== "ready") return;
+    await appRedis.del(adminCacheKey(rawToken));
+  } catch (err: any) {
+    console.warn("[AdminAuthCache] Failed to invalidate cache entry:", err?.message);
+  }
+}
+

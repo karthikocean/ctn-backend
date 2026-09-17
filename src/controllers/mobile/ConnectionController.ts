@@ -27,6 +27,7 @@ import handleErrorResponse from "../../utils/commonFunction";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { insertPushNotification } from "../../services/pushnotification.service";
 import { NotificationModule } from "../../entity/PushNotifications";
+import logger from "../../utils/logger";
 
 @JsonController("/connections")
 @UseBefore(MobileAuthMiddleware)
@@ -194,8 +195,6 @@ export class MobileConnectionController {
         connection.status = ConnectionStatus.ACCEPTED;
         connection.isDeleted = false;
       } else {
-        console.log("inisssssssssss");
-
         // Create new accepted connection
         connection = new Connection();
         connection.senderId = new ObjectId(senderId);
@@ -502,50 +501,42 @@ export class MobileConnectionController {
           where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
         });
         targetMemberIds = followings.map(f => f.receiverId);
-        console.log(`[RELATIONSHIP_LIST] Type: FOLLOWING, Target User ID: ${targetUserId}`);
-        console.log("[RELATIONSHIP_LIST] Following IDs from Connection table:", targetMemberIds.map(id => id?.toString()));
       }
       else if (type === "FOLLOWERS") {
         const followers = await this.connectionRepo.find({
           where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
         });
         targetMemberIds = followers.map(f => f.senderId);
-        console.log(`[RELATIONSHIP_LIST] Type: FOLLOWERS, Target User ID: ${targetUserId}`);
-        console.log("[RELATIONSHIP_LIST] Followers IDs from Connection table:", targetMemberIds.map(id => id?.toString()));
       }
       else if (type === "MUTUAL") {
-        // Mutual: Both followings and followers exist
-        const followings = await this.connectionRepo.find({
-          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
-        });
+        // Mutual: Both followings and followers — run concurrently
+        const [followings, followers] = await Promise.all([
+          this.connectionRepo.find({
+            where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
+          }),
+          this.connectionRepo.find({
+            where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
+          })
+        ]);
         const followingIds = new Set(followings.map(f => f.receiverId.toString()));
-
-        const followers = await this.connectionRepo.find({
-          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
-        });
-
         targetMemberIds = followers
           .filter(f => followingIds.has(f.senderId.toString()))
           .map(f => f.senderId);
-        console.log(`[RELATIONSHIP_LIST] Type: MUTUAL, Target User ID: ${targetUserId}`);
-        console.log("[RELATIONSHIP_LIST] Mutual IDs from Connection table:", targetMemberIds.map(id => id?.toString()));
       }
       else if (type === "ALL") {
-        // All: combined, unique list of both followings and followers
-        const followings = await this.connectionRepo.find({
-          where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
-        });
+        // All: combined, unique list of both followings and followers — run concurrently
+        const [followings, followers] = await Promise.all([
+          this.connectionRepo.find({
+            where: { senderId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
+          }),
+          this.connectionRepo.find({
+            where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
+          })
+        ]);
         const followingIds = followings.map(f => f.receiverId.toString());
-
-        const followers = await this.connectionRepo.find({
-          where: { receiverId: new ObjectId(targetUserId), status: ConnectionStatus.ACCEPTED, isDeleted: false }
-        });
         const followerIds = followers.map(f => f.senderId.toString());
-
         targetMemberIds = Array.from(new Set([...followingIds, ...followerIds]))
           .map(id => new ObjectId(id));
-        console.log(`[RELATIONSHIP_LIST] Type: ALL, Target User ID: ${targetUserId}`);
-        console.log("[RELATIONSHIP_LIST] All IDs from Connection table:", targetMemberIds.map(id => id?.toString()));
       }
 
       if (targetMemberIds.length === 0) {
@@ -588,18 +579,13 @@ export class MobileConnectionController {
       });
       total = filteredCount;
 
-      console.log(`[RELATIONSHIP_LIST] Active Members returned from DB (${members.length}/${targetMemberIds.length}):`, members.map(m => m._id.toString()));
-      const returnedIds = new Set(members.map(m => m._id.toString()));
-      const missingIds = targetMemberIds.map(id => id.toString()).filter(id => !returnedIds.has(id));
-      if (missingIds.length > 0) {
-        console.log("[RELATIONSHIP_LIST] Missing / Inactive / Deleted / Filtered Member IDs:", missingIds);
-      }
+      logger.debug(`[RELATIONSHIP_LIST] Active Members: ${members.length}/${targetMemberIds.length}`, "ConnectionController");
 
       const paginatedMemberIds = members.map(m => m._id);
 
-      // Fetch connections between the logged-in user and the paginated members to determine status
-      const [myOutgoingConnections, myIncomingConnections] = paginatedMemberIds.length > 0 && loggedInUserId
-        ? await Promise.all([
+      // Fetch connections between the logged-in user and the paginated members concurrently with category details
+      const connectionsPromise = paginatedMemberIds.length > 0 && loggedInUserId
+        ? Promise.all([
           this.connectionRepo.find({
             where: {
               senderId: new ObjectId(loggedInUserId),
@@ -615,10 +601,7 @@ export class MobileConnectionController {
             } as any
           })
         ])
-        : [[], []];
-
-      const outgoingMap = new Map(myOutgoingConnections.map(c => [c.receiverId.toString(), c]));
-      const incomingMap = new Map(myIncomingConnections.map(c => [c.senderId.toString(), c]));
+        : Promise.resolve([[], []]);
 
       // Fetch Category details for Members
       const categoryIds = [...new Set(
@@ -628,9 +611,17 @@ export class MobileConnectionController {
           .map(id => id.toString())
       )].map(id => new ObjectId(id));
 
-      const categories = categoryIds.length > 0
-        ? await this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
-        : [];
+      const categoriesPromise = categoryIds.length > 0
+        ? this.categoryRepo.find({ where: { _id: { $in: categoryIds } } as any })
+        : Promise.resolve([]);
+
+      const [[myOutgoingConnections, myIncomingConnections], categories] = await Promise.all([
+        connectionsPromise,
+        categoriesPromise
+      ]);
+
+      const outgoingMap = new Map(myOutgoingConnections.map(c => [c.receiverId.toString(), c]));
+      const incomingMap = new Map(myIncomingConnections.map(c => [c.senderId.toString(), c]));
       const categoryMap = new Map(categories.map(c => [c._id.toString(), c.name]));
 
       // Map data

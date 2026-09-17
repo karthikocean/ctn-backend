@@ -769,42 +769,92 @@ export class MobileSubscriptionController {
   @UseBefore(AuthMiddleware)
   async getAnalytics(@Res() res: any) {
     try {
-      const trialUsers = await this.subRepo.count({
-        where: {
+      // ── PHASE 1: Concurrent execution of independent metric queries (1 Atlas RTT) ──
+      const [
+        trialUsers,
+        premiumUsers,
+        activeSubscribers,
+        expiredSubscribers,
+        payments,
+        trialUsedCount,
+        upgradedSubs
+      ] = await Promise.all([
+        // 1. Trial Users (Fixed $or syntax: direct filter without nested 'where' wrapper)
+        this.subRepo.count({
           $or: [
             { type: "TRIAL" },
             { isTrial: true }
           ],
           status: "ACTIVE",
           isDeleted: false
-        } as any
-      });
-      const premiumUsers = await this.subRepo.count({ type: "PREMIUM", status: "ACTIVE", isDeleted: false });
-      const activeSubscribers = await this.subRepo.count({ status: "ACTIVE", isDeleted: false });
-      const expiredSubscribers = await this.subRepo.count({ status: "EXPIRED", isDeleted: false });
+        } as any),
 
-      // Revenue
-      const payments = await this.paymentRepo.find({ where: { status: "COMPLETED", isDeleted: false } });
-      const totalRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
+        // 2. Premium Users
+        this.subRepo.count({
+          type: "PREMIUM",
+          status: "ACTIVE",
+          isDeleted: false
+        }),
 
-      // Trial Conversion
-      const trialUsedCount = await this.memberRepo.count({ hasUsedTrial: true, isDeleted: false });
+        // 3. Active Subscribers
+        this.subRepo.count({
+          status: "ACTIVE",
+          isDeleted: false
+        }),
 
-      let convertedCount = 0;
-      if (trialUsedCount > 0) {
-        const upgradedSubs = await this.subRepo.find({
+        // 4. Expired Subscribers
+        this.subRepo.count({
+          status: "EXPIRED",
+          isDeleted: false
+        }),
+
+        // 5. Completed Payments (projecting only amount)
+        this.paymentRepo.find({
+          where: { status: "COMPLETED", isDeleted: false },
+          select: ["amount"] as any
+        }),
+
+        // 6. Trial Used Count
+        this.memberRepo.count({
+          hasUsedTrial: true,
+          isDeleted: false
+        }),
+
+        // 7. Upgraded Subscriptions (projecting only memberId)
+        this.subRepo.find({
           where: {
             type: { $in: ["PREMIUM", "BUSINESS"] },
             isDeleted: false
-          } as any
-        });
-        const upgradedMemberIds = new Set(upgradedSubs.map(s => s.memberId.toString()));
-        for (const mId of upgradedMemberIds) {
-          const member = await this.memberRepo.findOneBy({ _id: new ObjectId(mId), hasUsedTrial: true, isDeleted: false });
-          if (member) convertedCount++;
+          } as any,
+          select: ["memberId"] as any
+        })
+      ]);
+
+      // ── PHASE 2: Batched Member Lookup (Eliminates N+1 loop, 1 Atlas RTT) ──
+      let convertedCount = 0;
+      if (trialUsedCount > 0 && upgradedSubs.length > 0) {
+        const upgradedMemberObjectIds = Array.from(
+          new Set(
+            upgradedSubs
+              .map(s => s.memberId ? s.memberId.toString() : null)
+              .filter((id): id is string => !!id && ObjectId.isValid(id))
+          )
+        ).map(id => new ObjectId(id));
+
+        if (upgradedMemberObjectIds.length > 0) {
+          convertedCount = await this.memberRepo.count({
+            _id: { $in: upgradedMemberObjectIds },
+            hasUsedTrial: true,
+            isDeleted: false
+          } as any);
         }
       }
-      const trialConversionRate = trialUsedCount > 0 ? Number(((convertedCount / trialUsedCount) * 100).toFixed(2)) : 0;
+
+      // ── PHASE 3: In-Memory Reductions & Response Formatting ──
+      const totalRevenue = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const trialConversionRate = trialUsedCount > 0
+        ? Number(((convertedCount / trialUsedCount) * 100).toFixed(2))
+        : 0;
 
       return res.status(StatusCodes.OK).json({
         success: true,

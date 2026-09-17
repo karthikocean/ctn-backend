@@ -149,34 +149,66 @@ app.get("/", async (_req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────
 // 🛡️ Route-Specific Rate Limiting Middleware
 // ─────────────────────────────────────────────────────────
-// Auth & Security Specific Limiters
-app.use("/api/admin/auth/forgot-pin", passwordResetLimiter);
-app.use("/api/admin/auth/verify-otp", otpLimiter);
-app.use("/api/admin/auth/login", authLimiter);
-app.use("/api/admin/auth", authLimiter);
+/**
+ * Wraps a route-specific limiter to mark the request as having an intentional dedicated limiter.
+ * This guarantees that subsequent broader group limiters (e.g. /mobile-api, /api/admin, /api)
+ * do not execute redundant rate checks on the same request.
+ */
+const withDedicatedLimiter = (limiter: any) => (req: Request, res: Response, next: NextFunction) => {
+  (req as any)._hasDedicatedRateLimiter = true;
+  return limiter(req, res, next);
+};
 
-app.use("/mobile-api/verification/send-otp", otpLimiter);
-app.use("/mobile-api/verification/verify-otp", otpLimiter);
-app.use("/mobile-api/auth/send-otp", otpLimiter);
-app.use("/mobile-api/auth/verify-otp", otpLimiter);
-app.use("/mobile-api/auth/login", authLimiter);
-app.use("/mobile-api/auth/reset-pin", passwordResetLimiter);
-app.use("/mobile-api/auth", authLimiter);
+// Admin Auth & Security Specific Limiters
+app.use("/api/admin/auth/forgot-pin", withDedicatedLimiter(passwordResetLimiter));
+app.use("/api/admin/auth/reset-pin", withDedicatedLimiter(passwordResetLimiter));
+app.use("/api/admin/auth/verify-otp", withDedicatedLimiter(otpLimiter));
+app.use("/api/admin/auth/login", withDedicatedLimiter(authLimiter));
+
+// Mobile Verification & Auth Specific Limiters
+app.use("/mobile-api/verification/send-otp", withDedicatedLimiter(otpLimiter));
+app.use("/mobile-api/verification/verify-otp", withDedicatedLimiter(otpLimiter));
+app.use("/mobile-api/auth/send-otp", withDedicatedLimiter(otpLimiter));
+app.use("/mobile-api/auth/verify-otp", withDedicatedLimiter(otpLimiter));
+app.use("/mobile-api/auth/login-pin", withDedicatedLimiter(authLimiter));
+app.use("/mobile-api/auth/login", withDedicatedLimiter(authLimiter));
+app.use("/mobile-api/auth/reset-pin", withDedicatedLimiter(passwordResetLimiter));
 
 // File Upload & Import Limiters
-app.use("/mobile-api/media/upload", uploadLimiter);
-app.use("/api/admin/media/upload", uploadLimiter);
-app.use("/api/admin/categories/import", uploadLimiter);
-app.use("/api/admin/migrations", uploadLimiter);
+app.use("/mobile-api/media/upload", withDedicatedLimiter(uploadLimiter));
+app.use("/api/admin/media/upload", withDedicatedLimiter(uploadLimiter));
+app.use("/api/admin/categories/import", withDedicatedLimiter(uploadLimiter));
+app.use("/api/admin/migrations", withDedicatedLimiter(uploadLimiter));
 
 // Payment & Subscription Limiters
-app.use("/mobile-api/subscription/create-order", paymentLimiter);
-app.use("/mobile-api/subscription/verify-payment", paymentLimiter);
+app.use("/mobile-api/subscription/create-order", withDedicatedLimiter(paymentLimiter));
+app.use("/mobile-api/subscription/verify-payment", withDedicatedLimiter(paymentLimiter));
 
-// Scoped API Group Limiters
-app.use("/mobile-api", mobileApiLimiter);
-app.use("/api/admin", adminApiLimiter);
-app.use("/api", apiLimiter);
+// Scoped API Group Limiters (each applies only when no dedicated limiter matched)
+app.use("/mobile-api", (req: Request, res: Response, next: NextFunction) => {
+  if ((req as any)._hasDedicatedRateLimiter) {
+    return next();
+  }
+  return mobileApiLimiter(req, res, next);
+});
+
+app.use("/api/admin", (req: Request, res: Response, next: NextFunction) => {
+  if ((req as any)._hasDedicatedRateLimiter) {
+    return next();
+  }
+  return adminApiLimiter(req, res, next);
+});
+
+// General /api limiter strictly skips /api/admin/* and any request with a dedicated limiter
+app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+  if (req.baseUrl.startsWith("/api/admin") || req.originalUrl.startsWith("/api/admin")) {
+    return next();
+  }
+  if ((req as any)._hasDedicatedRateLimiter) {
+    return next();
+  }
+  return apiLimiter(req, res, next);
+});
 
 // ─────────────────────────────────────────────────────────
 // 🚀 STEP 2: Bind to port IMMEDIATELY — accepts connections right away

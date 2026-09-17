@@ -4,6 +4,7 @@ import { Message, MessageType } from "../entity/Message";
 import { Conversation } from "../entity/Conversation";
 import { Member } from "../entity/Member";
 import { Connection, ConnectionStatus } from "../entity/Connection";
+import { Category } from "../entity/Category";
 import { CreateReminderDto } from "../dto/mobile/CreateReminderDto";
 import { UpdateReminderDto } from "../dto/mobile/UpdateReminderDto";
 import { ReminderListDto } from "../dto/mobile/ReminderListDto";
@@ -17,6 +18,7 @@ export class ReminderService {
   private messageRepo = AppDataSource.getMongoRepository(Message);
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private connectionRepo = AppDataSource.getMongoRepository(Connection);
+  private categoryRepo = AppDataSource.getMongoRepository(Category);
 
   private async isMutual(userA: ObjectId, userB: ObjectId): Promise<boolean> {
     if (userA.equals(userB)) return true;
@@ -40,7 +42,6 @@ export class ReminderService {
 
   async createReminder(data: CreateReminderDto, userId: string): Promise<Reminder> {
     const creatorId = this.validateObjectId(userId, "userId");
-    console.log(data, "aaaaaaaaaaaa");
     const reminder = new Reminder();
     reminder.title = data.title;
     reminder.description = data.description;
@@ -287,7 +288,156 @@ export class ReminderService {
     await this.reminderRepo.save(reminder);
   }
 
-  async getReminder(id: string): Promise<Reminder> {
+  async populateOtherUserDetails(reminders: Reminder[], userId?: string): Promise<any[]> {
+    if (!reminders || reminders.length === 0) {
+      return [];
+    }
+
+    const currentUserIdStr = userId ? userId.toString() : null;
+
+    // Step 1: Determine initial otherUserId candidate for each reminder,
+    // and collect reminders that need conversation lookup.
+    const reminderOtherIdMap = new Map<string, string>();
+    const convIdsToFetch = new Set<string>();
+    const remindersNeedingConvLookup: Reminder[] = [];
+
+    for (const reminder of reminders) {
+      const remId = reminder._id ? reminder._id.toString() : "";
+      const createdByStr = reminder.createdBy ? reminder.createdBy.toString() : null;
+
+      let otherId: string | null = null;
+
+      if (currentUserIdStr) {
+        if (createdByStr && createdByStr !== currentUserIdStr) {
+          // If current user is not creator, other user is the creator
+          otherId = createdByStr;
+        } else {
+          // Current user is the creator, check recipients
+          if (Array.isArray(reminder.recipients) && reminder.recipients.length > 0) {
+            const diffRecipient = reminder.recipients.find(
+              r => r && r.toString() !== currentUserIdStr
+            );
+            if (diffRecipient) {
+              otherId = diffRecipient.toString();
+            }
+          }
+        }
+      } else {
+        // No currentUserId provided (e.g. system or admin call)
+        if (Array.isArray(reminder.recipients) && reminder.recipients.length > 0) {
+          const diffRecipient = reminder.recipients.find(
+            r => r && (!createdByStr || r.toString() !== createdByStr)
+          );
+          if (diffRecipient) {
+            otherId = diffRecipient.toString();
+          }
+        }
+      }
+
+      if (otherId) {
+        reminderOtherIdMap.set(remId, otherId);
+      } else if (reminder.conversationId && ObjectId.isValid(reminder.conversationId)) {
+        // Need to inspect conversation to find the other participant
+        convIdsToFetch.add(reminder.conversationId.toString());
+        remindersNeedingConvLookup.push(reminder);
+      }
+    }
+
+    // Step 2: Batch fetch conversations if any needed
+    if (convIdsToFetch.size > 0) {
+      const convObjectIds = Array.from(convIdsToFetch).map(id => new ObjectId(id));
+      const conversations = await this.conversationRepo.find({
+        where: { _id: { $in: convObjectIds } } as any
+      });
+      const convMap = new Map<string, Conversation>();
+      conversations.forEach(c => convMap.set(c._id.toString(), c));
+
+      for (const reminder of remindersNeedingConvLookup) {
+        const remId = reminder._id ? reminder._id.toString() : "";
+        const conv = convMap.get(reminder.conversationId.toString());
+        if (conv && Array.isArray(conv.participants)) {
+          const compareUserId = currentUserIdStr || (reminder.createdBy ? reminder.createdBy.toString() : null);
+          const otherParticipant = conv.participants.find(
+            p => p && (!compareUserId || p.toString() !== compareUserId)
+          );
+          if (otherParticipant) {
+            reminderOtherIdMap.set(remId, otherParticipant.toString());
+          }
+        }
+      }
+    }
+
+    // Step 3: Batch fetch all identified other members
+    const allOtherMemberIds = Array.from(new Set(Array.from(reminderOtherIdMap.values()))).map(
+      id => new ObjectId(id)
+    );
+
+    const members = allOtherMemberIds.length > 0
+      ? await this.memberRepo.find({
+        where: {
+          _id: { $in: allOtherMemberIds },
+          isDeleted: false
+        } as any
+      })
+      : [];
+    const memberMap = new Map<string, Member>();
+    members.forEach(m => memberMap.set(m._id.toString(), m));
+
+    // Step 4: Batch fetch categories for all distinct businessCategory IDs
+    const catObjectIds = Array.from(
+      new Set(
+        members
+          .filter(m => m.businessCategory && ObjectId.isValid(m.businessCategory))
+          .map(m => m.businessCategory!.toString())
+      )
+    ).map(id => new ObjectId(id));
+
+    const categories = catObjectIds.length > 0
+      ? await this.categoryRepo.find({
+        where: {
+          _id: { $in: catObjectIds },
+          isDeleted: false
+        } as any
+      })
+      : [];
+    const categoryMap = new Map<string, string>();
+    categories.forEach(c => categoryMap.set(c._id.toString(), c.name));
+
+    // Step 5: Attach otherUser object to each reminder
+    return reminders.map(reminder => {
+      const remId = reminder._id ? reminder._id.toString() : "";
+      const otherMemberId = reminderOtherIdMap.get(remId);
+      const member = otherMemberId ? memberMap.get(otherMemberId) : null;
+
+      let otherUser: any = null;
+      if (member) {
+        const categoryName = member.businessCategory
+          ? categoryMap.get(member.businessCategory.toString()) || null
+          : null;
+
+        otherUser = {
+          _id: member._id,
+          fullName: member.fullName,
+          profilePhoto: member.profilePhoto || null,
+          businessName: member.businessName || null,
+          businessCategory: member.businessCategory || null,
+          categoryName: categoryName,
+          mobileNumber: member.mobileNumber || null,
+          email: member.email || null,
+          isOnline: member.isOnline || false,
+          lastSeen: member.lastSeen || null,
+          status: member.status || "ACTIVE"
+        };
+      }
+
+      return {
+        ...reminder,
+        otherUser
+      };
+    });
+  }
+
+  async getReminder(id: string, userId?: string): Promise<any> {
     const reminderId = this.validateObjectId(id, "id");
 
     const reminder = await this.reminderRepo.findOneBy({ _id: reminderId, isDeleted: false });
@@ -295,10 +445,11 @@ export class ReminderService {
       throw new NotFoundError("Reminder not found.");
     }
 
-    return reminder;
+    const [populated] = await this.populateOtherUserDetails([reminder], userId);
+    return populated;
   }
 
-  async getReminderList(filters: ReminderListDto, userId?: string): Promise<{ total: number; data: Reminder[] }> {
+  async getReminderList(filters: ReminderListDto, userId?: string): Promise<{ total: number; data: any[] }> {
     const page = Number(filters.page) || 0;
     const limit = Number(filters.limit) || 10;
 
@@ -309,8 +460,7 @@ export class ReminderService {
       conditions.push({
         $or: [
           { createdBy: userObjId },
-          { recipients: userObjId },
-          { recipients: { $in: [userObjId] } }
+          { recipients: userObjId }
         ]
       });
     }
@@ -364,7 +514,9 @@ export class ReminderService {
       order: { createdAt: "DESC" }
     });
 
-    return { total, data: reminders };
+    const populatedData = await this.populateOtherUserDetails(reminders, userId);
+
+    return { total, data: populatedData };
   }
 
   async toggleReminder(id: string, userId: string): Promise<Reminder> {
