@@ -18,8 +18,11 @@ describe("MemberInactivityCronService", () => {
   let mockUpdateMany: jest.Mock;
   let mockFind: jest.Mock;
   let mockInsertMany: jest.Mock;
+  let originalNotification: string | undefined;
 
   beforeEach(() => {
+    originalNotification = process.env.NOTIFICATION;
+    process.env.NOTIFICATION = "true";
     jest.clearAllMocks();
     mockUpdateMany = jest.fn().mockResolvedValue({ modifiedCount: 3 });
     mockFind = jest.fn().mockResolvedValue([]);
@@ -48,6 +51,14 @@ describe("MemberInactivityCronService", () => {
     (MemberInactivityCronService as any).notificationRepo = {
       insertMany: mockInsertMany
     };
+  });
+
+  afterEach(() => {
+    if (originalNotification !== undefined) {
+      process.env.NOTIFICATION = originalNotification;
+    } else {
+      delete process.env.NOTIFICATION;
+    }
   });
 
   describe("init", () => {

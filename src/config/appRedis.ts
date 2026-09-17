@@ -3,17 +3,19 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+const isTest = process.env.NODE_ENV === "test";
+
 export const appRedisConfig: RedisOptions = {
   host: process.env.REDIS_HOST || "127.0.0.1",
   port: Number(process.env.REDIS_PORT) || 6379,
   password: process.env.REDIS_PASSWORD || undefined,
   db: Number(process.env.REDIS_DB) || 0,
-  // 3 retries is sufficient for per-request commands (auth cache, rate limiter).
-  // Fail-open is configured at the call sites already.
-  // The persistent reconnect strategy is handled separately in retryStrategy.
-  maxRetriesPerRequest: 3,
-  enableReadyCheck: true,
+  // In tests, do not retry commands to avoid hanging Jest runners.
+  maxRetriesPerRequest: isTest ? 0 : 3,
+  enableReadyCheck: !isTest,
+  lazyConnect: isTest,
   retryStrategy(times: number) {
+    if (isTest) return null;
     const delay = Math.min(times * 100, 3000);
     console.warn(`⚠️ [AppRedis] Reconnecting attempt #${times} in ${delay}ms...`);
     return delay;
@@ -27,11 +29,16 @@ export const appRedisConfig: RedisOptions = {
 export const appRedis = new Redis(appRedisConfig);
 
 appRedis.on("connect", () => {
-  console.log("✅ [AppRedis] Connected successfully to Redis server");
+  if (!isTest) {
+    console.log("✅ [AppRedis] Connected successfully to Redis server");
+  }
 });
 
 appRedis.on("error", (err: Error) => {
-  console.error("❌ [AppRedis] Connection error:", err.message);
+  // Tests should not emit asynchronous logs after Jest has completed.
+  if (process.env.NODE_ENV !== "test") {
+    console.error("❌ [AppRedis] Connection error:", err.message);
+  }
 });
 
 /**

@@ -149,9 +149,11 @@ export class MobileMemberController {
       const saved = await this.memberRepo.save(member);
 
       // Clean up any incomplete registration record for this mobile number (fire-and-forget)
-      this.incompleteRegRepo
-        .deleteOne({ mobileNumber: data.mobileNumber } as any)
-        .catch(err => console.error("[MemberRegistration] Failed to delete incomplete registration:", err.message));
+      if (this.incompleteRegRepo && typeof this.incompleteRegRepo.deleteOne === "function") {
+        this.incompleteRegRepo
+          .deleteOne({ mobileNumber: data.mobileNumber } as any)
+          .catch(err => console.error("[MemberRegistration] Failed to delete incomplete registration:", err.message));
+      }
 
       // If this was the 2nd user registering with this GST, notify the already registered member
       if (data.gstNumber && existingGstMembers.length === 1) {
@@ -180,7 +182,9 @@ export class MobileMemberController {
       return res.status(StatusCodes.CREATED).json({
         success: true,
         message: "Registration successful",
-        data: saved._id
+        data: {
+          memberId: saved._id.toString()
+        }
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);

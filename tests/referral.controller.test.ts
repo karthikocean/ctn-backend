@@ -43,6 +43,30 @@ jest.mock("../src/config/appRedis", () => ({
   checkRedisHealth: jest.fn().mockResolvedValue({ status: "connected", latencyMs: 1 }),
 }));
 
+jest.mock("../src/config/redis.config", () => ({
+  appRedis: {
+    status: "end",
+    on: jest.fn(),
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue("OK"),
+    del: jest.fn().mockResolvedValue(1),
+    quit: jest.fn().mockResolvedValue("OK"),
+    disconnect: jest.fn(),
+  },
+  redisConnection: {
+    status: "end",
+    on: jest.fn(),
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue("OK"),
+    del: jest.fn().mockResolvedValue(1),
+    quit: jest.fn().mockResolvedValue("OK"),
+    disconnect: jest.fn(),
+  },
+  appRedisConfig: {},
+  bullRedisConfig: {},
+  redisConfig: {},
+}));
+
 import { ObjectId } from "mongodb";
 import { BadRequestError } from "routing-controllers";
 import { MobileReferralController } from "../src/controllers/mobile/ReferralController";
@@ -69,9 +93,18 @@ describe("Referral Controller & Registration Integration Tests", () => {
       updateOne: jest.fn().mockResolvedValue({ acknowledged: true, modifiedCount: 1 })
     };
 
+    const defaultMockRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+      findOneBy: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
+      save: jest.fn().mockImplementation((m: any) => Promise.resolve({ ...m, _id: m._id || new ObjectId() })),
+      updateOne: jest.fn().mockResolvedValue({ acknowledged: true, modifiedCount: 1 }),
+      deleteOne: jest.fn().mockResolvedValue({ acknowledged: true, deletedCount: 1 })
+    };
+
     jest.spyOn(AppDataSource, "getMongoRepository").mockImplementation((entity: any) => {
       if (entity === Member || entity?.name === "Member") return mockMemberRepo as any;
-      return {} as any;
+      return defaultMockRepo as any;
     });
 
     jest.spyOn(WelcomeCardService, "sendRegistrationWelcomeEmailToAdmin").mockResolvedValue(undefined as any);
@@ -95,7 +128,11 @@ describe("Referral Controller & Registration Integration Tests", () => {
     try {
       const { appRedis } = await import("../src/config/appRedis");
       if (appRedis) {
-        appRedis.disconnect();
+        if (appRedis.status === "ready" || appRedis.status === "connecting") {
+          await appRedis.quit().catch(() => appRedis.disconnect());
+        } else {
+          appRedis.disconnect();
+        }
       }
     } catch { }
   });
@@ -367,7 +404,9 @@ describe("Referral Controller & Registration Integration Tests", () => {
         expect.objectContaining({
           success: true,
           message: "Registration successful",
-          data: savedMemberId
+          data: {
+            memberId: savedMemberId.toString()
+          }
         })
       );
       expect(processReferralSpy).toHaveBeenCalled();
