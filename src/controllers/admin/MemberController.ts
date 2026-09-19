@@ -34,6 +34,7 @@ import { WelcomeCardService } from "../../services/welcomeCard.service";
 import { Plan } from "../../entity/Plan";
 import { MemberSubscription } from "../../entity/MemberSubscription";
 import { resolveRegions, resolveRegion } from "../../utils/region.helper";
+import { isProprietorship, getGstMaxAllowedMembers, getGstMaxLimitErrorMessage } from "../../utils/gst.helper";
 
 @JsonController("/members")
 @UseBefore(AuthMiddleware, franchiseFilter)
@@ -64,8 +65,21 @@ export class AdminMemberController {
       }
 
       if (data.gstNumber) {
-        const gstCount = await this.memberRepo.count({ gstNumber: data.gstNumber, isDeleted: false });
-        if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
+        const cleanGst = data.gstNumber.trim().toUpperCase();
+        data.gstNumber = cleanGst;
+        const existingGstMembers = await this.memberRepo.find({
+          where: {
+            gstNumber: { $in: [cleanGst, data.gstNumber.trim()] },
+            isDeleted: false
+          } as any
+        });
+        const isProprietor =
+          isProprietorship(data.businessType) ||
+          existingGstMembers.some(m => isProprietorship(m.businessType));
+        const maxAllowed = getGstMaxAllowedMembers(isProprietor);
+        if (existingGstMembers.length >= maxAllowed) {
+          throw new BadRequestError(getGstMaxLimitErrorMessage(maxAllowed));
+        }
       }
 
       const member = new Member();

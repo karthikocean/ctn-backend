@@ -43,6 +43,7 @@ import { ReportedHistory } from "../../entity/ReportedHistory";
 import { ReferralService } from "../../services/referral.service";
 import { WelcomeCardService } from "../../services/welcomeCard.service";
 import { GstAlertService } from "../../services/gstAlert.service";
+import { isProprietorship, getGstMaxAllowedMembers, getGstMaxLimitErrorMessage } from "../../utils/gst.helper";
 import { resolveRegions } from "../../utils/region.helper";
 import { IncompleteRegistration } from "../../entity/IncompleteRegistration";
 
@@ -88,7 +89,7 @@ export class MobileMemberController {
         if (existingEmail) throw new BadRequestError("Email already registered");
       }
 
-      // Check GST number limit (max 2 users per GST)
+      // Check GST number limit (max 2 users per GST, max 1 for Proprietorship)
       let existingGstMembers: Member[] = [];
       if (data.gstNumber && data.gstNumber.trim()) {
         const cleanGst = data.gstNumber.trim().toUpperCase();
@@ -100,16 +101,21 @@ export class MobileMemberController {
           } as any
         });
 
-        if (existingGstMembers.length >= 2) {
+        const isProprietor =
+          isProprietorship(data.businessType) ||
+          existingGstMembers.some(m => isProprietorship(m.businessType));
+        const maxAllowed = getGstMaxAllowedMembers(isProprietor);
+
+        if (existingGstMembers.length >= maxAllowed) {
           // Send suspicious attempt alert (push notification + email) to all registered members with this GST
           GstAlertService.notifySuspiciousAttempt(existingGstMembers, cleanGst, {
             fullName: data.fullName,
             mobileNumber: data.mobileNumber,
             email: data.email
-          }).catch(err => {
+          }, maxAllowed).catch(err => {
             console.error("[GST Security Alert] Error in notifySuspiciousAttempt:", err.message);
           });
-          throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
+          throw new BadRequestError(getGstMaxLimitErrorMessage(maxAllowed));
         }
       }
 

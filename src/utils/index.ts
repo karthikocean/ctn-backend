@@ -8,3 +8,4 @@ export { resolveRegion, resolveRegions } from "./region.helper";
 export { parseExcelBufferToJson } from "./excelHelper";
 export { logger } from "./logger";
 export { generateSecureOtp } from "./id.generator";
+export { isProprietorship, getGstMaxAllowedMembers, getGstMaxLimitErrorMessage } from "./gst.helper";

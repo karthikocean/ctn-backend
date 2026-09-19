@@ -7,6 +7,7 @@ import {
   BadRequestError
 } from "routing-controllers";
 import axios from "axios";
+import { isProprietorship, getGstMaxAllowedMembers, getGstMaxLimitErrorMessage } from "../../utils/gst.helper";
 import { GstAlertService } from "../../services/gstAlert.service";
 import { AppDataSource } from "../../data-source";
 import { Category, CategoryStatus } from "../../entity/Category";
@@ -203,7 +204,10 @@ export class CommonController {
       } as any
     });
 
-    if (existingGstMembers.length >= 2) {
+    const existingIsProprietor = existingGstMembers.some(m => isProprietorship(m.businessType));
+    const preMaxLimit = getGstMaxAllowedMembers(existingIsProprietor);
+
+    if (existingGstMembers.length >= preMaxLimit) {
       const attemptedName = name || fullName || req?.query?.name || req?.query?.fullName || undefined;
       const attemptedPhone = phone || mobileNumber || req?.query?.phone || req?.query?.mobileNumber || undefined;
       const attemptedEmail = email || req?.query?.email || undefined;
@@ -212,11 +216,11 @@ export class CommonController {
         mobileNumber: attemptedPhone,
         fullName: attemptedName,
         email: attemptedEmail
-      }).catch(err => {
+      }, preMaxLimit).catch(err => {
         console.error("[GST Security Alert] Failed to dispatch alert in verifyGST:", err.message);
       });
 
-      throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
+      throw new BadRequestError(getGstMaxLimitErrorMessage(preMaxLimit));
     }
 
     try {
@@ -229,6 +233,26 @@ export class CommonController {
 
       if (response.data && response.data.flag) {
         const gstData = response.data.data;
+
+        // Check if GST constitution of business is Proprietorship
+        const isProprietor = isProprietorship(gstData.ctb) || existingIsProprietor;
+        const maxAllowed = getGstMaxAllowedMembers(isProprietor);
+
+        if (existingGstMembers.length >= maxAllowed) {
+          const attemptedName = name || fullName || req?.query?.name || req?.query?.fullName || undefined;
+          const attemptedPhone = phone || mobileNumber || req?.query?.phone || req?.query?.mobileNumber || undefined;
+          const attemptedEmail = email || req?.query?.email || undefined;
+
+          GstAlertService.notifySuspiciousAttempt(existingGstMembers, cleanGst, {
+            mobileNumber: attemptedPhone,
+            fullName: attemptedName,
+            email: attemptedEmail
+          }, maxAllowed).catch(err => {
+            console.error("[GST Security Alert] Failed to dispatch alert in verifyGST:", err.message);
+          });
+
+          throw new BadRequestError(getGstMaxLimitErrorMessage(maxAllowed));
+        }
 
         const formattedData = {
           gstNumber: gstData.gstin,
