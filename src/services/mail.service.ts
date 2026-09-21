@@ -279,10 +279,18 @@ export class MailService {
   static async sendGstSuspiciousAttemptEmail(
     existingMember: { fullName: string; email: string },
     attemptedUser: { fullName?: string; mobileNumber: string; email?: string },
-    gstNumber: string
+    gstNumber: string,
+    maxAllowed: number = 2
   ) {
     const subject = `⚠️ Security Alert: Suspicious Registration Attempt with your GST Number (${gstNumber})`;
     const formattedDate = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+    const blockedReason = maxAllowed === 1
+      ? "BLOCKED (Maximum 1 member already registered for Proprietorship)"
+      : "BLOCKED (Maximum 2 members already registered)";
+    const limitExplanation = maxAllowed === 1
+      ? "Your company's GST number is registered as a Proprietorship, which is limited to exactly 1 registered account. Any additional registration attempt is automatically rejected."
+      : "Your company's GST number is already linked to the maximum allowed limit of 2 accounts. Any additional registration attempt is automatically rejected.";
+
     const html = `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; padding: 20px; border-radius: 10px; border: 1px solid #e0e0e0;">
         <div style="text-align: center; margin-bottom: 20px;">
@@ -301,12 +309,12 @@ export class MailService {
             <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Mobile Number:</strong> ${attemptedUser.mobileNumber}</p>
             <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Email:</strong> ${attemptedUser.email || "Not provided"}</p>
             <p style="margin: 6px 0; color: #333; font-size: 14px;"><strong>Attempt Time:</strong> ${formattedDate} IST</p>
-            <p style="margin: 6px 0; color: #b91c1c; font-size: 14px; font-weight: bold;"><strong>Status:</strong> BLOCKED (Maximum 2 members already registered)</p>
+            <p style="margin: 6px 0; color: #b91c1c; font-size: 14px; font-weight: bold;"><strong>Status:</strong> ${blockedReason}</p>
           </div>
 
           <div style="background-color: #fffbeb; border: 1px solid #fde68a; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
             <p style="color: #92400e; font-size: 13px; margin: 0; line-height: 1.5;">
-              ⚠️ <strong>Why did this happen?</strong> Your company's GST number is already linked to the maximum allowed limit of 2 accounts. Any additional registration attempt is automatically rejected.
+              ⚠️ <strong>Why did this happen?</strong> ${limitExplanation}
             </p>
           </div>
 

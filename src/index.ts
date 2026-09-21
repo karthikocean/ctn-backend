@@ -31,7 +31,6 @@ import { AnniversaryCronService } from "./services/anniversaryCron.service";
 import { DailyTaskCronService } from "./services/dailyTaskCron.service";
 import { SpotlightRequestCronService } from "./services/spotlightRequestCron.service";
 import { MilestoneCronService } from "./services/milestoneCron.service";
-import { MemberInactivityCronService } from "./services/memberInactivityCron.service";
 import { DataRetentionCronService } from "./services/dataRetentionCron.service";
 import { ensureMongoIndexes } from "./utils/ensureIndexes";
 import { logger } from "./utils/logger";
@@ -362,7 +361,7 @@ AppDataSource.initialize()
       DailyTaskCronService.init();
       SpotlightRequestCronService.init();
       MilestoneCronService.init();
-      MemberInactivityCronService.init();
+      // MemberInactivityCronService.init();
       DataRetentionCronService.init();
     });
   })

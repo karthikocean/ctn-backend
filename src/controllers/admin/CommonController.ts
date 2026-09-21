@@ -10,6 +10,7 @@ import {
 import { SendTestEmailDto } from "../../dto/admin/Common.dto";
 import { MailService } from "../../services/mail.service";
 import axios from "axios";
+import { isProprietorship, getGstMaxAllowedMembers, getGstMaxLimitErrorMessage } from "../../utils/gst.helper";
 import handleErrorResponse from "../../utils/commonFunction";
 import { AppDataSource } from "../../data-source";
 import { BusinessRegion } from "../../entity/BusinessRegion";
@@ -50,9 +51,14 @@ export class AdminCommonController {
     if (!gstRegex.test(gstin)) {
       return res.status(400).json({ status: false, message: "Invalid GSTIN format" });
     }
-    if (gstin) {
-      const gstCount = await this.memberRepo.count({ gstNumber: gstin, isDeleted: false });
-      if (gstCount >= 2) throw new BadRequestError("GST number is already registered with maximum allowed members (2)");
+    const cleanGst = gstin.trim().toUpperCase();
+    const existingMembers = await this.memberRepo.find({
+      where: { gstNumber: { $in: [cleanGst, gstin.trim()] }, isDeleted: false } as any
+    });
+    const existingIsProprietor = existingMembers.some(m => isProprietorship(m.businessType));
+    const preMaxLimit = getGstMaxAllowedMembers(existingIsProprietor);
+    if (existingMembers.length >= preMaxLimit) {
+      throw new BadRequestError(getGstMaxLimitErrorMessage(preMaxLimit));
     }
 
     try {
@@ -65,6 +71,12 @@ export class AdminCommonController {
 
       if (response.data && response.data.flag) {
         const gstData = response.data.data;
+        const isProprietor = isProprietorship(gstData.ctb) || existingIsProprietor;
+        const maxAllowed = getGstMaxAllowedMembers(isProprietor);
+
+        if (existingMembers.length >= maxAllowed) {
+          throw new BadRequestError(getGstMaxLimitErrorMessage(maxAllowed));
+        }
 
         const formattedData = {
           gstNumber: gstData.gstin,

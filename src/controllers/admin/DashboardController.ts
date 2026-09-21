@@ -265,7 +265,7 @@ export class AdminDashboardController {
 
       const expiredMembers = allMembers.filter(m => {
         if (!paidMemberIds.has(m._id.toString())) return false;
-        if (m.status === MemberStatus.INACTIVE) return true;
+        // if (m.status === MemberStatus.INACTIVE) return true;
         if (!m.subscriptionEndDate) return false;
         const exp = new Date(m.subscriptionEndDate);
         return exp < now;

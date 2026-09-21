@@ -53,12 +53,14 @@ export class GstAlertService {
   }
 
   /**
-   * Notify all existing members when a 3rd user attempts to register or verify with their GST.
+   * Notify all existing members when an unauthorized user attempts to register or verify with their GST
+   * after the maximum allowed limit (1 for Proprietorship, 2 for other entities) is reached.
    */
   static async notifySuspiciousAttempt(
     existingMembers: Member[],
     gstNumber: string,
-    attemptedUser?: AttemptedRegistrantInfo
+    attemptedUser?: AttemptedRegistrantInfo,
+    maxAllowed: number = 2
   ) {
     const cleanGst = gstNumber.trim().toUpperCase();
     const now = Date.now();
@@ -73,8 +75,9 @@ export class GstAlertService {
     const personInfo = attemptedUser?.mobileNumber
       ? `Person: ${attemptedUser.fullName || "Unknown"} (${attemptedUser.mobileNumber})`
       : "An unauthorized user";
+    const limitNote = maxAllowed === 1 ? " (Proprietorship limit: 1 member)" : "";
     const subject = "⚠️ Security Alert: Unauthorized GST Registration Attempt";
-    const content = `A suspicious attempt to register using your GST (${cleanGst}) was blocked. ${personInfo}.`;
+    const content = `A suspicious attempt to register using your GST (${cleanGst}) was blocked${limitNote}. ${personInfo}.`;
 
     for (const member of existingMembers) {
       try {
@@ -101,7 +104,8 @@ export class GstAlertService {
               mobileNumber: attemptedUser?.mobileNumber || "Not provided (Attempted via verification)",
               email: attemptedUser?.email
             },
-            cleanGst
+            cleanGst,
+            maxAllowed
           );
         } catch (mailErr: any) {
           console.error(`[GST Suspicious Alert] Failed email to ${member.email}:`, mailErr.message);
