@@ -362,7 +362,7 @@ AppDataSource.initialize()
       DailyTaskCronService.init();
       SpotlightRequestCronService.init();
       MilestoneCronService.init();
-      MemberInactivityCronService.init();
+      // MemberInactivityCronService.init();
       DataRetentionCronService.init();
     });
   })

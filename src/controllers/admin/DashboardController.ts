@@ -46,36 +46,36 @@ export function getDashboardDateRange(preset?: string, startDateParam?: string, 
   const selectedPreset = (preset || "today").toLowerCase();
 
   switch (selectedPreset) {
-  case "today": {
-    startDate = new Date(now);
-    startDate.setHours(0, 0, 0, 0);
-    break;
-  }
-  case "this_week": {
-    startDate = new Date(now);
-    const day = startDate.getDay();
-    const diff = startDate.getDate() - day + (day === 0 ? -6 : 1);
-    startDate.setDate(diff);
-    startDate.setHours(0, 0, 0, 0);
-    break;
-  }
-  case "this_month": {
-    startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-    break;
-  }
-  case "this_year": {
-    startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
-    break;
-  }
-  case "all_time": {
-    startDate = null;
-    break;
-  }
-  default: {
-    startDate = new Date(now);
-    startDate.setHours(0, 0, 0, 0);
-    break;
-  }
+    case "today": {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    }
+    case "this_week": {
+      startDate = new Date(now);
+      const day = startDate.getDay();
+      const diff = startDate.getDate() - day + (day === 0 ? -6 : 1);
+      startDate.setDate(diff);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    }
+    case "this_month": {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      break;
+    }
+    case "this_year": {
+      startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      break;
+    }
+    case "all_time": {
+      startDate = null;
+      break;
+    }
+    default: {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    }
   }
 
   return { startDate, endDate };
@@ -265,7 +265,7 @@ export class AdminDashboardController {
 
       const expiredMembers = allMembers.filter(m => {
         if (!paidMemberIds.has(m._id.toString())) return false;
-        if (m.status === MemberStatus.INACTIVE) return true;
+        // if (m.status === MemberStatus.INACTIVE) return true;
         if (!m.subscriptionEndDate) return false;
         const exp = new Date(m.subscriptionEndDate);
         return exp < now;
