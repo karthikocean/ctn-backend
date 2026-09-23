@@ -2,6 +2,7 @@ import { createBullBoard } from "@bull-board/api";
 import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { ExpressAdapter } from "@bull-board/express";
 import { personalNotificationQueue, broadcastNotificationQueue, dlqNotificationQueue } from "../queues/notification.queue";
+import { leadGenerationQueue } from "../modules/leadGeneration/queues/leadGeneration.queue";
 
 export function setupBullBoard() {
   const serverAdapter = new ExpressAdapter();
@@ -12,6 +13,7 @@ export function setupBullBoard() {
       new BullMQAdapter(personalNotificationQueue as any) as any,
       new BullMQAdapter(broadcastNotificationQueue as any) as any,
       new BullMQAdapter(dlqNotificationQueue as any) as any,
+      new BullMQAdapter(leadGenerationQueue as any) as any,
     ],
     serverAdapter,
   });
