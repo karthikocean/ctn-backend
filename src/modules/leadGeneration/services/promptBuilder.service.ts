@@ -8,8 +8,9 @@ export class PromptBuilderService {
     businessNames: string[];
     locations: string[];
     additionalRequirement?: string;
+    leadCount?: number;
   }): { prompt: string; version: string } {
-    const { businessNames, locations, additionalRequirement } = params;
+    const { businessNames, locations, additionalRequirement, leadCount = 5 } = params;
 
     const formattedBusinessNames = businessNames
       .map((name) => `- ${name.trim()}`)
@@ -35,12 +36,12 @@ ${formattedLocations}
 </locations>${requirementSection}
 
 <instructions>
-1. Identify 5 to 15 relevant business leads matching the specified sectors/names and target geographic locations.
+1. Identify exactly ${leadCount} relevant business leads matching the specified sectors/names and target geographic locations.
 2. If additional requirements are provided, ensure leads adhere strictly to those constraints (e.g. size, certifications, niche focus).
 3. Provide accurate contact details wherever possible (official business name, primary location/city, phone number with country/area code, contact email, and active website domain).
 4. Provide a brief 1-2 sentence description explaining why each lead is a relevant match.
 5. Provide a confidenceScore between 0 and 100 reflecting the quality and relevance of the lead.
-6. Return your response ONLY as a JSON object with a "leads" array containing objects in the following schema:
+6. Return your response ONLY as a JSON object with a "leads" array containing exactly ${leadCount} objects in the following schema:
 {
   "leads": [
     {

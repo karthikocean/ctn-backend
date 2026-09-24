@@ -44,8 +44,8 @@ export const leadGenerationWorker = new Worker<LeadGenerationJobData>(
       const provider = AIProviderFactory.getProvider(leadReq.provider);
       const aiResponse = await provider.generateLeads(leadReq.generatedPrompt, leadReq.model);
 
-      // 3. Normalize & Deduplicate
-      const normalizedLeads = LeadNormalizationService.deduplicateLeads(aiResponse.parsedLeads);
+      // 3. Normalize & Deduplicate (cap at 5 leads per request)
+      const normalizedLeads = LeadNormalizationService.deduplicateLeads(aiResponse.parsedLeads).slice(0, 5);
 
       // 4. Save Leads to MongoDB
       const leadEntities: GeneratedLead[] = [];
