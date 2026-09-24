@@ -16,6 +16,7 @@ import { StallBooking } from "../entity/StallBooking";
 import { OneToOne } from "../entity/OneToOne";
 import { ThankYouSlip } from "../entity/ThankYouSlip";
 import { UserReferral } from "../entity/UserReferral";
+import { LeadGenerationRequest, LeadGenerationStatus } from "../entity/LeadGenerationRequest";
 import { BadRequestError, NotFoundError } from "routing-controllers";
 import { appRedis } from "../config/appRedis";
 import { generateInvoiceNumber } from "../utils/id.generator";
@@ -135,6 +136,15 @@ export const MODULE_USAGE_CONFIG: Record<string, ModuleUsageConfig> = {
       status: "booked"
     }),
     dateField: "createdAt"
+  },
+  "lead generation": {
+    entity: LeadGenerationRequest,
+    getFilter: (memberId: ObjectId) => ({
+      $or: [{ userId: memberId.toString() }, { userId: memberId as any }],
+      status: { $ne: LeadGenerationStatus.FAILED },
+      isDeleted: { $ne: true }
+    }),
+    dateField: "createdAt"
   }
 };
 
@@ -162,6 +172,15 @@ export class SubscriptionService {
     if (lower === "one to one" || lower === "onetoone") return "one to one";
     if (lower === "thank you slip" || lower === "thankyouslip") return "thank you slip";
     if (lower === "online stall") return "marketplace";
+    if (
+      lower === "lead generation" ||
+      lower === "leadgeneration" ||
+      lower === "lead_generation" ||
+      lower === "lead-generation" ||
+      lower === "leads"
+    ) {
+      return "lead generation";
+    }
     // Keys in MODULE_USAGE_CONFIG that are stored as plurals
     const keepPlural = new Set(["trainings"]);
     if (keepPlural.has(lower)) return lower;
@@ -326,6 +345,11 @@ export class SubscriptionService {
       }
     }
 
+    if (normalized === "lead generation") {
+      await this.validateLeadGenerationLimit(memberOid);
+      return;
+    }
+
     const planModule = plan.modules?.find(
       (m) => this.normalizeModuleName(m.moduleName) === normalized
     );
@@ -432,6 +456,87 @@ export class SubscriptionService {
   }
 
   /**
+   * Validator for Lead Generation module and benefits usage
+   */
+  async validateLeadGenerationLimit(memberId: string | ObjectId): Promise<void> {
+    const memberOid = new ObjectId(memberId);
+    const plan = await this.getMemberPlan(memberOid);
+
+    // 1. Feature permission check
+    if (plan.features && plan.features.leadGeneration === false) {
+      throw new BadRequestError("Lead Generation is not enabled in your active plan.");
+    }
+
+    // 2. Check if configured in plan.modules
+    const planModule = plan.modules?.find(
+      (m) => this.normalizeModuleName(m.moduleName) === "lead generation"
+    );
+
+    if (planModule) {
+      if (planModule.countLimit === -1) {
+        return; // Unlimited usage allowed
+      }
+      const { startDate, endDate } = this.getDateRangeByFrequency(
+        planModule.frequency,
+        planModule.frequencyValue
+      );
+      const used = await this.getCurrentUsageCount(memberOid, "lead generation", startDate, endDate);
+      if (used >= planModule.countLimit) {
+        throw this.buildLimitExceededError(
+          planModule.moduleName,
+          used,
+          planModule.countLimit,
+          planModule.frequency
+        );
+      }
+      return;
+    }
+
+    // 3. Check if configured in plan.benefits
+    if (
+      plan.benefits?.leadGenerationCount !== undefined &&
+      plan.benefits?.leadGenerationCount !== null
+    ) {
+      const limit = plan.benefits.leadGenerationCount;
+      if (limit === -1) {
+        return; // Unlimited usage allowed
+      }
+
+      const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
+      let startDate: Date;
+      let endDate = new Date();
+
+      if (member?.subscriptionStartDate) {
+        startDate = new Date(member.subscriptionStartDate);
+        if (member.subscriptionEndDate && member.subscriptionEndDate > startDate) {
+          endDate = new Date(member.subscriptionEndDate);
+        }
+      } else {
+        const cycle = plan.billingCycle === "monthly" ? "monthly" : "yearly";
+        const range = this.getDateRangeByFrequency(cycle, 1);
+        startDate = range.startDate;
+        endDate = range.endDate;
+      }
+
+      const used = await this.getCurrentUsageCount(memberOid, "lead generation", startDate, endDate);
+      if (used >= limit) {
+        const cycleName = plan.billingCycle ? `${plan.billingCycle} ` : "";
+        throw new BadRequestError(
+          `Lead Generation limit of ${limit} request(s) reached for your ${cycleName}plan. Upgrade your plan to continue.`
+        );
+      }
+      return;
+    }
+
+    // 4. If neither module nor benefit is configured:
+    if (plan.features?.leadGeneration === true) {
+      return; // Feature is enabled without specific count limits
+    }
+
+    throw new BadRequestError("Lead Generation is not included in your active plan.");
+  }
+
+  /**
    * Counts actual current usage logs in database
    */
   async getCurrentUsageCount(memberId: ObjectId, moduleName: string, startDate: Date, endDate: Date): Promise<number> {
@@ -469,6 +574,47 @@ export class SubscriptionService {
     );
 
     if (!planModule) {
+      if (
+        normalized === "lead generation" &&
+        plan.benefits?.leadGenerationCount !== undefined &&
+        plan.benefits?.leadGenerationCount !== null
+      ) {
+        const countLimit = plan.benefits.leadGenerationCount;
+        if (countLimit === -1) {
+          return {
+            moduleName: "Lead Generation",
+            used: 0,
+            limit: -1,
+            remaining: -1,
+            frequency: plan.billingCycle || "yearly"
+          };
+        }
+        const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
+        let startDate: Date;
+        let endDate = new Date();
+        if (member?.subscriptionStartDate) {
+          startDate = new Date(member.subscriptionStartDate);
+          if (member.subscriptionEndDate && member.subscriptionEndDate > startDate) {
+            endDate = new Date(member.subscriptionEndDate);
+          }
+        } else {
+          const range = this.getDateRangeByFrequency(
+            plan.billingCycle === "monthly" ? "monthly" : "yearly",
+            1
+          );
+          startDate = range.startDate;
+          endDate = range.endDate;
+        }
+        const used = await this.getCurrentUsageCount(memberOid, normalized, startDate, endDate);
+        const remaining = Math.max(0, countLimit - used);
+        return {
+          moduleName: "Lead Generation",
+          used,
+          limit: countLimit,
+          remaining,
+          frequency: plan.billingCycle || "yearly"
+        };
+      }
       return {
         moduleName,
         used: 0,
@@ -731,7 +877,8 @@ export class SubscriptionService {
       monthlyMeeting: false,
       eventVisitor: false,
       eventStall: false,
-      spotlights: false
+      spotlights: false,
+      leadGeneration: false
     };
   }
 

@@ -39,6 +39,7 @@ import { isCronNotificationEnabled } from "./config/env";
 import { setupBullBoard } from "./admin/bullboard.config";
 import { registerGracefulShutdown } from "./utils/gracefulShutdown";
 import { adminApiLimiter, apiLimiter, authLimiter, mobileApiLimiter, otpLimiter, passwordResetLimiter, paymentLimiter, uploadLimiter } from "./middlewares/rateLimit.middleware";
+import { requestLoggerMiddleware } from "./middlewares/requestLogger.middleware";
 
 // ─────────────────────────────────────────────────────────
 // 🚀 STEP 1: Create app & HTTP server IMMEDIATELY
@@ -116,6 +117,9 @@ app.use(
   })
 );
 app.use(express.static("public"));
+
+// 📝 DB Request Logger: stores full request/response metadata in MongoDB (non-blocking)
+app.use(requestLoggerMiddleware);
 
 // Health & root always respond instantly (bypasses rate limiters & 503 gate)
 app.get("/api/health", async (_req: Request, res: Response) => {
@@ -304,6 +308,10 @@ AppDataSource.initialize()
       logger.error(`Global error caught: ${err.message || String(err)}`, err, "GlobalErrorHandler");
       const isProd = process.env.NODE_ENV === "production";
       const statusCode = err.status || err.statusCode || err.httpCode || 500;
+
+      // Expose error message to requestLoggerMiddleware via res.locals
+      res.locals.errorMessage = err.message || String(err);
+
       if (err.type === "entity.too.large" || statusCode === 413) {
         return res.status(413).json({
           status: "error",

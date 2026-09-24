@@ -4,6 +4,7 @@ import { PostModel } from "../entity/Post";
 import { SavedPost } from "../entity/SavedPost";
 import { PostReport } from "../entity/PostReport";
 import imageService from "../utils/upload";
+import { RequestLogService } from "./requestLog.service";
 
 export class DataRetentionCronService {
   private static postRepo = AppDataSource.getMongoRepository(PostModel);
@@ -11,16 +12,16 @@ export class DataRetentionCronService {
   private static postReportRepo = AppDataSource.getMongoRepository(PostReport);
 
   /**
-   * Initializes the 1-Year Data Retention cron job.
-   * Runs daily at 1:00 AM Asia/Kolkata to permanently remove posts,
-   * saved posts, and associated S3 media files older than 1 year.
+   * Initializes the Data Retention cron job.
+   * Runs daily at 1:00 AM Asia/Kolkata to permanently remove expired posts,
+   * saved posts, S3 media files, and request logs older than the retention threshold.
    */
   static init() {
     console.log("⏰ Initializing Data Retention Cron Job (1:00 AM)...");
 
     cron.schedule("0 1 * * *", async () => {
       try {
-        console.log("🕒 Running 1-Year Data Retention & S3 Cleanup Cron (01:00 AM)...");
+        console.log("🕒 Running Data Retention & S3 Cleanup Cron (01:00 AM)...");
         await this.cleanupExpiredData();
       } catch (error: any) {
         console.error("❌ Data Retention Cron Failed:", error.message);
@@ -31,7 +32,7 @@ export class DataRetentionCronService {
   }
 
   /**
-   * Cleans up posts, saved posts, and S3 media older than 1 year.
+   * Cleans up posts, saved posts, S3 media older than 1 year, and expired request logs.
    */
   static async cleanupExpiredData() {
     const oneYearAgo = new Date();
@@ -105,7 +106,15 @@ export class DataRetentionCronService {
       console.log(`✅ [DataRetention] Deleted ${deletedOldSavedPostsResult.deletedCount} saved post(s) older than 1 year.`);
     }
 
-    console.log("🏁 [DataRetention] 1-Year Data Retention cleanup completed.");
+    // 3. Permanently delete expired request logs
+    try {
+      const logCleanupResult = await RequestLogService.cleanupExpiredLogs();
+      console.log(`✅ [DataRetention] Purged ${logCleanupResult.deletedCount} expired request log(s) older than ${logCleanupResult.retentionDays} days.`);
+    } catch (logErr: any) {
+      console.warn("⚠️ [DataRetention] Error cleaning up expired request logs:", logErr.message || logErr);
+    }
+
+    console.log("🏁 [DataRetention] Data Retention cleanup completed.");
     return {
       expiredPostsCount: expiredPosts.length
     };

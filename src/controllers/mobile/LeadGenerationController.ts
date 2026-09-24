@@ -13,8 +13,10 @@ import {
   HttpCode
 } from "routing-controllers";
 import { StatusCodes } from "http-status-codes";
+import { ObjectId } from "mongodb";
 import { MobileAuthMiddleware } from "../../middlewares/MobileAuthMiddleware";
 import { LeadGenerationService } from "../../modules/leadGeneration/services/leadGeneration.service";
+import { validateModuleUsage, getRemainingUsage } from "../../services/moduleUsage.service";
 import handleErrorResponse from "../../utils/commonFunction";
 
 @JsonController("/lead-generation")
@@ -64,6 +66,7 @@ export class LeadGenerationController {
   async createLeadGeneration(@Req() req: any, @Body() body: any, @Res() res: any) {
     try {
       const userId = req.user.userId || req.user.id;
+      await validateModuleUsage(new ObjectId(userId), "Lead Generation");
       const result = await LeadGenerationService.createLeadGeneration(userId, body);
       return res.status(StatusCodes.CREATED).json({
         status: "success",
@@ -121,6 +124,32 @@ export class LeadGenerationController {
       return res.status(StatusCodes.OK).json({
         status: "success",
         data: result
+      });
+    } catch (err: any) {
+      return handleErrorResponse(err, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /mobile-api/lead-generation/usage:
+   *   get:
+   *     summary: Get lead generation remaining usage and limits for current user
+   *     tags: [Lead Generation]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Usage details
+   */
+  @Get("/usage")
+  async getLeadGenerationUsage(@Req() req: any, @Res() res: any) {
+    try {
+      const userId = req.user.userId || req.user.id;
+      const usage = await getRemainingUsage(new ObjectId(userId), "Lead Generation");
+      return res.status(StatusCodes.OK).json({
+        status: "success",
+        data: usage
       });
     } catch (err: any) {
       return handleErrorResponse(err, res);
@@ -253,6 +282,7 @@ export class LeadGenerationController {
   ) {
     try {
       const userId = req.user.userId || req.user.id;
+      await validateModuleUsage(new ObjectId(userId), "Lead Generation");
       const promptOverride = body?.prompt;
       const result = await LeadGenerationService.regenerate(userId, id, promptOverride);
       return res.status(StatusCodes.CREATED).json({

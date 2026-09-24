@@ -15,6 +15,14 @@ export async function validateRequirementResponseLimit(memberId: ObjectId): Prom
   await subscriptionService.validateRequirementResponseLimit(memberId);
 }
 
+export async function validateLeadGenerationLimit(memberId: ObjectId): Promise<void> {
+  await subscriptionService.validateLeadGenerationLimit(memberId);
+}
+
+export async function getRemainingUsage(memberId: ObjectId, moduleName: string) {
+  return await subscriptionService.getRemainingUsage(memberId, moduleName);
+}
+
 /**
  * Validates whether a member's active plan has a specific feature flag enabled.
  * @param memberId - The member's ObjectId

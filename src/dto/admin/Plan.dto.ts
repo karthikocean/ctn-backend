@@ -1,4 +1,4 @@
-import {
+﻿import {
   IsString,
   IsNotEmpty,
   IsNumber,
@@ -40,6 +40,10 @@ export class FeatureConfigDto {
   @IsBoolean()
   @IsOptional()
     spotlights?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+    leadGeneration?: boolean;
 }
 
 export class BenefitConfigDto {
@@ -67,6 +71,11 @@ export class BenefitConfigDto {
   @IsOptional()
   @Type(() => Number)
     referralBonusMonths?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+    leadGenerationCount?: number;
 }
 
 export class CreatePlanDto {
