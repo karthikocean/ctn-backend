@@ -476,9 +476,11 @@ export class SubscriptionService {
       if (planModule.countLimit === -1) {
         return; // Unlimited usage allowed
       }
+      const frequency = planModule.frequency || "daily";
+      const frequencyValue = planModule.frequencyValue || 1;
       const { startDate, endDate } = this.getDateRangeByFrequency(
-        planModule.frequency,
-        planModule.frequencyValue
+        frequency,
+        frequencyValue
       );
       const used = await this.getCurrentUsageCount(memberOid, "lead generation", startDate, endDate);
       if (used >= planModule.countLimit) {
@@ -486,7 +488,7 @@ export class SubscriptionService {
           planModule.moduleName,
           used,
           planModule.countLimit,
-          planModule.frequency
+          frequency
         );
       }
       return;
@@ -502,27 +504,12 @@ export class SubscriptionService {
         return; // Unlimited usage allowed
       }
 
-      const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
-      let startDate: Date;
-      let endDate = new Date();
-
-      if (member?.subscriptionStartDate) {
-        startDate = new Date(member.subscriptionStartDate);
-        if (member.subscriptionEndDate && member.subscriptionEndDate > startDate) {
-          endDate = new Date(member.subscriptionEndDate);
-        }
-      } else {
-        const cycle = plan.billingCycle === "monthly" ? "monthly" : "yearly";
-        const range = this.getDateRangeByFrequency(cycle, 1);
-        startDate = range.startDate;
-        endDate = range.endDate;
-      }
-
+      // Benefits leadGenerationCount defaults to daily limit (resets every 24 hours / daily)
+      const { startDate, endDate } = this.getDateRangeByFrequency("daily", 1);
       const used = await this.getCurrentUsageCount(memberOid, "lead generation", startDate, endDate);
       if (used >= limit) {
-        const cycleName = plan.billingCycle ? `${plan.billingCycle} ` : "";
         throw new BadRequestError(
-          `Lead Generation limit of ${limit} request(s) reached for your ${cycleName}plan. Upgrade your plan to continue.`
+          `Lead Generation limit of ${limit} request(s) reached. Try again after 24 hrs or upgrade your plan.`
         );
       }
       return;
@@ -586,25 +573,10 @@ export class SubscriptionService {
             used: 0,
             limit: -1,
             remaining: -1,
-            frequency: plan.billingCycle || "yearly"
+            frequency: "daily"
           };
         }
-        const member = await this.memberRepo.findOneBy({ _id: memberOid, isDeleted: false });
-        let startDate: Date;
-        let endDate = new Date();
-        if (member?.subscriptionStartDate) {
-          startDate = new Date(member.subscriptionStartDate);
-          if (member.subscriptionEndDate && member.subscriptionEndDate > startDate) {
-            endDate = new Date(member.subscriptionEndDate);
-          }
-        } else {
-          const range = this.getDateRangeByFrequency(
-            plan.billingCycle === "monthly" ? "monthly" : "yearly",
-            1
-          );
-          startDate = range.startDate;
-          endDate = range.endDate;
-        }
+        const { startDate, endDate } = this.getDateRangeByFrequency("daily", 1);
         const used = await this.getCurrentUsageCount(memberOid, normalized, startDate, endDate);
         const remaining = Math.max(0, countLimit - used);
         return {
@@ -612,7 +584,7 @@ export class SubscriptionService {
           used,
           limit: countLimit,
           remaining,
-          frequency: plan.billingCycle || "yearly"
+          frequency: "daily"
         };
       }
       return {
@@ -634,7 +606,10 @@ export class SubscriptionService {
       };
     }
 
-    const { startDate, endDate } = this.getDateRangeByFrequency(planModule.frequency, planModule.frequencyValue);
+    const { startDate, endDate } = this.getDateRangeByFrequency(
+      planModule.frequency || "daily",
+      planModule.frequencyValue || 1
+    );
     const used = await this.getCurrentUsageCount(memberOid, normalized, startDate, endDate);
     const remaining = Math.max(0, planModule.countLimit - used);
 
@@ -643,7 +618,7 @@ export class SubscriptionService {
       used,
       limit: planModule.countLimit,
       remaining,
-      frequency: planModule.frequency
+      frequency: planModule.frequency || "daily"
     };
   }
 
@@ -716,9 +691,14 @@ export class SubscriptionService {
   /**
    * Retrieves the start/end date range bounds matching the limit's frequency
    */
-  getDateRangeByFrequency(frequency: string, frequencyValue: number): { startDate: Date; endDate: Date } {
+  getDateRangeByFrequency(frequency: string, frequencyValue: number = 1): { startDate: Date; endDate: Date } {
     const IST_OFFSET = 5.5 * 60 * 60 * 1000; // 5 hours 30 minutes in milliseconds
     const now = new Date();
+
+    const safeFrequencyValue =
+      frequencyValue !== undefined && frequencyValue !== null && !isNaN(Number(frequencyValue))
+        ? Math.max(1, Number(frequencyValue))
+        : 1;
 
     // Shift current time to IST calendar time
     const istEndDate = new Date(now.getTime() + IST_OFFSET);
@@ -726,21 +706,21 @@ export class SubscriptionService {
 
     switch (frequency.toLowerCase()) {
     case "daily":
-      istStartDate.setUTCDate(istEndDate.getUTCDate() - frequencyValue + 1);
+      istStartDate.setUTCDate(istEndDate.getUTCDate() - safeFrequencyValue + 1);
       istStartDate.setUTCHours(0, 0, 0, 0);
       break;
     case "weekly":
       const day = istEndDate.getUTCDay();
-      istStartDate.setUTCDate(istEndDate.getUTCDate() - day - (7 * (frequencyValue - 1)));
+      istStartDate.setUTCDate(istEndDate.getUTCDate() - day - (7 * (safeFrequencyValue - 1)));
       istStartDate.setUTCHours(0, 0, 0, 0);
       break;
     case "monthly":
-      istStartDate.setUTCMonth(istEndDate.getUTCMonth() - frequencyValue + 1);
+      istStartDate.setUTCMonth(istEndDate.getUTCMonth() - safeFrequencyValue + 1);
       istStartDate.setUTCDate(1);
       istStartDate.setUTCHours(0, 0, 0, 0);
       break;
     case "yearly":
-      istStartDate.setUTCFullYear(istEndDate.getUTCFullYear() - frequencyValue + 1);
+      istStartDate.setUTCFullYear(istEndDate.getUTCFullYear() - safeFrequencyValue + 1);
       istStartDate.setUTCMonth(0, 1);
       istStartDate.setUTCHours(0, 0, 0, 0);
       break;
@@ -759,8 +739,14 @@ export class SubscriptionService {
    * Helper exception builder
    */
   buildLimitExceededError(moduleName: string, used: number, limit: number, frequency: string): BadRequestError {
+    const freqLabel = frequency ? frequency.charAt(0).toUpperCase() + frequency.slice(1) : "Daily";
+    if (this.normalizeModuleName(moduleName) === "lead generation") {
+      return new BadRequestError(
+        `${freqLabel} limit reached (${limit} request(s) for Lead Generation). Try again after 24 hrs or upgrade your plan.`
+      );
+    }
     return new BadRequestError(
-      `${frequency ? frequency.charAt(0).toUpperCase() + frequency.slice(1) : "Daily"} upload limit reached. Try again later or upgrade your plan.`
+      `${freqLabel} upload limit reached. Try again later or upgrade your plan.`
     );
   }
 

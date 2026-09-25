@@ -182,7 +182,7 @@ describe("Lead Generation Module Usage & Benefits Validation", () => {
       used: 0,
       limit: 1,
       remaining: 1,
-      frequency: "yearly"
+      frequency: "daily"
     });
 
     mockLeadRequestRepo.count.mockResolvedValue(1);
@@ -192,7 +192,7 @@ describe("Lead Generation Module Usage & Benefits Validation", () => {
       used: 1,
       limit: 1,
       remaining: 0,
-      frequency: "yearly"
+      frequency: "daily"
     });
   });
 });
