@@ -47,3 +47,7 @@ npm test
 ```
 npm run db:clean
 ```
+
+## Documentation
+
+- [AI Lead Generation API Documentation](docs/LEAD_GENERATION_API.md)

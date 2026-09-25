@@ -1,4 +1,4 @@
-import {
+﻿import {
   Entity,
   ObjectIdColumn,
   Column,
@@ -23,6 +23,7 @@ export interface PlanFeatureConfig {
   eventVisitor?: boolean;
   eventStall?: boolean;
   spotlights?: boolean;
+  leadGeneration?: boolean;
 }
 
 export interface PlanBenefitConfig {
@@ -31,6 +32,7 @@ export interface PlanBenefitConfig {
   pointMultiplier?: number; // e.g. 1, 2
   trainingDiscountPercentage?: number;
   referralBonusMonths?: number;
+  leadGenerationCount?: number; // max lead generation requests allowed per cycle
 }
 
 @Entity("plans")

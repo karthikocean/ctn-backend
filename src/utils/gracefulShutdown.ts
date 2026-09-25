@@ -4,11 +4,13 @@ import { getIO, waitForDisconnects } from "./socket";
 import { personalWorker } from "../workers/personal.worker";
 import { broadcastWorker } from "../workers/broadcast.worker";
 import { dlqWorker } from "../workers/dlq.worker";
+import { leadGenerationWorker } from "../modules/leadGeneration/workers/leadGeneration.worker";
 import {
   personalNotificationQueue,
   broadcastNotificationQueue,
   dlqNotificationQueue,
 } from "../queues/notification.queue";
+import { leadGenerationQueue } from "../modules/leadGeneration/queues/leadGeneration.queue";
 import { appRedis } from "../config/appRedis";
 
 let isShuttingDown = false;
@@ -90,6 +92,7 @@ export async function gracefulShutdown(signal: string = "SIGTERM"): Promise<void
       personalWorker.close(),
       broadcastWorker.close(),
       dlqWorker.close(),
+      leadGenerationWorker.close(),
     ]);
     console.log("✅ [Graceful Shutdown] All BullMQ workers closed cleanly.");
   } catch (err: any) {
@@ -104,6 +107,7 @@ export async function gracefulShutdown(signal: string = "SIGTERM"): Promise<void
       personalNotificationQueue.close(),
       broadcastNotificationQueue.close(),
       dlqNotificationQueue.close(),
+      leadGenerationQueue.close(),
     ]);
     console.log("✅ [Graceful Shutdown] All BullMQ queues closed.");
   } catch (err: any) {
