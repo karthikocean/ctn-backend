@@ -10,6 +10,22 @@ import { AIProviderFactory } from "../src/modules/leadGeneration/providers/aiPro
 import { OpenAIProvider } from "../src/modules/leadGeneration/providers/openai.provider";
 import { GeminiProvider } from "../src/modules/leadGeneration/providers/gemini.provider";
 
+jest.mock("../src/modules/leadGeneration/queues/leadGeneration.queue", () => ({
+  LEAD_GENERATION_QUEUE_NAME: "lead-generation",
+  leadGenerationJobOptions: {},
+  leadGenerationQueue: {
+    add: jest.fn().mockResolvedValue({ id: "test-job-id" }),
+    close: jest.fn().mockResolvedValue(undefined)
+  },
+  addLeadGenerationJob: jest.fn().mockResolvedValue("test-job-id")
+}));
+
+jest.mock("../src/modules/leadGeneration/workers/leadGeneration.worker", () => ({
+  leadGenerationWorker: {
+    close: jest.fn().mockResolvedValue(undefined)
+  }
+}));
+
 describe("AI Lead Generation Module Unit & Integration Tests", () => {
   describe("1. Input Schema Validation (Zod)", () => {
     it("should accept valid input with arrays of businessNames and locations", () => {
@@ -317,10 +333,14 @@ describe("AI Lead Generation Module Unit & Integration Tests", () => {
 
     afterAll(async () => {
       jest.restoreAllMocks();
-      const { leadGenerationQueue } = require("../src/modules/leadGeneration/queues/leadGeneration.queue");
-      const { leadGenerationWorker } = require("../src/modules/leadGeneration/workers/leadGeneration.worker");
-      await leadGenerationQueue.close();
-      await leadGenerationWorker.close();
+      try {
+        const { leadGenerationQueue } = require("../src/modules/leadGeneration/queues/leadGeneration.queue");
+        const { leadGenerationWorker } = require("../src/modules/leadGeneration/workers/leadGeneration.worker");
+        await Promise.allSettled([
+          leadGenerationQueue?.close?.(),
+          leadGenerationWorker?.close?.()
+        ]);
+      } catch {}
     });
 
     beforeEach(() => {

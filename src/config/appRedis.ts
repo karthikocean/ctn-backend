@@ -5,11 +5,24 @@ dotenv.config();
 
 const isTest = process.env.NODE_ENV === "test";
 
+let redisUrlOptions: Partial<RedisOptions> = {};
+if (process.env.REDIS_URL) {
+  try {
+    const parsed = new URL(process.env.REDIS_URL);
+    redisUrlOptions = {
+      host: parsed.hostname || "127.0.0.1",
+      port: parsed.port ? Number(parsed.port) : 6379,
+      password: parsed.password || undefined,
+      db: parsed.pathname && parsed.pathname.length > 1 ? Number(parsed.pathname.slice(1)) : 0,
+    };
+  } catch {}
+}
+
 export const appRedisConfig: RedisOptions = {
-  host: process.env.REDIS_HOST || "127.0.0.1",
-  port: Number(process.env.REDIS_PORT) || 6379,
-  password: process.env.REDIS_PASSWORD || undefined,
-  db: Number(process.env.REDIS_DB) || 0,
+  host: process.env.REDIS_HOST || redisUrlOptions.host || "127.0.0.1",
+  port: Number(process.env.REDIS_PORT) || redisUrlOptions.port || 6379,
+  password: process.env.REDIS_PASSWORD || redisUrlOptions.password || undefined,
+  db: Number(process.env.REDIS_DB) || redisUrlOptions.db || 0,
   // In tests, do not retry commands to avoid hanging Jest runners.
   maxRetriesPerRequest: isTest ? 0 : 3,
   enableReadyCheck: !isTest,

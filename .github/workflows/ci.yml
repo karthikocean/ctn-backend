@@ -22,9 +22,23 @@ jobs:
     name: Lint, Build & Test
     runs-on: ubuntu-latest
 
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     env:
       NODE_ENV: test
       JWT_SECRET: ci_test_jwt_secret_key_1234567890
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      REDIS_URL: redis://127.0.0.1:6379
 
     steps:
       - name: Checkout Code
@@ -46,4 +60,4 @@ jobs:
         run: npm run build
 
       - name: Run Jest Tests
-        run: npm test -- --maxWorkers=2
+        run: npm test -- --maxWorkers=2 --runInBand
