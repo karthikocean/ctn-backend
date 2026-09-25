@@ -27,96 +27,96 @@ export const REQUEST_LOG_RETENTION_SECONDS = Math.max(1, DEFAULT_RETENTION_DAYS)
 @Index(["ipAddress"])
 export class RequestLog {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   /**
    * MongoDB ObjectId of the user making the request (if authenticated with valid ObjectId)
    */
   @Column({ nullable: true })
-  userId?: ObjectId;
+    userId?: ObjectId;
 
   /**
    * String representation of userId for fast search and for non-ObjectId identifiers
    */
   @Column({ nullable: true })
-  userIdStr?: string;
+    userIdStr?: string;
 
   /**
    * Type or role of the user (e.g. ADMIN, ADMIN_USER, MEMBER, GUEST)
    */
   @Column({ nullable: true })
-  userType?: string;
+    userType?: string;
 
   /**
    * HTTP Method (GET, POST, PUT, PATCH, DELETE, OPTIONS, etc.)
    */
   @Column()
-  method!: string;
+    method!: string;
 
   /**
    * Full requested URL including query parameters
    */
   @Column()
-  url!: string;
+    url!: string;
 
   /**
    * Base route path without query parameters
    */
   @Column({ nullable: true })
-  path?: string;
+    path?: string;
 
   /**
    * Client IP address (considers proxies, Cloudflare, ALBs, etc.)
    */
   @Column({ nullable: true })
-  ipAddress?: string;
+    ipAddress?: string;
 
   /**
    * Request payload/body (sanitized with sensitive data like passwords/pins redacted)
    */
   @Column({ nullable: true })
-  payload?: any;
+    payload?: any;
 
   /**
    * Query parameters from the request
    */
   @Column({ nullable: true })
-  query?: any;
+    query?: any;
 
   /**
    * Route parameters from the request
    */
   @Column({ nullable: true })
-  params?: any;
+    params?: any;
 
   /**
    * Safe headers (user-agent, referer, accept, content-type, host, etc.)
    */
   @Column({ nullable: true })
-  headers?: any;
+    headers?: any;
 
   /**
    * HTTP status code returned to client (e.g. 200, 201, 400, 401, 500)
    */
   @Column({ nullable: true })
-  statusCode?: number;
+    statusCode?: number;
 
   /**
    * Total response time in milliseconds
    */
   @Column({ nullable: true })
-  durationMs?: number;
+    durationMs?: number;
 
   /**
    * Error message or details if request failed (status >= 400)
    */
   @Column({ nullable: true })
-  errorMessage?: string;
+    errorMessage?: string;
 
   /**
    * Creation timestamp. TTL index on this column will permanently delete the log
    * after REQUEST_LOG_RETENTION_SECONDS.
    */
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 }

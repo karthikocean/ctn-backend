@@ -8,53 +8,53 @@ import { ObjectId } from "mongodb";
 @Index(["generationId", "isDeleted"])
 export class GeneratedLead {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   @Column()
-  generationId!: string;
+    generationId!: string;
 
   @Column()
-  userId!: string;
+    userId!: string;
 
   @Column()
-  businessName!: string;
+    businessName!: string;
 
   @Column()
-  normalizedBusinessName!: string;
+    normalizedBusinessName!: string;
 
   @Column({ nullable: true })
-  category?: string;
+    category?: string;
 
   @Column("simple-array")
-  locations!: string[];
+    locations!: string[];
 
   @Column({ nullable: true })
-  phone?: string;
+    phone?: string;
 
   @Column({ nullable: true })
-  email?: string;
+    email?: string;
 
   @Column({ nullable: true })
-  website?: string;
+    website?: string;
 
   @Column({ nullable: true })
-  normalizedWebsite?: string;
+    normalizedWebsite?: string;
 
   @Column({ nullable: true })
-  description?: string;
+    description?: string;
 
   @Column({ nullable: true })
-  confidenceScore?: number;
+    confidenceScore?: number;
 
   @Column({ nullable: true })
-  sourceMetadata?: Record<string, any>;
+    sourceMetadata?: Record<string, any>;
 
   @Column({ default: false })
-  isDeleted!: boolean;
+    isDeleted!: boolean;
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }

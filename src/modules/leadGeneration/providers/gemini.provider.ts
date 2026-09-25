@@ -24,7 +24,7 @@ export class GeminiProvider implements IAIProvider {
     if (!this.apiKey) {
       throw new Error("Gemini API key is missing. Please set GEMINI_API_KEY.");
     }
-    console.log(process.env.GEMINI_MODEL, 'sssssssssss')
+    console.log(process.env.GEMINI_MODEL, "sssssssssss");
     let model = (modelOverride || process.env.GEMINI_MODEL || this.defaultModel).trim();
     // Strip leading "models/" if configured like "models/gemini-2.5-flash-lite"
     model = model.replace(/^models\//, "");

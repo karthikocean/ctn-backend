@@ -11,12 +11,12 @@ export class AIProviderFactory {
     ).toLowerCase();
 
     switch (selectedProvider) {
-      case "gemini":
-      case "google":
-        return new GeminiProvider();
-      case "openai":
-      default:
-        return new OpenAIProvider();
+    case "gemini":
+    case "google":
+      return new GeminiProvider();
+    case "openai":
+    default:
+      return new OpenAIProvider();
     }
   }
 }

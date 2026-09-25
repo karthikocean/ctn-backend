@@ -1,4 +1,3 @@
-import { LeadGenerationStatus } from "../../../entity/LeadGenerationRequest";
 
 export interface CreateLeadGenerationDTO {
   businessNames: string[];

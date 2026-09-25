@@ -15,66 +15,66 @@ export enum LeadGenerationStatus {
 @Index(["userId", "isDeleted"])
 export class LeadGenerationRequest {
   @ObjectIdColumn()
-  _id!: ObjectId;
+    _id!: ObjectId;
 
   @Column()
-  userId!: string;
+    userId!: string;
 
   @Column("simple-array")
-  businessNames!: string[];
+    businessNames!: string[];
 
   @Column("simple-array")
-  locations!: string[];
+    locations!: string[];
 
   @Column({ nullable: true })
-  additionalRequirement?: string;
+    additionalRequirement?: string;
 
   @Column()
-  generatedPrompt!: string;
+    generatedPrompt!: string;
 
   @Column({ default: "1.0" })
-  promptVersion!: string;
+    promptVersion!: string;
 
   @Column()
-  provider!: string;
+    provider!: string;
 
   @Column()
-  model!: string;
+    model!: string;
 
   @Column({
     type: "enum",
     enum: LeadGenerationStatus,
     default: LeadGenerationStatus.PENDING
   })
-  status!: LeadGenerationStatus;
+    status!: LeadGenerationStatus;
 
   @Column({ nullable: true })
-  rawAIResponse?: any;
+    rawAIResponse?: any;
 
   @Column({ nullable: true })
-  rawAIText?: string;
+    rawAIText?: string;
 
   @Column({ default: 0 })
-  leadCount!: number;
+    leadCount!: number;
 
   @Column({ nullable: true })
-  errorMessage?: string;
+    errorMessage?: string;
 
   @Column({ nullable: true })
-  metadata?: Record<string, any>;
+    metadata?: Record<string, any>;
 
   @Column({ default: 1 })
-  version!: number;
+    version!: number;
 
   @Column({ nullable: true })
-  parentGenerationId?: string;
+    parentGenerationId?: string;
 
   @Column({ default: false })
-  isDeleted!: boolean;
+    isDeleted!: boolean;
 
   @CreateDateColumn()
-  createdAt!: Date;
+    createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt!: Date;
+    updatedAt!: Date;
 }
