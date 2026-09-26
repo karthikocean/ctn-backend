@@ -20,11 +20,13 @@ import { StatusCodes } from "http-status-codes";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
 import { CreatePlanDto, UpdatePlanDto } from "../../dto/admin/Plan.dto";
+import { SubscriptionService } from "../../services/subscription.service";
 
 @JsonController("/plans")
 export class AdminPlanController {
   private planRepo = AppDataSource.getMongoRepository(Plan);
   private memberRepo = AppDataSource.getMongoRepository(Member);
+  private subscriptionService = new SubscriptionService();
 
   /**
    * @swagger
@@ -192,6 +194,9 @@ export class AdminPlanController {
       Object.assign(plan, data);
       const saved = await this.planRepo.save(plan);
 
+      // Invalidate cached member plans in Redis so changes take effect immediately
+      await this.subscriptionService.invalidateAllMemberPlanCaches();
+
       return res.status(StatusCodes.OK).json({
         success: true,
         message: "Plan updated successfully",
@@ -223,6 +228,9 @@ export class AdminPlanController {
 
       plan.isDeleted = true;
       await this.planRepo.save(plan);
+
+      // Invalidate cached member plans in Redis
+      await this.subscriptionService.invalidateAllMemberPlanCaches();
 
       return res.status(StatusCodes.OK).json({
         success: true,
