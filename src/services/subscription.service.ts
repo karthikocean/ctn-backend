@@ -205,6 +205,33 @@ export class SubscriptionService {
   }
 
   /**
+   * Invalidates all cached member plans in Redis when a plan is updated or deleted.
+   * Uses non-blocking SCAN to find and remove all plan:member:* keys.
+   */
+  async invalidateAllMemberPlanCaches(): Promise<void> {
+    try {
+      if (appRedis.status === "ready") {
+        let cursor = "0";
+        do {
+          const [nextCursor, keys] = await appRedis.scan(
+            cursor,
+            "MATCH",
+            "plan:member:*",
+            "COUNT",
+            100
+          );
+          cursor = nextCursor;
+          if (keys && keys.length > 0) {
+            await appRedis.del(...keys);
+          }
+        } while (cursor !== "0");
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
    * Helper to retrieve active plan configurations for a specific member.
    * Caches the resolved plan and date windows in Redis with a 2-minute TTL
    * to eliminate repeated DB queries during high-frequency operations.
