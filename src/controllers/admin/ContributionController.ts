@@ -2,6 +2,7 @@ import {
   JsonController,
   Get,
   Put,
+  Delete,
   Param,
   QueryParam,
   Body,
@@ -16,6 +17,10 @@ import { ThankYouSlip } from "../../entity/ThankYouSlip";
 import { Referral } from "../../entity/Referral";
 import { Member } from "../../entity/Member";
 import { AdminUser } from "../../entity/AdminUser";
+import { PointHistory } from "../../entity/PointHistory";
+import { MemberPoints } from "../../entity/MemberPoints";
+import { Message } from "../../entity/Message";
+import imageService from "../../utils/upload";
 import { ObjectId } from "mongodb";
 import pagination from "../../utils/pagination";
 import handleErrorResponse from "../../utils/commonFunction";
@@ -35,6 +40,9 @@ export class AdminContributionController {
   private referralRepo = AppDataSource.getMongoRepository(Referral);
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private adminUserRepo = AppDataSource.getMongoRepository(AdminUser);
+  private pointHistoryRepo = AppDataSource.getMongoRepository(PointHistory);
+  private memberPointsRepo = AppDataSource.getMongoRepository(MemberPoints);
+  private messageRepo = AppDataSource.getMongoRepository(Message);
 
   /**
    * @swagger
@@ -471,6 +479,152 @@ export class AdminContributionController {
         success: true,
         message: `${result.type} status updated successfully`,
         data: result
+      });
+    } catch (error: any) {
+      return handleErrorResponse(error, res);
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/admin/contributions/{id}:
+   *   delete:
+   *     summary: Permanently delete a contribution slip and revert reward points (Admin)
+   *     tags: [Admin Contribution]
+   */
+  @Delete("/:id")
+  @HttpCode(StatusCodes.OK)
+  async deleteContribution(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Res() res: any
+  ) {
+    try {
+      if (!id || !ObjectId.isValid(id)) {
+        return res.status(StatusCodes.BAD_REQUEST).json({ success: false, message: "Invalid ID" });
+      }
+
+      const objId = new ObjectId(id);
+      let contribution: any = null;
+      let type: "thank_you_slip" | "referral" | "one_to_one" | "" = "";
+
+      // 1. Check ThankYouSlip
+      const tySlip = await this.tySlipRepo.findOneBy({ _id: objId });
+      if (tySlip) {
+        contribution = tySlip;
+        type = "thank_you_slip";
+      } else {
+        // 2. Check Referral
+        const referral = await this.referralRepo.findOneBy({ _id: objId });
+        if (referral) {
+          contribution = referral;
+          type = "referral";
+        } else {
+          // 3. Check OneToOne
+          const oto = await this.oneToOneRepo.findOneBy({ _id: objId });
+          if (oto) {
+            contribution = oto;
+            type = "one_to_one";
+          }
+        }
+      }
+
+      if (!contribution) {
+        return res.status(StatusCodes.NOT_FOUND).json({ success: false, message: "Contribution not found" });
+      }
+
+      // Check franchise access control
+      if (req.isFranchise) {
+        const franchiseMemberIdStrings = new Set((req.franchiseMemberIds || []).map((mid: any) => mid.toString()));
+        const isSenderFranchiseMember = contribution.senderId && franchiseMemberIdStrings.has(contribution.senderId.toString());
+        const isReceiverFranchiseMember = contribution.receiverId && franchiseMemberIdStrings.has(contribution.receiverId.toString());
+
+        if (!isSenderFranchiseMember && !isReceiverFranchiseMember) {
+          return res.status(StatusCodes.FORBIDDEN).json({ success: false, message: "Access denied" });
+        }
+      }
+
+      // 1. Revert any awarded reward points and remove PointHistory
+      try {
+        let phList = await this.pointHistoryRepo.find({
+          where: { referenceId: objId } as any
+        });
+        if (phList.length === 0) {
+          phList = await this.pointHistoryRepo.find({
+            where: { referenceId: id } as any
+          });
+        }
+
+        for (const ph of phList) {
+          if (ph.points && ph.points > 0 && ph.memberId) {
+            const memberOid = new ObjectId(ph.memberId);
+            const pts = Number(ph.points);
+
+            await this.memberRepo.updateOne(
+              { _id: memberOid },
+              { $inc: { points: -pts } }
+            );
+            await this.memberPointsRepo.updateOne(
+              { memberId: memberOid },
+              { $inc: { totalPoints: -pts } }
+            );
+
+            // Prevent balance from going negative
+            const member = await this.memberRepo.findOneBy({ _id: memberOid });
+            if (member && typeof member.points === "number" && member.points < 0) {
+              await this.memberRepo.updateOne({ _id: memberOid }, { $set: { points: 0 } });
+            }
+            const mPoints = await this.memberPointsRepo.findOneBy({ memberId: memberOid });
+            if (mPoints && typeof mPoints.totalPoints === "number" && mPoints.totalPoints < 0) {
+              await this.memberPointsRepo.updateOne({ memberId: memberOid }, { $set: { totalPoints: 0 } });
+            }
+          }
+
+          if (ph._id) {
+            await this.pointHistoryRepo.delete({ _id: ph._id });
+          }
+        }
+
+        // Clean up remaining point histories matching referenceId if any
+        await this.pointHistoryRepo.delete({ referenceId: objId } as any);
+        await this.pointHistoryRepo.delete({ referenceId: id } as any);
+      } catch (pointErr) {
+        console.error("[deleteContribution] Error reverting points:", pointErr);
+      }
+
+      // 2. Permanently delete linked chat message(s)
+      try {
+        await this.messageRepo.deleteMany({
+          $or: [
+            { businessActionId: objId },
+            { businessActionId: id }
+          ]
+        } as any);
+      } catch (msgErr) {
+        console.error("[deleteContribution] Error deleting linked messages:", msgErr);
+      }
+
+      // 3. Clean up media files if present
+      if (contribution.media && Array.isArray(contribution.media) && contribution.media.length > 0) {
+        try {
+          await imageService.cleanupFiles(contribution.media);
+        } catch (mediaErr) {
+          console.error("[deleteContribution] Error cleaning up media:", mediaErr);
+        }
+      }
+
+      // 4. Permanently delete the slip record
+      if (type === "thank_you_slip") {
+        await this.tySlipRepo.delete({ _id: objId });
+      } else if (type === "referral") {
+        await this.referralRepo.delete({ _id: objId });
+      } else if (type === "one_to_one") {
+        await this.oneToOneRepo.delete({ _id: objId });
+      }
+
+      return res.status(StatusCodes.OK).json({
+        success: true,
+        message: "Contribution permanently deleted successfully"
       });
     } catch (error: any) {
       return handleErrorResponse(error, res);
