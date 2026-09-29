@@ -1584,11 +1584,11 @@ export class MobileMemberController {
       this.referralRepo.count({ receiverId: id, status: { $ne: "REPORTED" } }),
       // Single aggregation doc returned instead of all ThankYouSlip documents
       this.tySlipRepo.aggregate([
-        { $match: { senderId: id, status: { $ne: "REPORTED" } } },
+        { $match: { receiverId: id, status: { $ne: "REPORTED" }, isDeleted: false } },
         { $group: { _id: null, total: { $sum: "$amount" } } }
       ]).toArray(),
       this.tySlipRepo.aggregate([
-        { $match: { receiverId: id, status: { $ne: "REPORTED" } } },
+        { $match: { senderId: id, status: { $ne: "REPORTED" }, isDeleted: false } },
         { $group: { _id: null, total: { $sum: "$amount" } } }
       ]).toArray(),
       // Single aggregation doc returned instead of all Post documents
