@@ -39,6 +39,8 @@ import { insertPushNotification } from "../../services/pushnotification.service"
 import { NotificationModule, PushNotification } from "../../entity/PushNotifications";
 import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
+import { PointHistory } from "../../entity/PointHistory";
+import { MemberPoints } from "../../entity/MemberPoints";
 import { validateRequirementResponseLimit } from "../../services/moduleUsage.service";
 import { Contact, ContactType } from "../../entity/Contact";
 import { Connection, ConnectionStatus } from "../../entity/Connection";
@@ -60,6 +62,8 @@ export class MobileChatController {
   private connectionRepo = AppDataSource.getMongoRepository(Connection);
   private pushNotificationRepo = AppDataSource.getMongoRepository(PushNotification);
   private reminderRepo = AppDataSource.getMongoRepository(Reminder);
+  private pointHistoryRepo = AppDataSource.getMongoRepository(PointHistory);
+  private memberPointsRepo = AppDataSource.getMongoRepository(MemberPoints);
 
   private async isMutual(userA: ObjectId, userB: ObjectId): Promise<boolean> {
     if (userA.equals(userB)) return true;
@@ -1904,10 +1908,46 @@ export class MobileChatController {
       if (!message) throw new NotFoundError("Message not found");
       if (!message.senderId.equals(userId)) throw new BadRequestError("You can only delete your own messages");
 
+      // Permanently delete linked business module records (Thank You Slip, Referral, Direct Meet, Reminder)
+      const actionId = message.businessActionId;
+      if (actionId) {
+        const actionOid = new ObjectId(actionId);
+        await Promise.allSettled([
+          this.tySlipRepo.delete({ _id: actionOid }),
+          this.referralRepo.delete({ _id: actionOid }),
+          this.oneToOneRepo.delete({ _id: actionOid }),
+          this.reminderRepo.delete({ _id: actionOid })
+        ]);
+
+        // Revert any awarded points associated with this referenceId
+        try {
+          const phList = await this.pointHistoryRepo.find({ where: { referenceId: actionOid } as any });
+          for (const ph of phList) {
+            if (ph.points > 0) {
+              await this.memberRepo.updateOne({ _id: ph.memberId }, { $inc: { points: -ph.points } });
+              await this.memberPointsRepo.updateOne({ memberId: ph.memberId }, { $inc: { totalPoints: -ph.points } });
+            }
+          }
+          if (phList.length > 0) {
+            await this.pointHistoryRepo.delete({ referenceId: actionOid } as any);
+          }
+        } catch (pointErr) {
+          console.error("[deleteMessage] Error reverting points:", pointErr);
+        }
+      }
+
+      // Also clean up if reminderId is present
+      if (message.reminderId) {
+        const reminderOid = new ObjectId(message.reminderId);
+        await this.reminderRepo.delete({ _id: reminderOid }).catch(() => {});
+      }
+
       const oldMedia = message.media;
       message.isDeleted = true;
       message.content = "This conversation marked as deleted";
       if ((message as any).media) delete (message as any).media;
+      if ((message as any).businessActionId) delete (message as any).businessActionId;
+      if ((message as any).reminderId) delete (message as any).reminderId;
       await this.messageRepo.save(message);
 
       // Clean up S3 media files
