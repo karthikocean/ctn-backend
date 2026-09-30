@@ -26,7 +26,6 @@ import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 import { PostReport } from "../../entity/PostReport";
 import imageService from "../../utils/upload";
 
-
 const getObjectIdStr = (val: any): string | null => {
   if (!val) return null;
   if (typeof val === "string") return val;
@@ -161,7 +160,6 @@ export class PostController {
       return handleErrorResponse(res, error);
     }
   }
-
 
   /**
    * @swagger
