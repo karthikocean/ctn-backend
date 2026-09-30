@@ -10,10 +10,11 @@ import {
   UseBefore,
   Req,
   Put,
-  Body
+  Body,
+  Post
 } from "routing-controllers";
 import { AppDataSource } from "../../data-source";
-import { PostModel as PostEntity, PostType } from "../../entity/Post";
+import { PostModel as PostEntity, PostType, RequirementVisibility } from "../../entity/Post";
 import { Member } from "../../entity/Member";
 import { ObjectId } from "mongodb";
 import { StatusCodes } from "http-status-codes";
@@ -25,12 +26,142 @@ import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 import { PostReport } from "../../entity/PostReport";
 import imageService from "../../utils/upload";
 
+
+const getObjectIdStr = (val: any): string | null => {
+  if (!val) return null;
+  if (typeof val === "string") return val;
+  if (val.$oid && typeof val.$oid === "string") return val.$oid;
+  if (val.toString) return val.toString();
+  return null;
+};
+
 @JsonController("/posts")
 @UseBefore(AuthMiddleware, franchiseFilter)
 export class PostController {
   private postRepo = AppDataSource.getMongoRepository(PostEntity);
   private memberRepo = AppDataSource.getMongoRepository(Member);
   private postReportRepo = AppDataSource.getMongoRepository(PostReport);
+
+  @Post("/")
+  @UseBefore(canAccess("posts", "add"))
+  async create(@Req() req: any, @Body() data: any, @Res() res: any) {
+    try {
+      const {
+        memberId,
+        type,
+        title,
+        description,
+        location,
+        period,
+        lastmet,
+        media,
+        requirementVisibility,
+        stateIds,
+        regionIds,
+        categoryIds,
+        subCategoryIds
+      } = data;
+
+      if (!memberId || !ObjectId.isValid(memberId)) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          status: false,
+          message: "A valid member is required"
+        });
+      }
+
+      if (!type || !Object.values(PostType).includes(type)) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          status: false,
+          message: "Valid post type is required"
+        });
+      }
+
+      if (!title || !String(title).trim()) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          status: false,
+          message: "Title is required"
+        });
+      }
+
+      if (!description || !String(description).trim()) {
+        return res.status(StatusCodes.BAD_REQUEST).json({
+          status: false,
+          message: "Description is required"
+        });
+      }
+
+      const memberObjectId = new ObjectId(memberId);
+      const member = await this.memberRepo.findOneBy({ _id: memberObjectId, isDeleted: false });
+      if (!member) {
+        return res.status(StatusCodes.NOT_FOUND).json({
+          status: false,
+          message: "Selected member not found"
+        });
+      }
+
+      const post = new PostEntity();
+      post.type = type;
+      post.title = String(title).trim();
+      post.description = String(description).trim();
+      post.memberId = memberObjectId;
+      post.isDeleted = false;
+      post.isActive = true;
+      post.status = "active";
+      post.responsedCount = 0;
+      post.sharedCount = 0;
+
+      if (location) post.location = String(location).trim();
+      if (period) post.period = String(period).trim();
+      if (lastmet) post.lastmet = String(lastmet).trim();
+      if (Array.isArray(media)) post.media = media;
+
+      if (requirementVisibility) {
+        const vis = String(requirementVisibility).toUpperCase().trim().replace(/_|\s+/g, "-");
+        if (Object.values(RequirementVisibility).includes(vis as RequirementVisibility)) {
+          post.requirementVisibility = vis as RequirementVisibility;
+        }
+      }
+
+      if (Array.isArray(stateIds)) {
+        post.stateIds = stateIds
+          .map(getObjectIdStr)
+          .filter((id): id is string => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
+      }
+
+      if (Array.isArray(regionIds)) {
+        post.regionIds = regionIds
+          .map(getObjectIdStr)
+          .filter((id): id is string => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
+      }
+
+      if (Array.isArray(categoryIds)) {
+        post.categoryIds = categoryIds
+          .map(getObjectIdStr)
+          .filter((id): id is string => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
+      }
+
+      if (Array.isArray(subCategoryIds)) {
+        post.subCategoryIds = subCategoryIds
+          .map(getObjectIdStr)
+          .filter((id): id is string => !!id && ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
+      }
+
+      const savedPost = await this.postRepo.save(post);
+
+      return res.status(StatusCodes.CREATED).json({
+        status: true,
+        message: "Activity created successfully",
+        data: savedPost
+      });
+    } catch (error: any) {
+      return handleErrorResponse(res, error);
+    }
+  }
+
 
   /**
    * @swagger
