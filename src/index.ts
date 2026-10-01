@@ -28,7 +28,7 @@ import { PostDeactivationCronService } from "./services/postDeactivationCron.ser
 import { ReminderCronService } from "./services/reminderCron.service";
 import { BirthdayCronService } from "./services/birthdayCron.service";
 import { AnniversaryCronService } from "./services/anniversaryCron.service";
-import { DailyTaskCronService } from "./services/dailyTaskCron.service";
+// import { DailyTaskCronService } from "./services/dailyTaskCron.service";
 import { SpotlightRequestCronService } from "./services/spotlightRequestCron.service";
 import { MilestoneCronService } from "./services/milestoneCron.service";
 import { DataRetentionCronService } from "./services/dataRetentionCron.service";
@@ -366,7 +366,7 @@ AppDataSource.initialize()
       ReminderCronService.init();
       BirthdayCronService.init();
       AnniversaryCronService.init();
-      DailyTaskCronService.init();
+      // DailyTaskCronService.init();
       SpotlightRequestCronService.init();
       MilestoneCronService.init();
       // MemberInactivityCronService.init();
