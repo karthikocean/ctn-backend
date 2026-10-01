@@ -6,6 +6,7 @@ import { Plan } from "../entity/Plan";
 import { MemberSubscription } from "../entity/MemberSubscription";
 import { Payment } from "../entity/Payment";
 import { PostModel, PostType } from "../entity/Post";
+import { Connection, ConnectionStatus } from "../entity/Connection";
 import { Referral } from "../entity/Referral";
 import { Message, MessageType } from "../entity/Message";
 import { MemberTraining } from "../entity/MemberTraining";
@@ -465,6 +466,133 @@ export class SubscriptionService {
     if (used >= limit) {
       throw new BadRequestError(
         `${frequency ? frequency.charAt(0).toUpperCase() + frequency.slice(1) : "Daily"} limit of ${limit} response(s) reached. Upgrade your plan to continue.`
+      );
+    }
+  }
+
+  /**
+   * Validator for user post response limits with new members (non-mutual connections)
+   */
+  async validatePostResponseLimit(memberId: string | ObjectId): Promise<void> {
+    const memberOid = new ObjectId(memberId);
+    const plan = await this.getMemberPlan(memberOid);
+
+    // Get response limit from benefits config
+    const limit = plan.benefits?.postRespondCount;
+    if (limit === undefined || limit === null) {
+      return; // Benefit not configured or no limit applied
+    }
+
+    if (limit === -1) {
+      return; // Unlimited responses allowed
+    }
+
+    if (limit === 0) {
+      throw new BadRequestError("Post response limit reached. Upgrade your plan to continue.");
+    }
+
+    // Determine frequency from plan modules, default to daily
+    const postModule = plan.modules?.find(
+      (m) => ["post", "posts", "ask", "give", "promotion"].includes(this.normalizeModuleName(m.moduleName))
+    );
+    const frequency = postModule?.frequency || "daily";
+    const frequencyValue = postModule?.frequencyValue || 1;
+
+    const { startDate, endDate } = this.getDateRangeByFrequency(frequency, frequencyValue);
+
+    // Get messages sent by the member of type POST_RESPONSE within the date range
+    const messages = await AppDataSource.getMongoRepository(Message).find({
+      where: {
+        senderId: memberOid,
+        type: MessageType.POST_RESPONSE,
+        isDeleted: { $ne: true },
+        createdAt: {
+          $gte: startDate,
+          $lte: endDate
+        }
+      } as any
+    });
+
+    if (messages.length === 0) {
+      return;
+    }
+
+    const postIds = messages
+      .map((msg) => {
+        if (!msg.postId) return null;
+        try {
+          return new ObjectId(msg.postId.toString());
+        } catch {
+          return null;
+        }
+      })
+      .filter((id): id is ObjectId => !!id);
+
+    if (postIds.length === 0) {
+      return;
+    }
+
+    // Fetch the posts to find the post owners
+    const posts = await AppDataSource.getMongoRepository(PostModel).find({
+      where: {
+        _id: { $in: postIds },
+        isDeleted: false
+      } as any
+    });
+
+    if (posts.length === 0) {
+      return;
+    }
+
+    const postOwnerMap = new Map<string, ObjectId>();
+    const distinctOwnerIds: ObjectId[] = [];
+    const seenOwners = new Set<string>();
+
+    for (const p of posts) {
+      if (p.memberId) {
+        const ownerIdStr = p.memberId.toString();
+        postOwnerMap.set(p._id.toString(), p.memberId);
+        if (!seenOwners.has(ownerIdStr) && !p.memberId.equals(memberOid)) {
+          seenOwners.add(ownerIdStr);
+          distinctOwnerIds.push(p.memberId);
+        }
+      }
+    }
+
+    // Resolve mutual connections between memberOid and all distinct post owners
+    let mutualSet = new Set<string>();
+    if (distinctOwnerIds.length > 0) {
+      const connections = await AppDataSource.getMongoRepository(Connection).find({
+        where: {
+          $or: [
+            { senderId: memberOid, receiverId: { $in: distinctOwnerIds }, status: ConnectionStatus.ACCEPTED, isDeleted: false },
+            { senderId: { $in: distinctOwnerIds }, receiverId: memberOid, status: ConnectionStatus.ACCEPTED, isDeleted: false }
+          ]
+        } as any
+      });
+
+      const followingSet = new Set(
+        connections.filter(c => c.senderId.equals(memberOid)).map(c => c.receiverId.toString())
+      );
+      const followerSet = new Set(
+        connections.filter(c => c.receiverId.equals(memberOid)).map(c => c.senderId.toString())
+      );
+      mutualSet = new Set([...followingSet].filter(id => followerSet.has(id)));
+    }
+
+    // Count messages sent to posts of non-mutual (new) members
+    let nonMutualResponsesCount = 0;
+    for (const msg of messages) {
+      if (!msg.postId) continue;
+      const ownerId = postOwnerMap.get(msg.postId.toString());
+      if (ownerId && !mutualSet.has(ownerId.toString())) {
+        nonMutualResponsesCount++;
+      }
+    }
+
+    if (nonMutualResponsesCount >= limit) {
+      throw new BadRequestError(
+        `Daily limit of ${limit} post response(s) to new members reached. Upgrade your plan to continue.`
       );
     }
   }

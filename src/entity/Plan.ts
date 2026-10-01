@@ -33,6 +33,7 @@ export interface PlanBenefitConfig {
   trainingDiscountPercentage?: number;
   referralBonusMonths?: number;
   leadGenerationCount?: number; // max lead generation requests allowed per cycle
+  postRespondCount?: number; // max responses allowed per post (Requirement/Give)
 }
 
 @Entity("plans")
