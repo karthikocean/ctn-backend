@@ -470,7 +470,6 @@ export class SubscriptionService {
     }
   }
 
-
   /**
    * Validator for user post response limits with new members (non-mutual connections)
    */
@@ -861,27 +860,27 @@ export class SubscriptionService {
     const istStartDate = new Date(now.getTime() + IST_OFFSET);
 
     switch (frequency.toLowerCase()) {
-      case "daily":
-        istStartDate.setUTCDate(istEndDate.getUTCDate() - safeFrequencyValue + 1);
-        istStartDate.setUTCHours(0, 0, 0, 0);
-        break;
-      case "weekly":
-        const day = istEndDate.getUTCDay();
-        istStartDate.setUTCDate(istEndDate.getUTCDate() - day - (7 * (safeFrequencyValue - 1)));
-        istStartDate.setUTCHours(0, 0, 0, 0);
-        break;
-      case "monthly":
-        istStartDate.setUTCMonth(istEndDate.getUTCMonth() - safeFrequencyValue + 1);
-        istStartDate.setUTCDate(1);
-        istStartDate.setUTCHours(0, 0, 0, 0);
-        break;
-      case "yearly":
-        istStartDate.setUTCFullYear(istEndDate.getUTCFullYear() - safeFrequencyValue + 1);
-        istStartDate.setUTCMonth(0, 1);
-        istStartDate.setUTCHours(0, 0, 0, 0);
-        break;
-      default:
-        throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
+    case "daily":
+      istStartDate.setUTCDate(istEndDate.getUTCDate() - safeFrequencyValue + 1);
+      istStartDate.setUTCHours(0, 0, 0, 0);
+      break;
+    case "weekly":
+      const day = istEndDate.getUTCDay();
+      istStartDate.setUTCDate(istEndDate.getUTCDate() - day - (7 * (safeFrequencyValue - 1)));
+      istStartDate.setUTCHours(0, 0, 0, 0);
+      break;
+    case "monthly":
+      istStartDate.setUTCMonth(istEndDate.getUTCMonth() - safeFrequencyValue + 1);
+      istStartDate.setUTCDate(1);
+      istStartDate.setUTCHours(0, 0, 0, 0);
+      break;
+    case "yearly":
+      istStartDate.setUTCFullYear(istEndDate.getUTCFullYear() - safeFrequencyValue + 1);
+      istStartDate.setUTCMonth(0, 1);
+      istStartDate.setUTCHours(0, 0, 0, 0);
+      break;
+    default:
+      throw new BadRequestError(`Unsupported module limitation frequency: ${frequency}`);
     }
 
     // Shift back to get correct UTC dates

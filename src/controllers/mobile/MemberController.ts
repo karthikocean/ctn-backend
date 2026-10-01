@@ -153,7 +153,7 @@ export class MobileMemberController {
       member.referralCode = await this.referralService.generateUniqueReferralCode("Trusted Network");
       const saved = await this.memberRepo.save(member);
       if (saved) {
-        const plan = await this.planRepo.findOneBy({ title: 'App Experience', isDeleted: false });
+        const plan = await this.planRepo.findOneBy({ title: "App Experience", isDeleted: false });
         if (plan) {
           await this.subscriptionService.startTrial(saved._id.toString(), plan._id.toString());
         }

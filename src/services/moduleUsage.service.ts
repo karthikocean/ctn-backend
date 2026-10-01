@@ -37,7 +37,6 @@ export async function getPostRespondLimit(memberId: ObjectId): Promise<number> {
   return 10;
 }
 
-
 export async function getRemainingUsage(memberId: ObjectId, moduleName: string) {
   return await subscriptionService.getRemainingUsage(memberId, moduleName);
 }
