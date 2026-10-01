@@ -19,6 +19,25 @@ export async function validateLeadGenerationLimit(memberId: ObjectId): Promise<v
   await subscriptionService.validateLeadGenerationLimit(memberId);
 }
 
+export async function getPostRespondLimit(memberId: ObjectId): Promise<number> {
+  try {
+    const plan = await subscriptionService.getMemberPlan(memberId);
+    if (plan?.benefits?.postRespondCount !== undefined && plan?.benefits?.postRespondCount !== null) {
+      const count = Number(plan.benefits.postRespondCount);
+      if (count === -1) {
+        return -1; // Unlimited responses allowed
+      }
+      if (count > 0) {
+        return count;
+      }
+    }
+  } catch {
+    // Member has no active plan or error occurs, fall back to default limit
+  }
+  return 10;
+}
+
+
 export async function getRemainingUsage(memberId: ObjectId, moduleName: string) {
   return await subscriptionService.getRemainingUsage(memberId, moduleName);
 }
@@ -39,4 +58,8 @@ export async function validateFeatureAccess(
   if (!features[featureKey]) {
     throw new Error(`"${featureLabel}" is not available in your current subscription plan.`);
   }
+}
+
+export async function validatePostResponseLimit(memberId: ObjectId): Promise<void> {
+  await subscriptionService.validatePostResponseLimit(memberId);
 }

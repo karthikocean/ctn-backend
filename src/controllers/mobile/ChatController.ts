@@ -41,7 +41,7 @@ import { PointService } from "../../services/point.service";
 import { PointConfigType } from "../../entity/PointConfig";
 import { PointHistory } from "../../entity/PointHistory";
 import { MemberPoints } from "../../entity/MemberPoints";
-import { validateRequirementResponseLimit } from "../../services/moduleUsage.service";
+import { validateRequirementResponseLimit, validatePostResponseLimit } from "../../services/moduleUsage.service";
 import { Contact, ContactType } from "../../entity/Contact";
 import { Connection, ConnectionStatus } from "../../entity/Connection";
 
@@ -76,6 +76,14 @@ export class MobileChatController {
       })
     ]);
     return !!(conn1 && conn2);
+  }
+
+  private async isFollowing(userA: ObjectId, userB: ObjectId): Promise<boolean> {
+    if (userA.equals(userB)) return true;
+    const conn = await this.connectionRepo.findOne({
+      where: { senderId: userA, receiverId: userB, status: ConnectionStatus.ACCEPTED, isDeleted: false } as any
+    });
+    return !!conn;
   }
 
   private async isBlocked(userA: ObjectId, userB: ObjectId): Promise<boolean> {
@@ -1129,6 +1137,21 @@ export class MobileChatController {
         await validateRequirementResponseLimit(senderId);
       }
 
+      const receiverId = post.memberId;
+      if (senderId.equals(receiverId)) throw new BadRequestError("You cannot respond to your own post");
+
+      const isFollowing = await this.isFollowing(senderId, receiverId);
+      if (!isFollowing) {
+        throw new BadRequestError("You must follow this member to respond to their post");
+      }
+
+      const isMutualMember = await this.isMutual(senderId, receiverId);
+
+      // Validate user post response limit with new members (non-mutual connections)
+      if (!isMutualMember) {
+        await validatePostResponseLimit(senderId);
+      }
+
       // Increment response count
       post.responsedCount = (post.responsedCount || 0) + 1;
 
@@ -1141,9 +1164,6 @@ export class MobileChatController {
       }
 
       await this.postRepo.save(post);
-
-      const receiverId = post.memberId;
-      if (senderId.equals(receiverId)) throw new BadRequestError("You cannot respond to your own post");
 
       const isBlockedMember = await this.isBlocked(senderId, receiverId);
 
@@ -1939,7 +1959,7 @@ export class MobileChatController {
       // Also clean up if reminderId is present
       if (message.reminderId) {
         const reminderOid = new ObjectId(message.reminderId);
-        await this.reminderRepo.delete({ _id: reminderOid }).catch(() => {});
+        await this.reminderRepo.delete({ _id: reminderOid }).catch(() => { });
       }
 
       const oldMedia = message.media;

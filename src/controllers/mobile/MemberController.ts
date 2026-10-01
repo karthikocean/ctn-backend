@@ -46,6 +46,7 @@ import { GstAlertService } from "../../services/gstAlert.service";
 import { isProprietorship, getGstMaxAllowedMembers, getGstMaxLimitErrorMessage } from "../../utils/gst.helper";
 import { resolveRegions } from "../../utils/region.helper";
 import { IncompleteRegistration } from "../../entity/IncompleteRegistration";
+import { Plan } from "../../entity/Plan";
 
 @JsonController("/members")
 export class MobileMemberController {
@@ -62,6 +63,8 @@ export class MobileMemberController {
   private postReportRepo = AppDataSource.getMongoRepository(PostReport);
   private incompleteRegRepo = AppDataSource.getMongoRepository(IncompleteRegistration);
   private referralService = new ReferralService();
+  private subscriptionService = new SubscriptionService();
+  private planRepo = AppDataSource.getMongoRepository(Plan);
   /**
    * @swagger
    * /mobile-api/members/register:
@@ -148,12 +151,13 @@ export class MobileMemberController {
       member.status = MemberStatus.ACTIVE; // Or PENDING if you have an approval flow
       member.lastLoggedIn = new Date();
       member.referralCode = await this.referralService.generateUniqueReferralCode("Trusted Network");
-      // if (referrerMember) {
-      //   member.referredBy = referrerMember._id;
-      // }
-
       const saved = await this.memberRepo.save(member);
-
+      if (saved) {
+        const plan = await this.planRepo.findOneBy({ title: 'App Experience', isDeleted: false });
+        if (plan) {
+          await this.subscriptionService.startTrial(saved._id.toString(), plan._id.toString());
+        }
+      }
       // Clean up any incomplete registration record for this mobile number (fire-and-forget)
       if (this.incompleteRegRepo && typeof this.incompleteRegRepo.deleteOne === "function") {
         this.incompleteRegRepo

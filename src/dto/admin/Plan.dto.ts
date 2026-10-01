@@ -76,6 +76,11 @@ export class BenefitConfigDto {
   @IsOptional()
   @Type(() => Number)
     leadGenerationCount?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+    postRespondCount?: number;
 }
 
 export class CreatePlanDto {
