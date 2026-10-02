@@ -121,15 +121,16 @@ export function registerPostTools(server: McpServer, getMemberId: () => string):
   // ── create_post ────────────────────────────────────────────────────────────
   server.tool(
     "create_post",
-    `Create a new post on Trusted Network. Posts go live immediately — there is no draft mode.
+    `Create a new post or promotion on Trusted Network. 
+IMPORTANT: Posts publish immediately and are live on the network upon creation. Show the prepared post title and description to the user and request their explicit confirmation before calling this tool.
 
 Post types:
-- PROMOTION: Advertise your product, service, or offer (equivalent to creating a promotion)
+- PROMOTION: Advertise your product, service, or business offer (equivalent to creating a promotion)
 - GIVE: Offer something for free to the network
-- ASK: Request help, collaboration, or a referral
-- REQUIREMENT: Post a business requirement or lead request (set requirementVisibility)
+- ASK: Request help, collaboration, recommendations, or a referral
+- REQUIREMENT: Post a business requirement or lead request (must set requirementVisibility)
 
-Note: To create a promotion, use type=PROMOTION. Images cannot be attached via this tool — use the mobile app to add media.`,
+Note: Images can be attached using media or in the mobile app.`,
     {
       type: z.preprocess(
         (val) => normalizePostType(val),

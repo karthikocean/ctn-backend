@@ -18,7 +18,10 @@
 
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import { ObjectId } from "mongodb";
 import { appRedis } from "../../config/appRedis";
+import { AppDataSource } from "../../data-source";
+import { OAuthGrant } from "../../entity/OAuthGrant";
 import { mcpConfig } from "../config";
 import logger from "../../utils/logger";
 
@@ -120,6 +123,24 @@ export async function issueMcpTokens(memberId: string, scopes: string[]): Promis
       JSON.stringify(authCacheData)
     )
   ]);
+
+  // Persist OAuth grant in MongoDB if DB is initialized
+  try {
+    if (AppDataSource.isInitialized && ObjectId.isValid(memberId)) {
+      const grantRepo = AppDataSource.getMongoRepository(OAuthGrant);
+      const grant = new OAuthGrant();
+      grant.userId = new ObjectId(memberId);
+      grant.clientId = "chatgpt-mcp";
+      grant.scopes = scopes;
+      grant.accessTokenHash = tokenHash;
+      grant.refreshTokenHash = crypto.createHash("sha256").update(refreshToken).digest("hex");
+      grant.isRevoked = false;
+      grant.expiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_SEC * 1000);
+      await grantRepo.save(grant);
+    }
+  } catch (dbErr: any) {
+    logger.warn(`Failed to persist OAuthGrant record: ${dbErr.message}`, CTX);
+  }
 
   logger.info(`MCP tokens issued for member ${memberId}`, CTX);
 
@@ -229,6 +250,18 @@ export async function revokeMcpToken(token: string): Promise<void> {
       : `${REDIS_PREFIX_REFRESH}${payload.jti}`;
 
     await appRedis.del(key);
+
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    await appRedis.del(`auth:v1:${tokenHash}`);
+
+    if (AppDataSource.isInitialized) {
+      const grantRepo = AppDataSource.getMongoRepository(OAuthGrant);
+      await grantRepo.updateMany(
+        { $or: [{ accessTokenHash: tokenHash }, { refreshTokenHash: tokenHash }] } as any,
+        { $set: { isRevoked: true, revokedAt: new Date() } } as any
+      );
+    }
+
     logger.info(`MCP token revoked for member ${payload.memberId}`, CTX);
   } catch {
     // Token already invalid — safe to ignore
