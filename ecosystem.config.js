@@ -25,5 +25,31 @@ module.exports = {
         PUPPETEER_EXECUTABLE_PATH: '/snap/bin/chromium'
       }
     }
+    ,
+    {
+      name: 'ctn-mcp',
+      script: 'dist/mcp/index.js',
+      interpreter: 'node',
+      exec_mode: 'fork',
+      instances: 1,
+
+      node_args: [
+        '--max-old-space-size=1024'
+      ],
+
+      max_memory_restart: '1G',
+      watch: false,
+
+      // MCP server configuration — reads from .env or defaults to enabled
+      env: {
+        NODE_ENV: 'production',
+        MCP_ENABLED: process.env.MCP_ENABLED || 'true'
+      },
+
+      env_production: {
+        NODE_ENV: 'production',
+        MCP_ENABLED: process.env.MCP_ENABLED || 'true'
+      }
+    }
   ]
 };
