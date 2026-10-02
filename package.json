@@ -30,6 +30,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1121.0",
     "@bull-board/api": "^5.23.0",
     "@bull-board/express": "^5.23.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "axios": "^1.15.2",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.81.3",
