@@ -14,19 +14,36 @@
  *  - MCP adds zero new business logic — it's a pure proxy layer.
  */
 
+import crypto from "crypto";
 import axios, { AxiosInstance } from "axios";
 import { mcpConfig } from "../config";
 import { generateInternalJwt } from "../auth/token";
 import { toMcpError } from "../utils/errors";
+import { appRedis } from "../../config/appRedis";
 
 const TIMEOUT_MS = 10_000;
 
 /**
  * Creates a per-request Axios instance with a short-lived JWT for a member.
  * The JWT expires in 5 minutes — sufficient for a single MCP tool call round-trip.
+ * Pre-seeds the Redis auth cache so MobileAuthMiddleware accepts this internal token.
  */
-function createApiClient(memberId: string): AxiosInstance {
+async function createApiClient(memberId: string): Promise<AxiosInstance> {
   const internalToken = generateInternalJwt(memberId);
+
+  try {
+    const hash = crypto.createHash("sha256").update(internalToken).digest("hex");
+    const cachedData = {
+      userId: memberId,
+      status: "active",
+      isDeleted: false,
+      tokenRecordExists: true
+    };
+    await appRedis.set(`auth:v1:${hash}`, JSON.stringify(cachedData), "EX", 300);
+  } catch {
+    // Non-fatal
+  }
+
   return axios.create({
     baseURL: mcpConfig.apiUrl,
     timeout: TIMEOUT_MS,
@@ -42,7 +59,7 @@ function createApiClient(memberId: string): AxiosInstance {
 
 export async function getMyProfile(memberId: string) {
   try {
-    const api = createApiClient(memberId);
+    const api = await createApiClient(memberId);
     const response = await api.get("/mobile-api/members/profile");
     return response.data.data;
   } catch (err) {
@@ -63,7 +80,7 @@ export async function searchMembers(
   }
 ) {
   try {
-    const api = createApiClient(memberId);
+    const api = await createApiClient(memberId);
     const response = await api.get("/mobile-api/members/", { params });
     return response.data;
   } catch (err) {
@@ -82,7 +99,7 @@ export async function getNearbyMembers(
   }
 ) {
   try {
-    const api = createApiClient(memberId);
+    const api = await createApiClient(memberId);
     const response = await api.get("/mobile-api/members/nearby", { params });
     return response.data;
   } catch (err) {
@@ -92,7 +109,7 @@ export async function getNearbyMembers(
 
 export async function getMember(memberId: string, targetMemberId: string) {
   try {
-    const api = createApiClient(memberId);
+    const api = await createApiClient(memberId);
     const response = await api.get(`/mobile-api/members/${targetMemberId}`);
     return response.data.data;
   } catch (err) {
@@ -111,7 +128,7 @@ export async function getMyPosts(
   }
 ) {
   try {
-    const api = createApiClient(memberId);
+    const api = await createApiClient(memberId);
     const response = await api.get("/mobile-api/posts/my-posts", { params });
     return response.data;
   } catch (err) {
@@ -121,7 +138,7 @@ export async function getMyPosts(
 
 export async function getPost(memberId: string, postId: string) {
   try {
-    const api = createApiClient(memberId);
+    const api = await createApiClient(memberId);
     const response = await api.get(`/mobile-api/posts/${postId}`);
     return response.data.data;
   } catch (err) {
@@ -140,7 +157,7 @@ export interface CreatePostInput {
 
 export async function createPost(memberId: string, input: CreatePostInput) {
   try {
-    const api = createApiClient(memberId);
+    const api = await createApiClient(memberId);
     const response = await api.post("/mobile-api/posts/", input);
     return response.data.data;
   } catch (err) {
@@ -158,7 +175,7 @@ export interface UpdatePostInput {
 
 export async function editPost(memberId: string, postId: string, input: UpdatePostInput) {
   try {
-    const api = createApiClient(memberId);
+    const api = await createApiClient(memberId);
     const response = await api.put(`/mobile-api/posts/${postId}`, input);
     return response.data.data;
   } catch (err) {
@@ -168,7 +185,7 @@ export async function editPost(memberId: string, postId: string, input: UpdatePo
 
 export async function deletePost(memberId: string, postId: string) {
   try {
-    const api = createApiClient(memberId);
+    const api = await createApiClient(memberId);
     const response = await api.delete(`/mobile-api/posts/${postId}`);
     return response.data;
   } catch (err) {

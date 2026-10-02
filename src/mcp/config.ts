@@ -49,7 +49,7 @@ export const mcpConfig = {
    * Base URL of the existing Trusted Network backend.
    * MCP calls this to proxy tool requests.
    */
-  apiUrl: process.env.TRUSTED_NETWORK_API_URL || "http://localhost:4000",
+  apiUrl: process.env.TRUSTED_NETWORK_API_URL || "http://127.0.0.1:5001",
 
   rateLimits: {
     /** Read tool requests per minute per user */

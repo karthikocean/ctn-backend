@@ -59,15 +59,22 @@ async function bootstrap() {
   // Parse JSON bodies
   app.use(express.json());
 
-  // CORS — allow ChatGPT origins
+  // CORS — allow ChatGPT origins and local dev tools / MCP Inspector
   app.use(cors({
-    origin: [
-      "https://chatgpt.com",
-      "https://chat.openai.com",
-      ...(process.env.NODE_ENV !== "production" ? ["http://localhost:3000", "http://localhost:4001"] : [])
-    ],
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (
+        origin === "https://chatgpt.com" ||
+        origin === "https://chat.openai.com" ||
+        origin.startsWith("http://localhost:") ||
+        origin.startsWith("http://127.0.0.1:")
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
     methods: ["GET", "POST", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Authorization", "Content-Type", "Mcp-Session-Id"],
+    allowedHeaders: ["Authorization", "Content-Type", "Mcp-Session-Id", "Accept"],
     exposedHeaders: ["Mcp-Session-Id"]
   }));
 
@@ -123,7 +130,7 @@ async function bootstrap() {
       });
     }
 
-    await transport.handleRequest(req, res);
+    await transport.handleRequest(req, res, req.body);
   });
 
   app.get("/mcp", mcpAuthMiddleware, async (req: Request, res: Response) => {
@@ -148,7 +155,7 @@ async function bootstrap() {
     }
     const transport = transports.get(sessionId);
     if (transport) {
-      await transport.handleRequest(req, res);
+      await transport.handleRequest(req, res, req.body);
       transports.delete(sessionId);
       logger.info(`MCP session destroyed: ${sessionId}`, CTX);
     } else {

@@ -225,12 +225,17 @@ export async function revokeMcpToken(token: string): Promise<void> {
  * Issues a short-lived authorization code for the OAuth flow.
  * The code is exchanged for tokens in /token.
  */
-export async function issueAuthCode(memberId: string, scopes: string[], redirectUri: string): Promise<string> {
+export async function issueAuthCode(
+  memberId: string,
+  scopes: string[],
+  redirectUri: string,
+  codeChallenge?: string
+): Promise<string> {
   const code = generateTokenId();
   await appRedis.setex(
     `${REDIS_PREFIX_CODE}${code}`,
     AUTH_CODE_TTL_SEC,
-    JSON.stringify({ memberId, scopes, redirectUri })
+    JSON.stringify({ memberId, scopes, redirectUri, codeChallenge })
   );
   return code;
 }
@@ -238,7 +243,10 @@ export async function issueAuthCode(memberId: string, scopes: string[], redirect
 /**
  * Consumes an authorization code (single use) and returns the associated data.
  */
-export async function consumeAuthCode(code: string, redirectUri: string): Promise<{ memberId: string; scopes: string[] }> {
+export async function consumeAuthCode(
+  code: string,
+  redirectUri: string
+): Promise<{ memberId: string; scopes: string[]; codeChallenge?: string }> {
   const key = `${REDIS_PREFIX_CODE}${code}`;
   const raw = await appRedis.get(key);
   if (!raw) {
@@ -254,7 +262,7 @@ export async function consumeAuthCode(code: string, redirectUri: string): Promis
     throw new Error("redirect_uri mismatch");
   }
 
-  return { memberId: data.memberId, scopes: data.scopes };
+  return { memberId: data.memberId, scopes: data.scopes, codeChallenge: data.codeChallenge };
 }
 
 /**

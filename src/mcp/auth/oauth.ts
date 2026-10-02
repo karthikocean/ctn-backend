@@ -336,23 +336,28 @@ export function createOAuthRouter(): Router {
         { identifier: identifier.trim(), pin }
       );
 
-      // The login-pin response structure: { success: true, data: { accessToken, member: { _id } } }
+      // The login-pin response structure: { success: true, accessToken, data: { _id, fullName, mobileNumber, email } }
       const loginData = response.data;
-      if (!loginData.success || !loginData.data?.member?._id) {
+      const memberIdCandidate = loginData?.data?._id || loginData?.data?.member?._id;
+      if (!loginData?.success || !memberIdCandidate) {
         throw new Error("Invalid login response from backend");
       }
-      memberId = loginData.data.member._id.toString();
+      memberId = memberIdCandidate.toString();
     } catch (err: any) {
-      const msg = err?.response?.data?.message || "Invalid credentials";
-      logger.warn(`MCP OAuth login failed for identifier ${identifier}: ${msg}`, CTX);
+      const msg = err?.response?.data?.message || err?.message || "Invalid credentials";
+      logger.warn(`MCP OAuth login failed for identifier ${identifier}: ${msg}`, CTX, {
+        code: err?.code,
+        status: err?.response?.status,
+        url: `${mcpConfig.apiUrl}/mobile-api/auth/login-pin`
+      });
       return res.json({
         error: "access_denied",
         error_description: msg
       });
     }
 
-    // Issue authorization code
-    const code = await issueAuthCode(memberId, scopes, redirectUri);
+    // Issue authorization code (storing codeChallenge for PKCE verification)
+    const code = await issueAuthCode(memberId, scopes, redirectUri, codeChallenge);
 
     // Delete PKCE session (single-use)
     await appRedis.del(`${PKCE_PREFIX}${state}`);
@@ -361,6 +366,104 @@ export function createOAuthRouter(): Router {
     logger.info(`MCP auth code issued for member ${memberId}`, CTX);
 
     return res.json({ redirect: redirectUrl });
+  });
+
+  /**
+   * Local testing callback page.
+   * When testing locally in a browser, redirect_uri can point here to inspect the issued code.
+   */
+  router.get("/oauth/callback", (req: Request, res: Response) => {
+    const { code, state, error, error_description } = req.query as Record<string, string>;
+
+    if (error) {
+      return res.status(400).send(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>OAuth Error</title><style>body{font-family:sans-serif;padding:40px;background:#f8f9fa;color:#333} .box{background:#fff;padding:24px;border-radius:8px;max-width:600px;margin:auto;border-left:4px solid #dc3545;box-shadow:0 2px 10px rgba(0,0,0,0.08)}</style></head>
+        <body>
+          <div class="box">
+            <h2 style="color:#dc3545;margin-top:0">OAuth Error</h2>
+            <p><strong>Error:</strong> ${error}</p>
+            <p><strong>Description:</strong> ${error_description || "Unknown error"}</p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>OAuth Authorization Successful</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 40px 20px; margin: 0; }
+          .card { max-width: 680px; margin: auto; background: #1e293b; border-radius: 12px; padding: 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border: 1px solid #334155; }
+          .badge { display: inline-block; background: #10b981; color: #fff; padding: 4px 12px; border-radius: 9999px; font-weight: 600; font-size: 13px; margin-bottom: 16px; }
+          h1 { margin: 0 0 12px 0; font-size: 24px; font-weight: 700; color: #fff; }
+          p { color: #94a3b8; line-height: 1.6; margin: 0 0 20px 0; font-size: 14px; }
+          .field-label { font-size: 12px; text-transform: uppercase; font-weight: 600; color: #64748b; margin-bottom: 6px; }
+          .code-box { background: #090d16; border: 1px solid #334155; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 13px; color: #38bdf8; word-break: break-all; margin-bottom: 20px; }
+          button { background: #3b82f6; color: #fff; border: none; padding: 10px 18px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; transition: background 0.2s; }
+          button:hover { background: #2563eb; }
+          #result { margin-top: 20px; padding: 16px; background: #090d16; border-radius: 8px; border: 1px solid #334155; font-family: monospace; font-size: 13px; color: #4ade80; white-space: pre-wrap; display: none; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <span class="badge">Success</span>
+          <h1>Authorization Code Issued!</h1>
+          <p>The member has authenticated successfully. In production, ChatGPT automatically receives this code and completes the token exchange.</p>
+
+          <div class="field-label">Authorization Code:</div>
+          <div class="code-box" id="authCode">${code || ""}</div>
+
+          <div class="field-label">State:</div>
+          <div class="code-box">${state || ""}</div>
+
+          <button id="exchangeBtn" onclick="exchangeToken()">Exchange for Bearer Token</button>
+          <div id="result"></div>
+        </div>
+
+        <script>
+          async function exchangeToken() {
+            const btn = document.getElementById('exchangeBtn');
+            const resEl = document.getElementById('result');
+            btn.disabled = true;
+            btn.textContent = 'Exchanging...';
+            try {
+              const res = await fetch('/oauth/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  grant_type: 'authorization_code',
+                  code: '${code || ""}',
+                  redirect_uri: window.location.origin + window.location.pathname,
+                  code_verifier: 'test_code_verifier_123456789012345678901234567890'
+                })
+              });
+              const data = await res.json();
+              resEl.style.display = 'block';
+              resEl.textContent = JSON.stringify(data, null, 2);
+              if (data.access_token) {
+                resEl.style.borderColor = '#10b981';
+              } else {
+                resEl.style.borderColor = '#ef4444';
+                resEl.style.color = '#ef4444';
+              }
+              btn.textContent = 'Exchange Complete';
+            } catch (err) {
+              resEl.style.display = 'block';
+              resEl.textContent = 'Error: ' + err.message;
+              btn.disabled = false;
+              btn.textContent = 'Exchange for Bearer Token';
+            }
+          }
+        </script>
+      </body>
+      </html>
+    `);
   });
 
   /**
@@ -379,26 +482,30 @@ export function createOAuthRouter(): Router {
 
       let memberId: string;
       let scopes: string[];
+      let expectedChallenge: string | undefined;
       try {
-        ({ memberId, scopes } = await consumeAuthCode(code, redirect_uri));
+        const consumed = await consumeAuthCode(code, redirect_uri);
+        memberId = consumed.memberId;
+        scopes = consumed.scopes;
+        expectedChallenge = consumed.codeChallenge;
       } catch (err: any) {
         return res.status(400).json({ error: "invalid_grant", error_description: err.message });
       }
 
-      // PKCE verification: SHA-256(code_verifier) must equal the stored code_challenge
-      // We stored the challenge in the PKCE state — verify here
-      // NOTE: The challenge is already consumed with the code; we verify by re-hashing verifier
-      // The frontend stored code_challenge = base64url(SHA256(code_verifier))
-      const computed = crypto
-        .createHash("sha256")
-        .update(code_verifier)
-        .digest("base64url");
+      // PKCE verification: base64url(SHA256(code_verifier)) must equal stored code_challenge
+      if (expectedChallenge) {
+        const computed = crypto
+          .createHash("sha256")
+          .update(code_verifier)
+          .digest("base64url");
 
-      // At this point the PKCE state was deleted when code was issued.
-      // Ideally we should store the challenge alongside the auth code.
-      // For correctness we store it in the auth code payload — see issueAuthCode.
-      // TODO: Tighten this by storing code_challenge in the auth code Redis entry.
-      // For now we trust the code itself (single-use, opaque, Redis-backed) plus JWT signature.
+        if (computed !== expectedChallenge) {
+          return res.status(400).json({
+            error: "invalid_grant",
+            error_description: "PKCE verification failed: invalid code_verifier"
+          });
+        }
+      }
 
       const { accessToken, refreshToken, expiresIn } = await issueMcpTokens(memberId, scopes);
 

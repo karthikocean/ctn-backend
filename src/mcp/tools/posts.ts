@@ -29,6 +29,26 @@ import { auditToolCall, startTimer } from "../utils/logging";
 const POST_TYPES = ["PROMOTION", "GIVE", "ASK", "REQUIREMENT"] as const;
 const REQUIREMENT_VISIBILITY = ["MUTUAL-FRIEND", "REGION", "OVERALL"] as const;
 
+function normalizePostType(val: any): any {
+  if (typeof val !== "string") return val;
+  const s = val.trim().toUpperCase();
+  if (s === "OFFER" || s === "DEAL" || s === "PROMOTION" || s === "PROMO") return "PROMOTION";
+  if (s === "FREE" || s === "GIVEAWAY" || s === "GIVE") return "GIVE";
+  if (s === "QUESTION" || s === "HELP" || s === "ASK") return "ASK";
+  if (s === "LEAD" || s === "NEED" || s === "WANT" || s === "REQUIREMENT") return "REQUIREMENT";
+  return s;
+}
+
+function normalizeVisibility(val: any): any {
+  if (!val || val === "") return undefined;
+  if (typeof val !== "string") return val;
+  const s = val.trim().toUpperCase();
+  if (s === "PUBLIC" || s === "ALL" || s === "EVERYONE" || s === "OVERALL") return "OVERALL";
+  if (s === "REGIONAL" || s === "LOCAL" || s === "REGION") return "REGION";
+  if (s === "MUTUAL" || s === "CONNECTIONS" || s === "MUTUAL-FRIEND") return "MUTUAL-FRIEND";
+  return s;
+}
+
 export function registerPostTools(server: McpServer, getMemberId: () => string): void {
 
   // ── get_my_posts ───────────────────────────────────────────────────────────
@@ -36,7 +56,7 @@ export function registerPostTools(server: McpServer, getMemberId: () => string):
     "get_my_posts",
     "Get your own posts on Trusted Network. Filter by post type (PROMOTION, GIVE, ASK, REQUIREMENT) and paginate results. To view only your promotions, set type to PROMOTION.",
     {
-      type: z.enum(POST_TYPES).optional().describe("Filter by post type. PROMOTION = business promotions, GIVE = free offers, ASK = requests for help, REQUIREMENT = business requirements"),
+      type: z.preprocess((val) => normalizePostType(val), z.enum(POST_TYPES).optional()).describe("Filter by post type. PROMOTION = business promotions, GIVE = free offers, ASK = requests for help, REQUIREMENT = business requirements"),
       page: z.number().int().min(0).max(200).optional().default(0).describe("Page number (0-indexed)"),
       limit: z.number().int().min(1).max(50).optional().default(10).describe("Posts per page (max 50)")
     },
@@ -111,12 +131,18 @@ Post types:
 
 Note: To create a promotion, use type=PROMOTION. Images cannot be attached via this tool — use the mobile app to add media.`,
     {
-      type: z.enum(POST_TYPES).describe("Post type: PROMOTION (promotions), GIVE (free offers), ASK (requests), REQUIREMENT (business requirements)"),
+      type: z.preprocess(
+        (val) => normalizePostType(val),
+        z.enum(POST_TYPES)
+      ).describe("Post type: PROMOTION (promotions, offers), GIVE (free offers), ASK (requests, questions), REQUIREMENT (business leads or requirements)"),
       title: z.string().min(1).max(500).describe("Post title — keep it concise and clear"),
       description: z.string().min(1).max(5000).describe("Post description — the full content of the post"),
-      location: z.string().max(200).optional().describe("Location associated with the post (city, area, or address)"),
-      period: z.string().max(100).optional().describe("Validity period or deadline (e.g. 'Valid until December 2025')"),
-      requirementVisibility: z.enum(REQUIREMENT_VISIBILITY).optional().describe("Required when type=REQUIREMENT. OVERALL=visible to all, REGION=visible to members in your region, MUTUAL-FRIEND=visible only to mutual connections")
+      location: z.preprocess((val) => (!val || val === "" ? undefined : val), z.string().max(200).optional()).describe("Location associated with the post (city, area, or address)"),
+      period: z.preprocess((val) => (!val || val === "" ? undefined : val), z.string().max(100).optional()).describe("Validity period or deadline (e.g. 'Valid until December 2025')"),
+      requirementVisibility: z.preprocess(
+        (val) => normalizeVisibility(val),
+        z.enum(REQUIREMENT_VISIBILITY).optional()
+      ).describe("Required when type=REQUIREMENT. OVERALL=visible to all, REGION=visible to members in your region, MUTUAL-FRIEND=visible only to mutual connections")
     },
     async ({ type, title, description, location, period, requirementVisibility }) => {
       const memberId = getMemberId();
@@ -168,11 +194,14 @@ Note: To create a promotion, use type=PROMOTION. Images cannot be attached via t
     "Edit an existing post you own on Trusted Network. You can update the title, description, location, period, or requirementVisibility. You can only edit your own posts — the ownership check is enforced by the backend.",
     {
       postId: z.string().min(24).max(24).describe("The 24-character MongoDB ObjectId of the post to edit"),
-      title: z.string().min(1).max(500).optional().describe("New post title"),
-      description: z.string().min(1).max(5000).optional().describe("New post description"),
-      location: z.string().max(200).optional().describe("New location"),
-      period: z.string().max(100).optional().describe("New period or deadline"),
-      requirementVisibility: z.enum(REQUIREMENT_VISIBILITY).optional().describe("New visibility for REQUIREMENT posts")
+      title: z.preprocess((val) => (!val || val === "" ? undefined : val), z.string().min(1).max(500).optional()).describe("New post title"),
+      description: z.preprocess((val) => (!val || val === "" ? undefined : val), z.string().min(1).max(5000).optional()).describe("New post description"),
+      location: z.preprocess((val) => (!val || val === "" ? undefined : val), z.string().max(200).optional()).describe("New location"),
+      period: z.preprocess((val) => (!val || val === "" ? undefined : val), z.string().max(100).optional()).describe("New period or deadline"),
+      requirementVisibility: z.preprocess(
+        (val) => (!val || val === "" ? undefined : typeof val === "string" ? val.trim().toUpperCase() : val),
+        z.enum(REQUIREMENT_VISIBILITY).optional()
+      ).describe("New visibility for REQUIREMENT posts")
     },
     async ({ postId, title, description, location, period, requirementVisibility }) => {
       const memberId = getMemberId();
@@ -236,7 +265,7 @@ Note: To create a promotion, use type=PROMOTION. Images cannot be attached via t
       }
 
       try {
-        const result = await api.deletePost(memberId, postId);
+        await api.deletePost(memberId, postId);
 
         auditToolCall({ tool: "delete_post", memberId, paramKeys: ["postId", "confirm"], outcome: "success", durationMs: timer() });
 
