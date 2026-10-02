@@ -56,8 +56,9 @@ async function bootstrap() {
 
   const app = express();
 
-  // Parse JSON bodies
+  // Parse JSON and form-urlencoded bodies (OAuth token requests send application/x-www-form-urlencoded)
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
   // CORS — allow ChatGPT origins and local dev tools / MCP Inspector
   app.use(cors({
