@@ -40,15 +40,15 @@ module.exports = {
       max_memory_restart: '1G',
       watch: false,
 
-      // MCP server is disabled by default — set MCP_ENABLED=true in .env to activate
+      // MCP server configuration — reads from .env or defaults to enabled
       env: {
         NODE_ENV: 'production',
-        MCP_ENABLED: 'false'
+        MCP_ENABLED: process.env.MCP_ENABLED || 'true'
       },
 
       env_production: {
         NODE_ENV: 'production',
-        MCP_ENABLED: 'false'
+        MCP_ENABLED: process.env.MCP_ENABLED || 'true'
       }
     }
   ]
