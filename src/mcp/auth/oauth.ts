@@ -39,7 +39,9 @@ const ALLOWED_REDIRECT_URI_PATTERNS = [
   /^https:\/\/chatgpt\.com\//,
   /^https:\/\/chat\.openai\.com\//,
   // Allow localhost for development only
-  ...(process.env.NODE_ENV !== "production" ? [/^http:\/\/localhost:/] : [])
+  ...(process.env.NODE_ENV !== "production" ? [/^http:\/\/localhost:/] : []),
+  // Allow the server's own public URL (for callback testing)
+  ...(mcpConfig.publicUrl ? [new RegExp(`^${mcpConfig.publicUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/`)] : [])
 ];
 
 // In-memory PKCE challenge store (Redis-backed via appRedis in production)
@@ -118,10 +120,11 @@ export function createOAuthRouter(): Router {
     if (!state) {
       return res.status(400).json({ error: "invalid_request", error_description: "state is required" });
     }
-    if (!code_challenge || code_challenge_method !== "S256") {
+    // If code_challenge is provided, validate S256 method
+    if (code_challenge && code_challenge_method && code_challenge_method !== "S256") {
       return res.status(400).json({
         error: "invalid_request",
-        error_description: "PKCE with S256 is required"
+        error_description: "When code_challenge is provided, code_challenge_method must be S256"
       });
     }
 
@@ -129,11 +132,11 @@ export function createOAuthRouter(): Router {
       .split(" ")
       .filter(s => SUPPORTED_SCOPES.includes(s));
 
-    // Store PKCE challenge in Redis
+    // Store challenge and request parameters in Redis
     await appRedis.setex(
       `${PKCE_PREFIX}${state}`,
       PKCE_TTL_SEC,
-      JSON.stringify({ codeChallenge: code_challenge, redirectUri: redirect_uri, scopes })
+      JSON.stringify({ codeChallenge: code_challenge || "", redirectUri: redirect_uri, scopes })
     );
 
     // Serve the login consent page
@@ -473,10 +476,10 @@ export function createOAuthRouter(): Router {
     const { grant_type, code, redirect_uri, code_verifier, refresh_token } = req.body as Record<string, string>;
 
     if (grant_type === "authorization_code") {
-      if (!code || !redirect_uri || !code_verifier) {
+      if (!code || !redirect_uri) {
         return res.status(400).json({
           error: "invalid_request",
-          error_description: "code, redirect_uri, and code_verifier are required"
+          error_description: "code and redirect_uri are required"
         });
       }
 
@@ -494,6 +497,13 @@ export function createOAuthRouter(): Router {
 
       // PKCE verification: base64url(SHA256(code_verifier)) must equal stored code_challenge
       if (expectedChallenge) {
+        if (!code_verifier) {
+          return res.status(400).json({
+            error: "invalid_grant",
+            error_description: "PKCE verification failed: code_verifier is required"
+          });
+        }
+
         const computed = crypto
           .createHash("sha256")
           .update(code_verifier)
