@@ -38,21 +38,40 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
       }
 
       // ── 1. Verify / decode JWT structure (local CPU, no DB) ────────────────
-      let decoded: JwtPayload;
+      let decoded: JwtPayload | undefined;
       let isExpired = false;
 
       try {
         decoded = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload;
       } catch (error: any) {
-        if (error.name === "TokenExpiredError") {
-          isExpired = true;
+        // Fallback: Check if this is an MCP OAuth token (issued for ChatGPT)
+        if (process.env.MCP_OAUTH_TOKEN_SECRET) {
           try {
-            decoded = jwt.verify(token, process.env.JWT_SECRET as string, { ignoreExpiration: true }) as JwtPayload;
+            const mcpDecoded = jwt.verify(token, process.env.MCP_OAUTH_TOKEN_SECRET as string) as any;
+            if (mcpDecoded && mcpDecoded.memberId) {
+              decoded = {
+                ...mcpDecoded,
+                userId: mcpDecoded.memberId,
+                id: mcpDecoded.memberId,
+                userType: "MEMBER"
+              };
+            }
           } catch {
+            // Not a valid MCP token either
+          }
+        }
+
+        if (!decoded) {
+          if (error.name === "TokenExpiredError") {
+            isExpired = true;
+            try {
+              decoded = jwt.verify(token, process.env.JWT_SECRET as string, { ignoreExpiration: true }) as JwtPayload;
+            } catch {
+              throw new UnauthorizedError("Invalid token");
+            }
+          } else {
             throw new UnauthorizedError("Invalid token");
           }
-        } else {
-          throw new UnauthorizedError("Invalid token");
         }
       }
 
@@ -146,6 +165,27 @@ export class MobileAuthMiddleware implements ExpressMiddlewareInterface {
 
       // ── 3a. Token not found in DB ──────────────────────────────────────────
       if (!activeTokenRecord) {
+        // If this is a valid MCP OAuth token for an active member, allow and cache
+        if (member && (decoded as any).type === "access") {
+          if (member.status !== MemberStatus.ACTIVE) {
+            throw new UnauthorizedError(`Account is ${member.status}. Please contact support.`);
+          }
+          await setAuthCache(token, {
+            userId: member._id.toString(),
+            status: member.status,
+            isDeleted: member.isDeleted,
+            tokenRecordExists: true
+          });
+          (req as any).user = {
+            ...decoded,
+            userId: decodedId,
+            id: decodedId,
+            userType: "MEMBER"
+          };
+          next();
+          return;
+        }
+
         // Reuse already-fetched member to determine 405 vs 401
         if (member) {
           _res.status(405).json({

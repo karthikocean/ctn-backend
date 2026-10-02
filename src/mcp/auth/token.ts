@@ -93,6 +93,15 @@ export async function issueMcpTokens(memberId: string, scopes: string[]): Promis
     expiresIn: REFRESH_TOKEN_TTL_SEC
   });
 
+  // Also pre-seed the MobileAuthMiddleware auth cache so ChatGPT Actions work seamlessly
+  const tokenHash = crypto.createHash("sha256").update(accessToken).digest("hex");
+  const authCacheData = {
+    userId: memberId,
+    status: "active",
+    isDeleted: false,
+    tokenRecordExists: true
+  };
+
   // Store in Redis
   await Promise.all([
     appRedis.setex(
@@ -104,6 +113,11 @@ export async function issueMcpTokens(memberId: string, scopes: string[]): Promis
       `${REDIS_PREFIX_REFRESH}${refreshJti}`,
       REFRESH_TOKEN_TTL_SEC,
       JSON.stringify({ memberId, scopes, accessJti })
+    ),
+    appRedis.setex(
+      `auth:v1:${tokenHash}`,
+      ACCESS_TOKEN_TTL_SEC,
+      JSON.stringify(authCacheData)
     )
   ]);
 
