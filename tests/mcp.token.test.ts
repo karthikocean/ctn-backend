@@ -102,17 +102,24 @@ describe("MCP Token Management", () => {
 
       await issueMcpTokens(MEMBER_ID, ["profile:read", "posts:read"]);
 
-      expect(redisMock.setex).toHaveBeenCalledTimes(2);
+      expect(redisMock.setex).toHaveBeenCalledTimes(3);
 
-      const [accessCall, refreshCall] = redisMock.setex.mock.calls;
+      const calls = redisMock.setex.mock.calls;
 
       // Access token: 1h = 3600s
-      expect(accessCall[0]).toMatch(/^mcp:access:/);
-      expect(accessCall[1]).toBe(3600);
+      const accessCall = calls.find(c => typeof c[0] === "string" && c[0].startsWith("mcp:access:"));
+      expect(accessCall).toBeDefined();
+      expect(accessCall![1]).toBe(3600);
 
       // Refresh token: 30d = 2592000s
-      expect(refreshCall[0]).toMatch(/^mcp:refresh:/);
-      expect(refreshCall[1]).toBe(2592000);
+      const refreshCall = calls.find(c => typeof c[0] === "string" && c[0].startsWith("mcp:refresh:"));
+      expect(refreshCall).toBeDefined();
+      expect(refreshCall![1]).toBe(2592000);
+
+      // Mobile auth cache pre-seed: 1h = 3600s
+      const authCacheCall = calls.find(c => typeof c[0] === "string" && c[0].startsWith("auth:v1:"));
+      expect(authCacheCall).toBeDefined();
+      expect(authCacheCall![1]).toBe(3600);
     });
 
     it("throws if MCP_OAUTH_TOKEN_SECRET is not configured", async () => {
