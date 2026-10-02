@@ -12,7 +12,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as api from "../services/api";
-import { toMcpError, errorResponse, McpValidationError } from "../utils/errors";
+import { toMcpError, errorResponse } from "../utils/errors";
 import { auditToolCall, startTimer } from "../utils/logging";
 
 export function registerMemberTools(server: McpServer, getMemberId: () => string): void {

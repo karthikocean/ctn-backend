@@ -7,7 +7,6 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
 import * as api from "../services/api";
 import { toMcpError, errorResponse } from "../utils/errors";
 import { auditToolCall, startTimer } from "../utils/logging";
