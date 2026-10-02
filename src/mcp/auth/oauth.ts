@@ -3,18 +3,13 @@
  *
  * Implements:
  *  - GET  /.well-known/oauth-authorization-server  (RFC 8414 metadata)
- *  - GET  /oauth/authorize                         (Authorization Code + PKCE)
- *  - POST /oauth/token                             (token endpoint)
- *  - POST /oauth/revoke                            (token revocation — RFC 7009)
- *
- * The member must have already authenticated via the Trusted Network mobile app
- * and must log in here using their existing credentials (PIN or OTP).
- *
- * Security baseline:
- *  - PKCE (code_challenge_method=S256) is required — no plain PKCE allowed.
- *  - Client secrets are NOT required (public clients only — ChatGPT).
- *  - Authorization codes are single-use, 5-min TTL.
- *  - Redirect URIs are strictly validated against the known ChatGPT callback URI.
+ *  - GET  /oauth/authorize                         (Login & Consent UI)
+ *  - POST /oauth/login                             (Step 1: Mobile + PIN validation)
+ *  - POST /oauth/consent                           (Step 2: Allow / Deny consent)
+ *  - POST /oauth/authorize                         (Direct authorization form submission)
+ *  - POST /oauth/token                             (Token exchange)
+ *  - POST /oauth/revoke                            (Token revocation — RFC 7009)
+ *  - GET  /oauth/callback                          (Success / Return UI)
  */
 
 import { Router, Request, Response } from "express";
@@ -29,12 +24,11 @@ import {
   revokeMcpToken
 } from "./token";
 import logger from "../../utils/logger";
+import { appRedis } from "../../config/appRedis";
 
 const CTX = "MCPOAuth";
 
-// Known allowed redirect URIs for ChatGPT
-// ChatGPT OAuth callback: https://chatgpt.com/aip/plugin-{id}/oauth/callback
-// We validate prefix-match (chatgpt.com) or exact match for custom clients.
+// Known allowed redirect URIs for ChatGPT & callback testing
 const ALLOWED_REDIRECT_URI_PATTERNS = [
   /^https:\/\/chatgpt\.com\//,
   /^https:\/\/chat\.openai\.com\//,
@@ -44,19 +38,24 @@ const ALLOWED_REDIRECT_URI_PATTERNS = [
   ...(mcpConfig.publicUrl ? [new RegExp(`^${mcpConfig.publicUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/`)] : [])
 ];
 
-// In-memory PKCE challenge store (Redis-backed via appRedis in production)
-// Key: state, Value: { codeChallenge, redirectUri, scopes }
-import { appRedis } from "../../config/appRedis";
-
 const PKCE_PREFIX = "mcp:pkce:";
 const PKCE_TTL_SEC = 600; // 10 minutes
+const TICKET_PREFIX = "chatgpt:ticket:";
+const AUTH_SESSION_PREFIX = "mcp:auth_session:";
 
-// Supported scopes
+// Supported granular scopes
 export const SUPPORTED_SCOPES = [
   "profile:read",
   "members:read",
   "posts:read",
-  "posts:write"
+  "posts:create",
+  "posts:write",
+  "posts:update",
+  "posts:delete",
+  "promotions:read",
+  "promotions:create",
+  "promotions:update",
+  "promotions:delete"
 ];
 
 function isRedirectUriAllowed(uri: string): boolean {
@@ -68,7 +67,6 @@ export function createOAuthRouter(): Router {
 
   /**
    * OAuth 2.1 Authorization Server Metadata (RFC 8414)
-   * ChatGPT uses this to discover endpoints.
    */
   router.get("/.well-known/oauth-authorization-server", (_req: Request, res: Response) => {
     const base = mcpConfig.publicUrl;
@@ -87,18 +85,7 @@ export function createOAuthRouter(): Router {
 
   /**
    * Authorization endpoint.
-   *
-   * ChatGPT redirects the user here with:
-   *   - response_type=code
-   *   - client_id (informational)
-   *   - redirect_uri
-   *   - scope
-   *   - state
-   *   - code_challenge (PKCE, SHA-256)
-   *   - code_challenge_method=S256
-   *
-   * The user authenticates with their Trusted Network credentials.
-   * On success, we redirect back with ?code=<authcode>&state=<state>.
+   * Renders the Login page (if unauthenticated) or Consent screen (if pre-authenticated via ticket).
    */
   router.get("/oauth/authorize", async (req: Request, res: Response) => {
     const {
@@ -107,7 +94,8 @@ export function createOAuthRouter(): Router {
       state,
       code_challenge,
       code_challenge_method,
-      scope
+      scope,
+      ticket
     } = req.query as Record<string, string>;
 
     // Validate required parameters
@@ -120,7 +108,6 @@ export function createOAuthRouter(): Router {
     if (!state) {
       return res.status(400).json({ error: "invalid_request", error_description: "state is required" });
     }
-    // If code_challenge is provided, validate S256 method
     if (code_challenge && code_challenge_method && code_challenge_method !== "S256") {
       return res.status(400).json({
         error: "invalid_request",
@@ -128,7 +115,7 @@ export function createOAuthRouter(): Router {
       });
     }
 
-    const scopes = (scope || "profile:read members:read posts:read")
+    const scopes = (scope || "profile:read members:read posts:read posts:create")
       .split(" ")
       .filter(s => SUPPORTED_SCOPES.includes(s));
 
@@ -139,85 +126,140 @@ export function createOAuthRouter(): Router {
       JSON.stringify({ codeChallenge: code_challenge || "", redirectUri: redirect_uri, scopes })
     );
 
-    // Serve the login consent page
-    // In production: redirect to a proper login UI
-    // Here we serve a minimal HTML form for member authentication
+    // Check if pre-authenticated ticket was provided by mobile app
+    let preAuthMember: { fullName?: string; mobileNumber?: string } | null = null;
+    if (ticket) {
+      try {
+        const ticketRaw = await appRedis.get(`${TICKET_PREFIX}${ticket}`);
+        if (ticketRaw) {
+          const parsed = JSON.parse(ticketRaw);
+          preAuthMember = {
+            fullName: parsed.fullName,
+            mobileNumber: parsed.mobileNumber
+          };
+          // Pre-seed auth session for this state
+          await appRedis.setex(
+            `${AUTH_SESSION_PREFIX}${state}`,
+            PKCE_TTL_SEC,
+            JSON.stringify({
+              memberId: parsed.memberId,
+              fullName: parsed.fullName,
+              mobileNumber: parsed.mobileNumber
+            })
+          );
+        }
+      } catch {
+        // Fall back to login screen
+      }
+    }
+
+    const hasPreAuth = !!preAuthMember;
+
     res.send(`
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Trusted Network — Authorize ChatGPT</title>
+  <title>Trusted Network — Connect with ChatGPT</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: #0f172a;
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 24px;
+      color: #f8fafc;
     }
     .card {
       background: #1e293b;
       border: 1px solid #334155;
       border-radius: 16px;
-      padding: 40px;
+      padding: 36px;
       width: 100%;
-      max-width: 400px;
+      max-width: 440px;
       box-shadow: 0 25px 50px -12px rgba(0,0,0,.5);
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(99, 102, 241, 0.15);
+      color: #818cf8;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-weight: 600;
+      font-size: 12px;
+      margin-bottom: 16px;
     }
     .logo {
       text-align: center;
-      margin-bottom: 28px;
+      margin-bottom: 24px;
     }
     .logo h1 {
-      color: #f8fafc;
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 700;
+      letter-spacing: -0.02em;
     }
     .logo p {
       color: #94a3b8;
       font-size: 14px;
-      margin-top: 4px;
+      margin-top: 6px;
     }
+    .user-pill {
+      background: #090d16;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      color: #cbd5e1;
+    }
+    .user-pill strong { color: #38bdf8; }
     .scope-list {
-      background: #0f172a;
-      border-radius: 8px;
+      background: #090d16;
+      border: 1px solid #334155;
+      border-radius: 10px;
       padding: 16px;
       margin-bottom: 24px;
     }
     .scope-list h3 {
       color: #94a3b8;
-      font-size: 12px;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
+      font-weight: 600;
     }
     .scope-list ul {
       list-style: none;
-      color: #e2e8f0;
-      font-size: 14px;
     }
     .scope-list ul li {
-      padding: 4px 0;
+      padding: 6px 0;
+      display: flex;
+      align-items: center;
+      font-size: 13.5px;
+      color: #e2e8f0;
     }
-    .scope-list ul li::before {
-      content: "✓ ";
-      color: #22c55e;
+    .scope-list ul li span.check {
+      color: #10b981;
+      font-weight: bold;
+      margin-right: 10px;
+      font-size: 16px;
     }
     label {
       display: block;
       color: #94a3b8;
       font-size: 13px;
       margin-bottom: 6px;
+      font-weight: 500;
     }
     input {
       width: 100%;
       padding: 12px 14px;
-      background: #0f172a;
+      background: #090d16;
       border: 1px solid #334155;
       border-radius: 8px;
       color: #f8fafc;
@@ -227,7 +269,7 @@ export function createOAuthRouter(): Router {
       transition: border-color 0.2s;
     }
     input:focus { border-color: #6366f1; }
-    button {
+    .btn-primary {
       width: 100%;
       padding: 13px;
       background: linear-gradient(135deg, #6366f1, #8b5cf6);
@@ -239,14 +281,28 @@ export function createOAuthRouter(): Router {
       cursor: pointer;
       transition: opacity 0.2s;
     }
-    button:hover { opacity: 0.9; }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-secondary {
+      width: 100%;
+      padding: 12px;
+      background: transparent;
+      color: #94a3b8;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover { background: #334155; color: #fff; }
     .error {
       background: #450a0a;
       border: 1px solid #7f1d1d;
       border-radius: 8px;
       color: #fca5a5;
       padding: 12px;
-      font-size: 14px;
+      font-size: 13.5px;
       margin-bottom: 16px;
       display: none;
     }
@@ -254,68 +310,275 @@ export function createOAuthRouter(): Router {
 </head>
 <body>
   <div class="card">
+    <div style="text-align:center;">
+      <span class="badge">Trusted Network AI Integration</span>
+    </div>
+
     <div class="logo">
-      <h1>Trusted Network</h1>
-      <p>ChatGPT wants permission to access your account</p>
+      <h1>Connect with ChatGPT</h1>
+      <p id="subheading">ChatGPT is requesting permission to access your Trusted Network account.</p>
     </div>
-    <div class="scope-list">
-      <h3>Permissions requested</h3>
-      <ul>
-        ${scopes.map(s => `<li>${scopeDescription(s)}</li>`).join("")}
-      </ul>
-    </div>
+
     <div class="error" id="error"></div>
-    <form id="login-form">
-      <input type="hidden" name="state" value="${escapeHtml(state)}">
-      <label for="identifier">Mobile Number or Email</label>
-      <input type="text" id="identifier" name="identifier" placeholder="+91 9999999999" autocomplete="username" required>
-      <label for="pin">PIN</label>
-      <input type="password" id="pin" name="pin" placeholder="Enter your 4-digit PIN" maxlength="8" autocomplete="current-password" required>
-      <button type="submit">Authorize ChatGPT</button>
-    </form>
-    <script>
-      document.getElementById('login-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const btn = e.target.querySelector('button');
-        const errEl = document.getElementById('error');
-        btn.textContent = 'Authorizing…';
-        btn.disabled = true;
-        errEl.style.display = 'none';
 
-        const fd = new FormData(e.target);
-        const payload = { identifier: fd.get('identifier'), pin: fd.get('pin'), state: fd.get('state') };
+    <!-- Screen 1: Login Form (Shown when unauthenticated) -->
+    <div id="login-screen" style="display: ${hasPreAuth ? "none" : "block"};">
+      <form id="login-form">
+        <label for="identifier">Mobile Number</label>
+        <input type="text" id="identifier" name="identifier" placeholder="e.g. 9876543210" autocomplete="tel" required>
 
-        try {
-          const res = await fetch('/oauth/authorize', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          const data = await res.json();
-          if (data.redirect) {
-            window.location.href = data.redirect;
-          } else {
-            errEl.textContent = data.error_description || 'Authentication failed. Please try again.';
-            errEl.style.display = 'block';
-            btn.textContent = 'Authorize ChatGPT';
-            btn.disabled = false;
-          }
-        } catch {
-          errEl.textContent = 'Network error. Please try again.';
-          errEl.style.display = 'block';
-          btn.textContent = 'Authorize ChatGPT';
+        <label for="pin">PIN</label>
+        <input type="password" id="pin" name="pin" placeholder="Enter your 4-digit PIN" maxlength="8" autocomplete="current-password" required>
+
+        <button type="submit" class="btn-primary" id="loginBtn">Continue</button>
+      </form>
+    </div>
+
+    <!-- Screen 2: Consent Form (Shown when authenticated) -->
+    <div id="consent-screen" style="display: ${hasPreAuth ? "block" : "none"};">
+      <div class="user-pill" id="userPill">
+        Connected as: <strong id="userName">${escapeHtml(preAuthMember?.fullName || "Member")}</strong>
+        <span id="userMobile" style="display:block; font-size:12px; color:#94a3b8; margin-top:2px;">
+          ${escapeHtml(preAuthMember?.mobileNumber ? `+91 ${preAuthMember.mobileNumber}` : "")}
+        </span>
+      </div>
+
+      <div class="scope-list">
+        <h3>Permissions requested</h3>
+        <ul>
+          ${scopes.map(s => `<li><span class="check">✓</span> ${escapeHtml(scopeDescription(s))}</li>`).join("")}
+        </ul>
+      </div>
+
+      <button type="button" class="btn-primary" id="allowBtn">Allow Access</button>
+      <button type="button" class="btn-secondary" id="denyBtn">Cancel</button>
+    </div>
+  </div>
+
+  <script>
+    const state = "${escapeHtml(state)}";
+    const redirectUri = "${escapeHtml(redirect_uri)}";
+    const errEl = document.getElementById('error');
+
+    function showError(msg) {
+      errEl.textContent = msg;
+      errEl.style.display = 'block';
+    }
+
+    // Step 1: Login Form Submission
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('loginBtn');
+      btn.textContent = 'Verifying...';
+      btn.disabled = true;
+      errEl.style.display = 'none';
+
+      const fd = new FormData(e.target);
+      const payload = {
+        identifier: fd.get('identifier'),
+        pin: fd.get('pin'),
+        state: state
+      };
+
+      try {
+        const res = await fetch('/oauth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          // Transition to Consent Screen
+          document.getElementById('userName').textContent = data.member.fullName;
+          document.getElementById('userMobile').textContent = '+91 ' + data.member.mobileNumber;
+          document.getElementById('login-screen').style.display = 'none';
+          document.getElementById('consent-screen').style.display = 'block';
+        } else {
+          showError(data.error_description || 'Invalid mobile number or PIN.');
+          btn.textContent = 'Continue';
           btn.disabled = false;
         }
-      });
-    </script>
-  </div>
+      } catch (err) {
+        showError('Network error connecting to Trusted Network.');
+        btn.textContent = 'Continue';
+        btn.disabled = false;
+      }
+    });
+
+    // Step 2: Consent - Allow
+    document.getElementById('allowBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('allowBtn');
+      btn.textContent = 'Connecting...';
+      btn.disabled = true;
+      errEl.style.display = 'none';
+
+      try {
+        const res = await fetch('/oauth/consent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state, action: 'allow' })
+        });
+        const data = await res.json();
+        if (data.redirect) {
+          window.location.href = data.redirect;
+        } else {
+          showError(data.error_description || 'Authorization failed.');
+          btn.textContent = 'Allow Access';
+          btn.disabled = false;
+        }
+      } catch (err) {
+        showError('Failed to complete authorization.');
+        btn.textContent = 'Allow Access';
+        btn.disabled = false;
+      }
+    });
+
+    // Step 2: Consent - Deny
+    document.getElementById('denyBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('denyBtn');
+      btn.textContent = 'Cancelling...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/oauth/consent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state, action: 'deny' })
+        });
+        const data = await res.json();
+        if (data.redirect) {
+          window.location.href = data.redirect;
+        } else {
+          window.location.href = redirectUri + '?error=access_denied&error_description=User%20denied%20consent&state=' + encodeURIComponent(state);
+        }
+      } catch {
+        window.location.href = redirectUri + '?error=access_denied&error_description=User%20denied%20consent&state=' + encodeURIComponent(state);
+      }
+    });
+  </script>
 </body>
 </html>
     `);
   });
 
   /**
-   * Authorization form submission — verifies credentials and issues auth code.
+   * Step 1: Member Login (verifies credentials against mobile API login-pin).
+   */
+  router.post("/oauth/login", async (req: Request, res: Response) => {
+    const { identifier, pin, state } = req.body as Record<string, string>;
+
+    if (!state || !identifier || !pin) {
+      return res.status(400).json({ success: false, error: "invalid_request", error_description: "Missing required fields" });
+    }
+
+    const pkceRaw = await appRedis.get(`${PKCE_PREFIX}${state}`);
+    if (!pkceRaw) {
+      return res.status(400).json({ success: false, error: "invalid_request", error_description: "Session expired. Please restart." });
+    }
+
+    try {
+      const response = await axios.post(
+        `${mcpConfig.apiUrl}/mobile-api/auth/login-pin`,
+        { identifier: identifier.trim(), pin }
+      );
+
+      const loginData = response.data;
+      const member = loginData?.data;
+      const memberId = member?._id || member?.member?._id;
+      if (!loginData?.success || !memberId) {
+        throw new Error("Invalid credentials");
+      }
+
+      // Store authenticated session for this state
+      await appRedis.setex(
+        `${AUTH_SESSION_PREFIX}${state}`,
+        PKCE_TTL_SEC,
+        JSON.stringify({
+          memberId: memberId.toString(),
+          fullName: member.fullName,
+          mobileNumber: member.mobileNumber
+        })
+      );
+
+      logger.info(JSON.stringify({
+        event: "CHATGPT_OAUTH_LOGIN",
+        userId: memberId.toString(),
+        timestamp: new Date().toISOString()
+      }), CTX);
+
+      return res.json({
+        success: true,
+        member: {
+          fullName: member.fullName,
+          mobileNumber: member.mobileNumber
+        }
+      });
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || "Invalid mobile number or PIN";
+      return res.json({
+        success: false,
+        error: "access_denied",
+        error_description: msg
+      });
+    }
+  });
+
+  /**
+   * Step 2: Consent Submission (Allow or Deny).
+   */
+  router.post("/oauth/consent", async (req: Request, res: Response) => {
+    const { state, action } = req.body as { state?: string; action?: "allow" | "deny" };
+
+    if (!state || !action) {
+      return res.status(400).json({ error: "invalid_request", error_description: "state and action are required" });
+    }
+
+    const pkceRaw = await appRedis.get(`${PKCE_PREFIX}${state}`);
+    if (!pkceRaw) {
+      return res.status(400).json({ error: "invalid_request", error_description: "Session expired. Please restart." });
+    }
+    const { codeChallenge, redirectUri, scopes } = JSON.parse(pkceRaw);
+
+    if (action === "deny") {
+      await appRedis.del(`${PKCE_PREFIX}${state}`);
+      await appRedis.del(`${AUTH_SESSION_PREFIX}${state}`);
+
+      logger.info(JSON.stringify({
+        event: "CHATGPT_OAUTH_CONSENT_DENIED",
+        timestamp: new Date().toISOString()
+      }), CTX);
+
+      const redirectUrl = `${redirectUri}?error=access_denied&error_description=User%20denied%20consent&state=${encodeURIComponent(state)}`;
+      return res.json({ redirect: redirectUrl });
+    }
+
+    // Action === "allow"
+    const sessionRaw = await appRedis.get(`${AUTH_SESSION_PREFIX}${state}`);
+    if (!sessionRaw) {
+      return res.status(400).json({ error: "invalid_request", error_description: "Authentication session expired. Please log in again." });
+    }
+    const session = JSON.parse(sessionRaw);
+
+    // Issue authorization code
+    const code = await issueAuthCode(session.memberId, scopes, redirectUri, codeChallenge);
+
+    // Cleanup temporary sessions
+    await appRedis.del(`${PKCE_PREFIX}${state}`);
+    await appRedis.del(`${AUTH_SESSION_PREFIX}${state}`);
+
+    logger.info(JSON.stringify({
+      event: "CHATGPT_OAUTH_CONSENT_GRANTED",
+      userId: session.memberId,
+      scopes,
+      timestamp: new Date().toISOString()
+    }), CTX);
+
+    const redirectUrl = `${redirectUri}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+    return res.json({ redirect: redirectUrl });
+  });
+
+  /**
+   * Direct authorization form submission (backwards compatibility).
    */
   router.post("/oauth/authorize", async (req: Request, res: Response) => {
     const { identifier, pin, state } = req.body as Record<string, string>;
@@ -324,14 +587,12 @@ export function createOAuthRouter(): Router {
       return res.json({ error: "invalid_request", error_description: "Missing required fields" });
     }
 
-    // Retrieve PKCE session
     const pkceRaw = await appRedis.get(`${PKCE_PREFIX}${state}`);
     if (!pkceRaw) {
-      return res.json({ error: "invalid_request", error_description: "Session expired. Please restart the authorization." });
+      return res.json({ error: "invalid_request", error_description: "Session expired. Please restart." });
     }
     const { codeChallenge, redirectUri, scopes } = JSON.parse(pkceRaw);
 
-    // Authenticate member via existing Trusted Network login endpoint
     let memberId: string;
     try {
       const response = await axios.post(
@@ -339,7 +600,6 @@ export function createOAuthRouter(): Router {
         { identifier: identifier.trim(), pin }
       );
 
-      // The login-pin response structure: { success: true, accessToken, data: { _id, fullName, mobileNumber, email } }
       const loginData = response.data;
       const memberIdCandidate = loginData?.data?._id || loginData?.data?.member?._id;
       if (!loginData?.success || !memberIdCandidate) {
@@ -348,125 +608,24 @@ export function createOAuthRouter(): Router {
       memberId = memberIdCandidate.toString();
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || "Invalid credentials";
-      logger.warn(`MCP OAuth login failed for identifier ${identifier}: ${msg}`, CTX, {
-        code: err?.code,
-        status: err?.response?.status,
-        url: `${mcpConfig.apiUrl}/mobile-api/auth/login-pin`
-      });
       return res.json({
         error: "access_denied",
         error_description: msg
       });
     }
 
-    // Issue authorization code (storing codeChallenge for PKCE verification)
     const code = await issueAuthCode(memberId, scopes, redirectUri, codeChallenge);
-
-    // Delete PKCE session (single-use)
     await appRedis.del(`${PKCE_PREFIX}${state}`);
 
+    logger.info(JSON.stringify({
+      event: "CHATGPT_OAUTH_CONSENT_GRANTED",
+      userId: memberId,
+      scopes,
+      timestamp: new Date().toISOString()
+    }), CTX);
+
     const redirectUrl = `${redirectUri}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
-    logger.info(`MCP auth code issued for member ${memberId}`, CTX);
-
     return res.json({ redirect: redirectUrl });
-  });
-
-  /**
-   * Local testing callback page.
-   * When testing locally in a browser, redirect_uri can point here to inspect the issued code.
-   */
-  router.get("/oauth/callback", (req: Request, res: Response) => {
-    const { code, state, error, error_description } = req.query as Record<string, string>;
-
-    if (error) {
-      return res.status(400).send(`
-        <!DOCTYPE html>
-        <html>
-        <head><title>OAuth Error</title><style>body{font-family:sans-serif;padding:40px;background:#f8f9fa;color:#333} .box{background:#fff;padding:24px;border-radius:8px;max-width:600px;margin:auto;border-left:4px solid #dc3545;box-shadow:0 2px 10px rgba(0,0,0,0.08)}</style></head>
-        <body>
-          <div class="box">
-            <h2 style="color:#dc3545;margin-top:0">OAuth Error</h2>
-            <p><strong>Error:</strong> ${error}</p>
-            <p><strong>Description:</strong> ${error_description || "Unknown error"}</p>
-          </div>
-        </body>
-        </html>
-      `);
-    }
-
-    return res.send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>OAuth Authorization Successful</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 40px 20px; margin: 0; }
-          .card { max-width: 680px; margin: auto; background: #1e293b; border-radius: 12px; padding: 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border: 1px solid #334155; }
-          .badge { display: inline-block; background: #10b981; color: #fff; padding: 4px 12px; border-radius: 9999px; font-weight: 600; font-size: 13px; margin-bottom: 16px; }
-          h1 { margin: 0 0 12px 0; font-size: 24px; font-weight: 700; color: #fff; }
-          p { color: #94a3b8; line-height: 1.6; margin: 0 0 20px 0; font-size: 14px; }
-          .field-label { font-size: 12px; text-transform: uppercase; font-weight: 600; color: #64748b; margin-bottom: 6px; }
-          .code-box { background: #090d16; border: 1px solid #334155; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 13px; color: #38bdf8; word-break: break-all; margin-bottom: 20px; }
-          button { background: #3b82f6; color: #fff; border: none; padding: 10px 18px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; transition: background 0.2s; }
-          button:hover { background: #2563eb; }
-          #result { margin-top: 20px; padding: 16px; background: #090d16; border-radius: 8px; border: 1px solid #334155; font-family: monospace; font-size: 13px; color: #4ade80; white-space: pre-wrap; display: none; }
-        </style>
-      </head>
-      <body>
-        <div class="card">
-          <span class="badge">Success</span>
-          <h1>Authorization Code Issued!</h1>
-          <p>The member has authenticated successfully. In production, ChatGPT automatically receives this code and completes the token exchange.</p>
-
-          <div class="field-label">Authorization Code:</div>
-          <div class="code-box" id="authCode">${code || ""}</div>
-
-          <div class="field-label">State:</div>
-          <div class="code-box">${state || ""}</div>
-
-          <button id="exchangeBtn" onclick="exchangeToken()">Exchange for Bearer Token</button>
-          <div id="result"></div>
-        </div>
-
-        <script>
-          async function exchangeToken() {
-            const btn = document.getElementById('exchangeBtn');
-            const resEl = document.getElementById('result');
-            btn.disabled = true;
-            btn.textContent = 'Exchanging...';
-            try {
-              const res = await fetch('/oauth/token', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  grant_type: 'authorization_code',
-                  code: '${code || ""}',
-                  redirect_uri: window.location.origin + window.location.pathname,
-                  code_verifier: 'test_code_verifier_123456789012345678901234567890'
-                })
-              });
-              const data = await res.json();
-              resEl.style.display = 'block';
-              resEl.textContent = JSON.stringify(data, null, 2);
-              if (data.access_token) {
-                resEl.style.borderColor = '#10b981';
-              } else {
-                resEl.style.borderColor = '#ef4444';
-                resEl.style.color = '#ef4444';
-              }
-              btn.textContent = 'Exchange Complete';
-            } catch (err) {
-              resEl.style.display = 'block';
-              resEl.textContent = 'Error: ' + err.message;
-              btn.disabled = false;
-              btn.textContent = 'Exchange for Bearer Token';
-            }
-          }
-        </script>
-      </body>
-      </html>
-    `);
   });
 
   /**
@@ -495,7 +654,7 @@ export function createOAuthRouter(): Router {
         return res.status(400).json({ error: "invalid_grant", error_description: err.message });
       }
 
-      // PKCE verification: base64url(SHA256(code_verifier)) must equal stored code_challenge
+      // PKCE verification only if code_challenge was provided during authorize
       if (expectedChallenge) {
         if (!code_verifier) {
           return res.status(400).json({
@@ -519,6 +678,13 @@ export function createOAuthRouter(): Router {
 
       const { accessToken, refreshToken, expiresIn } = await issueMcpTokens(memberId, scopes);
 
+      logger.info(JSON.stringify({
+        event: "CHATGPT_OAUTH_TOKEN_ISSUED",
+        userId: memberId,
+        scopes,
+        timestamp: new Date().toISOString()
+      }), CTX);
+
       return res.json({
         access_token: accessToken,
         refresh_token: refreshToken,
@@ -534,6 +700,12 @@ export function createOAuthRouter(): Router {
       }
       try {
         const tokens = await refreshMcpTokens(refresh_token);
+
+        logger.info(JSON.stringify({
+          event: "CHATGPT_OAUTH_TOKEN_REFRESHED",
+          timestamp: new Date().toISOString()
+        }), CTX);
+
         return res.json({
           access_token: tokens.accessToken,
           refresh_token: tokens.refreshToken,
@@ -555,9 +727,67 @@ export function createOAuthRouter(): Router {
     const { token } = req.body as { token?: string };
     if (token) {
       await revokeMcpToken(token);
+      logger.info(JSON.stringify({
+        event: "CHATGPT_OAUTH_TOKEN_REVOKED",
+        timestamp: new Date().toISOString()
+      }), CTX);
     }
-    // RFC 7009: always return 200 regardless of whether token was valid
     res.status(200).json({ success: true });
+  });
+
+  /**
+   * Return / Callback success screen.
+   */
+  router.get("/oauth/callback", (req: Request, res: Response) => {
+    const { error, error_description } = req.query as Record<string, string>;
+
+    if (error) {
+      return res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>Connection Cancelled</title><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:40px;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;} .box{background:#1e293b;padding:32px;border-radius:12px;max-width:480px;border-left:4px solid #ef4444;box-shadow:0 10px 30px rgba(0,0,0,0.5);}</style></head>
+        <body>
+          <div class="box">
+            <h2 style="color:#f87171;margin-top:0">Connection Not Completed</h2>
+            <p style="color:#94a3b8;line-height:1.6;">${escapeHtml(error_description || "Authorization was cancelled.")}</p>
+            <p style="margin-top:20px;"><a href="javascript:window.close();" style="color:#38bdf8;text-decoration:none;font-weight:600;">Close this window</a></p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Trusted Network Connected</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 40px 20px; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+          .card { max-width: 520px; width: 100%; background: #1e293b; border-radius: 16px; padding: 36px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); border: 1px solid #334155; text-align: center; }
+          .badge { display: inline-block; background: #065f46; color: #34d399; padding: 6px 16px; border-radius: 9999px; font-weight: 600; font-size: 13px; margin-bottom: 20px; }
+          h1 { margin: 0 0 12px 0; font-size: 24px; font-weight: 700; color: #fff; }
+          p { color: #94a3b8; line-height: 1.6; margin: 0 0 28px 0; font-size: 14.5px; }
+          .btn-container { display: flex; flex-direction: column; gap: 12px; }
+          a.btn-main { display: block; background: linear-gradient(135deg, #10b981, #059669); color: #fff; text-decoration: none; padding: 13px; border-radius: 8px; font-weight: 600; font-size: 15px; }
+          a.btn-sub { display: block; background: #090d16; border: 1px solid #334155; color: #cbd5e1; text-decoration: none; padding: 12px; border-radius: 8px; font-weight: 500; font-size: 14px; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <span class="badge">✓ Connected Successfully</span>
+          <h1>Trusted Network is Linked to ChatGPT</h1>
+          <p>Your member account has been securely authorized. You can now use conversational ChatGPT to view profile insights, search members, and publish posts.</p>
+
+          <div class="btn-container">
+            <a href="https://chatgpt.com" class="btn-main">Open ChatGPT</a>
+            <a href="trustednetwork://chatgpt/connected" class="btn-sub">Return to Trusted Network App</a>
+          </div>
+        </div>
+      </body>
+      </html>
+    `);
   });
 
   return router;
@@ -565,16 +795,24 @@ export function createOAuthRouter(): Router {
 
 function scopeDescription(scope: string): string {
   const descriptions: Record<string, string> = {
-    "profile:read": "Read your Trusted Network profile",
-    "members:read": "Search and view member directory",
-    "posts:read": "View your posts",
-    "posts:write": "Create, edit, and delete your posts"
+    "profile:read": "View your profile and membership details",
+    "members:read": "Search verified business directory and nearby members",
+    "posts:read": "View your posts and promotions",
+    "posts:create": "Create business posts on your behalf",
+    "posts:write": "Create and edit posts on your behalf",
+    "posts:update": "Edit your existing posts",
+    "posts:delete": "Delete your posts (explicit approval required)",
+    "promotions:read": "View your promotions and offers",
+    "promotions:create": "Create business promotions on your behalf",
+    "promotions:update": "Update your business promotions",
+    "promotions:delete": "Remove business promotions"
   };
-  return descriptions[scope] || scope;
+  return descriptions[scope] || `Access ${scope}`;
 }
 
 function escapeHtml(str: string): string {
-  return str
+  if (!str) return "";
+  return String(str)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
