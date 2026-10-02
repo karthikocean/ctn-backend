@@ -56,7 +56,18 @@ export class ChatGptOAuthService {
     }
 
     const clientId = options.clientId || "chatgpt-mcp";
-    const redirectUri = options.redirectUri || "https://chatgpt.com/aip/oauth/callback";
+    const mcpPublicUrl = process.env.MCP_PUBLIC_URL || "https://mcp.trustednetwork.in";
+
+    let redirectUri = options.redirectUri;
+    if (!redirectUri) {
+      if (process.env.CHATGPT_OAUTH_REDIRECT_URI) {
+        redirectUri = process.env.CHATGPT_OAUTH_REDIRECT_URI;
+      } else if (process.env.CHATGPT_GPT_ID) {
+        redirectUri = `https://chatgpt.com/aip/${process.env.CHATGPT_GPT_ID}/oauth/callback`;
+      } else {
+        redirectUri = `${mcpPublicUrl}/oauth/callback`;
+      }
+    }
     const scopes = options.scopes && options.scopes.length > 0
       ? options.scopes
       : ["profile:read", "members:read", "posts:read", "posts:create"];

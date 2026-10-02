@@ -33,7 +33,14 @@ export class MobileChatGptController {
   async connect(@Req() req: any, @Res() res: any) {
     try {
       const memberId = req.user.userId || req.user.id;
-      const url = await chatgptOAuthService.generateConnectionUrl(memberId);
+      const redirectUri = (req.query?.redirect_uri as string) || undefined;
+      const gptId = (req.query?.gpt_id as string) || undefined;
+      const clientId = (req.query?.client_id as string) || undefined;
+
+      const url = await chatgptOAuthService.generateConnectionUrl(memberId, {
+        clientId,
+        redirectUri: redirectUri || (gptId ? `https://chatgpt.com/aip/${gptId}/oauth/callback` : undefined)
+      });
 
       return res.status(StatusCodes.OK).json({
         success: true,
