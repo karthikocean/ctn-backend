@@ -36,12 +36,11 @@ export interface RegisteredClient {
  */
 export const CHATGPT_REDIRECT_PATTERNS: RegExp[] = [
   // Official ChatGPT platform redirect (RFC 9207 compliant)
-  /^https:\/\/chatgpt\.com\/connector_platform_oauth_redirect(?:\?.*)?$/,
+  /^https:\/\/(?:chatgpt\.com|chat\.openai\.com)\/connector_platform_oauth_redirect(?:\?.*)?$/,
   // Connector callback with callback ID
-  /^https:\/\/chatgpt\.com\/connector\/oauth\/[a-zA-Z0-9_\-]+(?:\?.*)?$/,
-  /^https:\/\/chat\.openai\.com\/connector\/oauth\/[a-zA-Z0-9_\-]+(?:\?.*)?$/,
-  // Custom GPT AIP callback
-  /^https:\/\/chatgpt\.com\/aip\/[a-zA-Z0-9_\-]+\/oauth\/callback(?:\?.*)?$/,
+  /^https:\/\/(?:chatgpt\.com|chat\.openai\.com)\/connector\/oauth\/[a-zA-Z0-9_\-\/]+(?:\?.*)?$/,
+  // Custom GPT AIP callback (supports both chatgpt.com and chat.openai.com with single or nested versions)
+  /^https:\/\/(?:chatgpt\.com|chat\.openai\.com)\/aip\/[a-zA-Z0-9_\-\/]+\/oauth\/callback(?:\?.*)?$/,
   // Local development redirect URIs (allowed in non-production only)
   ...(process.env.NODE_ENV !== "production"
     ? [/^http:\/\/localhost(?::\d+)?(?:\/.*)?$/, /^http:\/\/127\.0\.0\.1(?::\d+)?(?:\/.*)?$/]
