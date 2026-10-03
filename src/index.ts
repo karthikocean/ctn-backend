@@ -40,6 +40,7 @@ import { setupBullBoard } from "./admin/bullboard.config";
 import { registerGracefulShutdown } from "./utils/gracefulShutdown";
 import { adminApiLimiter, apiLimiter, authLimiter, mobileApiLimiter, otpLimiter, passwordResetLimiter, paymentLimiter, uploadLimiter } from "./middlewares/rateLimit.middleware";
 import { requestLoggerMiddleware } from "./middlewares/requestLogger.middleware";
+import { createOAuthRouter } from "./mcp/auth/oauth";
 
 // ─────────────────────────────────────────────────────────
 // 🚀 STEP 1: Create app & HTTP server IMMEDIATELY
@@ -177,6 +178,10 @@ app.use("/mobile-api/auth/login-pin", withDedicatedLimiter(authLimiter));
 app.use("/mobile-api/auth/login", withDedicatedLimiter(authLimiter));
 app.use("/mobile-api/auth/reset-pin", withDedicatedLimiter(passwordResetLimiter));
 
+// OAuth 2.1 Endpoint Limiters (brute force protection)
+app.use("/oauth/login", withDedicatedLimiter(authLimiter));
+app.use("/oauth/token", withDedicatedLimiter(authLimiter));
+
 // File Upload & Import Limiters
 app.use("/mobile-api/media/upload", withDedicatedLimiter(uploadLimiter));
 app.use("/api/admin/media/upload", withDedicatedLimiter(uploadLimiter));
@@ -302,6 +307,9 @@ AppDataSource.initialize()
       validation: true,
       classTransformer: true
     });
+
+    // ✅ OAuth 2.1 Authorization Server routes (ChatGPT MCP integration)
+    app.use("/", createOAuthRouter());
 
     // Global error handler
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

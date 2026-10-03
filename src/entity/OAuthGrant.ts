@@ -43,6 +43,12 @@ export class OAuthGrant {
   @Column({ nullable: true })
     revokedAt?: Date;
 
+  @Column({ default: "https://mcp.trustednetwork.in" })
+    resource!: string;
+
+  @Column({ nullable: true })
+    lastUsedAt?: Date;
+
   @Column()
     expiresAt!: Date;
 
