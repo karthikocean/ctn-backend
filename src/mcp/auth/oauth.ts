@@ -103,16 +103,19 @@ export function createOAuthRouter(): Router {
   });
 
   /**
-   * OpenAI Domain Verification Challenge Endpoint (Section 57)
+   * OpenAI Domain Verification Challenge Endpoint
    * GET /.well-known/openai-apps-challenge
-   * Returns ONLY the configured token as plain text. No JSON, no HTML, no extra whitespace.
+   * Returns ONLY the configured verification token as plain text.
+   * No JSON, no HTML, no quotes, no extra whitespace.
    */
   router.get("/.well-known/openai-apps-challenge", (_req: Request, res: Response) => {
     const token = process.env.OPENAI_APPS_CHALLENGE_TOKEN;
     if (!token || !token.trim()) {
-      return res.status(404).send("Not Found");
+      logger.error("OPENAI_APPS_CHALLENGE_TOKEN environment variable is missing or empty. OpenAI domain verification cannot succeed.", CTX);
+      res.setHeader("Content-Type", "text/plain");
+      return res.status(500).send("OpenAI domain verification token is not configured on this server");
     }
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Content-Type", "text/plain");
     return res.status(200).send(token.trim());
   });
 
