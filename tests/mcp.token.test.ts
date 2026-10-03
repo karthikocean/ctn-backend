@@ -91,7 +91,11 @@ describe("MCP Token Management", () => {
       expect(expiresIn).toBe(3600);
 
       // Verify access token structure
-      const decoded = jwt.verify(accessToken, MCP_OAUTH_TOKEN_SECRET) as any;
+      const decodedHeader = jwt.decode(accessToken, { complete: true }) as any;
+      const verifyKey = decodedHeader?.header?.alg === "RS256"
+        ? require("../src/mcp/auth/keys").getPublicKey()
+        : MCP_OAUTH_TOKEN_SECRET;
+      const decoded = jwt.verify(accessToken, verifyKey) as any;
       expect(decoded.memberId).toBe(MEMBER_ID);
       expect(decoded.type).toBe("access");
       expect(decoded.scopes).toEqual(["profile:read"]);
@@ -247,7 +251,11 @@ describe("MCP Token Management", () => {
       expect(redisMock.del).toHaveBeenCalledWith("mcp:access:old-access-jti");
 
       // New tokens properly signed for the same member
-      const decoded = jwt.verify(newAccess, MCP_OAUTH_TOKEN_SECRET) as any;
+      const decodedNewHeader = jwt.decode(newAccess, { complete: true }) as any;
+      const verifyNewKey = decodedNewHeader?.header?.alg === "RS256"
+        ? require("../src/mcp/auth/keys").getPublicKey()
+        : MCP_OAUTH_TOKEN_SECRET;
+      const decoded = jwt.verify(newAccess, verifyNewKey) as any;
       expect(decoded.memberId).toBe(MEMBER_ID);
     });
 

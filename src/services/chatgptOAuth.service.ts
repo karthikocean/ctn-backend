@@ -57,7 +57,11 @@ export class ChatGptOAuthService {
     }
 
     const mcpPublicUrl = mcpConfig.publicUrl.replace(/\/+$/, "");
-    const appListingUrl = process.env.CHATGPT_APP_LISTING_URL || undefined;
+    const appListingUrl =
+      process.env.CHATGPT_PUBLIC_LISTING_URL ||
+      process.env.CHATGPT_CONNECTION_URL ||
+      process.env.CHATGPT_APP_LISTING_URL ||
+      undefined;
 
     return {
       title: "Connect with ChatGPT",

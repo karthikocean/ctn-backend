@@ -19,7 +19,9 @@ export function registerProfileTools(server: McpServer, getMemberId: () => strin
     "Get your own Trusted Network profile including business details, subscription status, connection counts, and contribution summary. Identity is securely bound to your authenticated CTN account.",
     {},
     {
-      readOnlyHint: true
+      readOnlyHint: true,
+      openWorldHint: false,
+      destructiveHint: false
     },
     async () => {
       const memberId = getMemberId();

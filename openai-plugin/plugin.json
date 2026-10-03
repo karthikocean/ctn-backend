@@ -1,0 +1,21 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Trusted",
+  "name_for_model": "trusted",
+  "description_for_human": "Business networking with Trusted",
+  "description_for_model": "Use Trusted through ChatGPT to manage your professional network, discover verified business members, view your Trusted activity, and create posts on your behalf.",
+  "auth": {
+    "type": "oauth",
+    "client_url": "https://api.trustednetwork.in/oauth/authorize",
+    "scope": "profile:read members:read posts:read posts:create",
+    "authorization_url": "https://api.trustednetwork.in/oauth/token",
+    "authorization_content_type": "application/x-www-form-urlencoded"
+  },
+  "api": {
+    "type": "mcp",
+    "url": "https://mcp.trustednetwork.in/mcp"
+  },
+  "logo_url": "https://api.trustednetwork.in/assets/logo.png",
+  "contact_email": "support@trustednetwork.in",
+  "legal_info_url": "https://trustednetwork.in/privacy"
+}

@@ -31,7 +31,9 @@ export function registerPromotionTools(server: McpServer, getMemberId: () => str
       limit: z.number().int().min(1).max(50).optional().default(10).describe("Promotions per page (max 50)")
     },
     {
-      readOnlyHint: true
+      readOnlyHint: true,
+      openWorldHint: false,
+      destructiveHint: false
     },
     async ({ page, limit }) => {
       const memberId = getMemberId();
@@ -69,6 +71,7 @@ export function registerPromotionTools(server: McpServer, getMemberId: () => str
     },
     {
       readOnlyHint: false,
+      openWorldHint: false,
       destructiveHint: false
     },
     async ({ title, description, location, period }) => {
@@ -133,6 +136,7 @@ export function registerPromotionTools(server: McpServer, getMemberId: () => str
     },
     {
       readOnlyHint: false,
+      openWorldHint: false,
       destructiveHint: false
     },
     async ({ draftId, confirm }) => {
@@ -206,6 +210,7 @@ export function registerPromotionTools(server: McpServer, getMemberId: () => str
     },
     {
       readOnlyHint: false,
+      openWorldHint: false,
       destructiveHint: false
     },
     async ({ promotionId, title, description, location, period }) => {
@@ -258,6 +263,7 @@ export function registerPromotionTools(server: McpServer, getMemberId: () => str
     },
     {
       readOnlyHint: false,
+      openWorldHint: false,
       destructiveHint: true
     },
     async ({ promotionId, confirm }) => {
