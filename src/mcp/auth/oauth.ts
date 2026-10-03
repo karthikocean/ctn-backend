@@ -103,6 +103,20 @@ export function createOAuthRouter(): Router {
   });
 
   /**
+   * OpenAI Domain Verification Challenge Endpoint (Section 57)
+   * GET /.well-known/openai-apps-challenge
+   * Returns ONLY the configured token as plain text. No JSON, no HTML, no extra whitespace.
+   */
+  router.get("/.well-known/openai-apps-challenge", (_req: Request, res: Response) => {
+    const token = process.env.OPENAI_APPS_CHALLENGE_TOKEN;
+    if (!token || !token.trim()) {
+      return res.status(404).send("Not Found");
+    }
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    return res.status(200).send(token.trim());
+  });
+
+  /**
    * 4. Dynamic Client Registration (Step 5)
    * POST /oauth/register
    */

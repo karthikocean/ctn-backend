@@ -53,7 +53,9 @@ export function registerPostTools(server: McpServer, getMemberId: () => string):
       limit: z.number().int().min(1).max(50).optional().default(10).describe("Posts per page (max 50)")
     },
     {
-      readOnlyHint: true
+      readOnlyHint: true,
+      openWorldHint: false,
+      destructiveHint: false
     },
     async ({ type, page, limit }) => {
       const memberId = getMemberId();
@@ -89,7 +91,9 @@ export function registerPostTools(server: McpServer, getMemberId: () => string):
       postId: z.string().min(24).max(24).describe("The 24-character MongoDB ObjectId of the post")
     },
     {
-      readOnlyHint: true
+      readOnlyHint: true,
+      openWorldHint: false,
+      destructiveHint: false
     },
     async ({ postId }) => {
       const memberId = getMemberId();
@@ -139,16 +143,42 @@ Post types:
       requirementVisibility: z.preprocess(
         (val) => normalizeVisibility(val),
         z.enum(REQUIREMENT_VISIBILITY).optional()
-      ).describe("Required when type=REQUIREMENT. OVERALL=visible to all, REGION=visible to members in your region, MUTUAL-FRIEND=visible only to mutual connections")
+      ).describe("Required when type=REQUIREMENT. OVERALL=visible to all, REGION=visible to members in your region, MUTUAL-FRIEND=visible only to mutual connections"),
+      idempotencyKey: z.string().max(128).optional().describe("Optional unique idempotency key to prevent duplicate post creation on retries")
     },
     {
       readOnlyHint: false,
+      openWorldHint: true,
       destructiveHint: false
     },
-    async ({ type, title, description, location, period, requirementVisibility }) => {
+    async ({ type, title, description, location, period, requirementVisibility, idempotencyKey }) => {
       const memberId = getMemberId();
       const timer = startTimer();
-      const paramKeys = ["type", "title", "description", location && "location", period && "period", requirementVisibility && "requirementVisibility"].filter(Boolean) as string[];
+      const paramKeys = ["type", "title", "description", location && "location", period && "period", requirementVisibility && "requirementVisibility", idempotencyKey && "idempotencyKey"].filter(Boolean) as string[];
+
+      // Check idempotency cache if key provided
+      if (idempotencyKey) {
+        try {
+          const cached = await require("../../config/appRedis").appRedis.get(`mcp:idemp:post:${memberId}:${idempotencyKey}`);
+          if (cached) {
+            auditToolCall({ tool: "create_post", memberId, paramKeys, outcome: "success", durationMs: timer() });
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({
+                    success: true,
+                    message: "Post already created (idempotent cached response).",
+                    data: JSON.parse(cached)
+                  }, null, 2)
+                }
+              ]
+            };
+          }
+        } catch {
+          // Redis cache error is non-fatal
+        }
+      }
 
       // Validate requirementVisibility requirement
       if (type === "REQUIREMENT" && !requirementVisibility) {
@@ -166,6 +196,18 @@ Post types:
           period,
           requirementVisibility
         });
+
+        if (idempotencyKey && post) {
+          try {
+            await require("../../config/appRedis").appRedis.setex(
+              `mcp:idemp:post:${memberId}:${idempotencyKey}`,
+              86400,
+              JSON.stringify(post)
+            );
+          } catch {
+            // Non-fatal
+          }
+        }
 
         auditToolCall({ tool: "create_post", memberId, paramKeys, outcome: "success", durationMs: timer() });
 
@@ -206,6 +248,7 @@ Post types:
     },
     {
       readOnlyHint: false,
+      openWorldHint: false,
       destructiveHint: false
     },
     async ({ postId, title, description, location, period, requirementVisibility }) => {
@@ -261,6 +304,7 @@ Post types:
     },
     {
       readOnlyHint: false,
+      openWorldHint: false,
       destructiveHint: true
     },
     async ({ postId, confirm }) => {

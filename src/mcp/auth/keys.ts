@@ -167,3 +167,8 @@ export function verifyOAuthJwt<T = any>(token: string, options: jwt.VerifyOption
     ...options
   }) as T;
 }
+
+export function getPublicKey(): string {
+  return getKeyPair().publicKeyPem;
+}
+
