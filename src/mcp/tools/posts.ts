@@ -2,22 +2,14 @@
  * MCP Post tools.
  *
  * Tools:
- *   - get_my_posts    → GET /mobile-api/posts/my-posts
- *   - get_post        → GET /mobile-api/posts/:id
- *   - create_post     → POST /mobile-api/posts/
- *   - edit_post       → PUT /mobile-api/posts/:id
- *   - delete_post     → DELETE /mobile-api/posts/:id
+ *   - get_my_posts    → GET /mobile-api/posts/my-posts (posts:read)
+ *   - get_post        → GET /mobile-api/posts/:id (posts:read)
+ *   - create_post     → POST /mobile-api/posts/ (posts:create)
+ *   - edit_post       → PUT /mobile-api/posts/:id (posts:create)
+ *   - delete_post     → DELETE /mobile-api/posts/:id (posts:create, confirm required)
  *
  * Post types: PROMOTION, GIVE, ASK, REQUIREMENT
- *
- * Notes on promotions:
- *   - There is NO separate Promotion entity in Trusted Network.
- *   - Promotions = Posts with type="PROMOTION".
- *   - Posts go live immediately on creation — there is no draft/publish lifecycle.
- *   - To create a promotion: use create_post with type="PROMOTION".
- *   - To list your promotions: use get_my_posts with type="PROMOTION".
- *
- * Scopes: posts:read for reads, posts:write for create/edit/delete.
+ * Scopes: posts:read for reads, posts:create for write/delete.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -60,6 +52,9 @@ export function registerPostTools(server: McpServer, getMemberId: () => string):
       page: z.number().int().min(0).max(200).optional().default(0).describe("Page number (0-indexed)"),
       limit: z.number().int().min(1).max(50).optional().default(10).describe("Posts per page (max 50)")
     },
+    {
+      readOnlyHint: true
+    },
     async ({ type, page, limit }) => {
       const memberId = getMemberId();
       const timer = startTimer();
@@ -93,6 +88,9 @@ export function registerPostTools(server: McpServer, getMemberId: () => string):
     {
       postId: z.string().min(24).max(24).describe("The 24-character MongoDB ObjectId of the post")
     },
+    {
+      readOnlyHint: true
+    },
     async ({ postId }) => {
       const memberId = getMemberId();
       const timer = startTimer();
@@ -121,16 +119,14 @@ export function registerPostTools(server: McpServer, getMemberId: () => string):
   // ── create_post ────────────────────────────────────────────────────────────
   server.tool(
     "create_post",
-    `Create a new post or promotion on Trusted Network. 
+    `Create a new post on Trusted Network. 
 IMPORTANT: Posts publish immediately and are live on the network upon creation. Show the prepared post title and description to the user and request their explicit confirmation before calling this tool.
 
 Post types:
 - PROMOTION: Advertise your product, service, or business offer (equivalent to creating a promotion)
 - GIVE: Offer something for free to the network
 - ASK: Request help, collaboration, recommendations, or a referral
-- REQUIREMENT: Post a business requirement or lead request (must set requirementVisibility)
-
-Note: Images can be attached using media or in the mobile app.`,
+- REQUIREMENT: Post a business requirement or lead request (must set requirementVisibility)`,
     {
       type: z.preprocess(
         (val) => normalizePostType(val),
@@ -144,6 +140,10 @@ Note: Images can be attached using media or in the mobile app.`,
         (val) => normalizeVisibility(val),
         z.enum(REQUIREMENT_VISIBILITY).optional()
       ).describe("Required when type=REQUIREMENT. OVERALL=visible to all, REGION=visible to members in your region, MUTUAL-FRIEND=visible only to mutual connections")
+    },
+    {
+      readOnlyHint: false,
+      destructiveHint: false
     },
     async ({ type, title, description, location, period, requirementVisibility }) => {
       const memberId = getMemberId();
@@ -204,6 +204,10 @@ Note: Images can be attached using media or in the mobile app.`,
         z.enum(REQUIREMENT_VISIBILITY).optional()
       ).describe("New visibility for REQUIREMENT posts")
     },
+    {
+      readOnlyHint: false,
+      destructiveHint: false
+    },
     async ({ postId, title, description, location, period, requirementVisibility }) => {
       const memberId = getMemberId();
       const timer = startTimer();
@@ -254,6 +258,10 @@ Note: Images can be attached using media or in the mobile app.`,
     {
       postId: z.string().min(24).max(24).describe("The 24-character MongoDB ObjectId of the post to delete"),
       confirm: z.literal(true).describe("Must be true to confirm deletion — prevents accidental deletes")
+    },
+    {
+      readOnlyHint: false,
+      destructiveHint: true
     },
     async ({ postId, confirm }) => {
       const memberId = getMemberId();

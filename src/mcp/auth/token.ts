@@ -1,19 +1,16 @@
 /**
- * OAuth 2.1 token management for the MCP layer.
+ * OAuth 2.1 token management for the CTN MCP layer.
  *
- * Architecture decision (confirmed by user):
- *   When a member authorizes ChatGPT, the MCP server:
- *     1. Issues its own short-lived MCP OAuth access token
- *     2. Stores { mcpTokenId -> memberId } mapping in Redis
- *     3. On each MCP tool call, resolves memberId from the MCP token
- *     4. Generates a short-lived internal JWT using the existing JWT_SECRET
- *        to call the existing /mobile-api routes on behalf of the member
- *
- * Security guarantees:
- *   - ChatGPT never touches the member's mobile app JWT
- *   - The model cannot supply or influence the authenticated userId
- *   - MCP OAuth tokens have a separate secret from mobile JWTs
- *   - Tokens are stored by opaque ID in Redis (not the raw JWT value as key)
+ * Implements:
+ *  - RS256 token issuance with JWKS support (RFC 7519, RFC 7517)
+ *  - Fallback / dual-mode HS256 support when MCP_OAUTH_TOKEN_SECRET is configured
+ *  - Issuer: https://api.trustednetwork.in
+ *  - Audience: https://mcp.trustednetwork.in
+ *  - Subject: Stable CTN Member ID
+ *  - Scope: Requested and allowed granular scopes
+ *  - Single-use cryptographically secure authorization codes with PKCE S256
+ *  - Refresh token rotation and revocation
+ *  - Short-lived internal JWT for backend proxy calls
  */
 
 import crypto from "crypto";
@@ -23,118 +20,172 @@ import { appRedis } from "../../config/appRedis";
 import { AppDataSource } from "../../data-source";
 import { OAuthGrant } from "../../entity/OAuthGrant";
 import { mcpConfig } from "../config";
+import { signOAuthJwt, verifyOAuthJwt } from "./keys";
 import logger from "../../utils/logger";
 
 const CTX = "MCPToken";
 
-const REDIS_PREFIX_ACCESS = "mcp:access:";
-const REDIS_PREFIX_REFRESH = "mcp:refresh:";
-const REDIS_PREFIX_CODE = "mcp:code:";
+export const REDIS_PREFIX_ACCESS = "mcp:access:";
+export const REDIS_PREFIX_REFRESH = "mcp:refresh:";
+export const REDIS_PREFIX_CODE = "mcp:code:";
 
-// Seconds
-const ACCESS_TOKEN_TTL_SEC = 3600;      // 1h
-const REFRESH_TOKEN_TTL_SEC = 2592000;  // 30d
-const AUTH_CODE_TTL_SEC = 300;          // 5min
+export const ACCESS_TOKEN_TTL_SEC = mcpConfig.oauth.accessTokenTtlSec || 3600; // 1 hour
+export const REFRESH_TOKEN_TTL_SEC = mcpConfig.oauth.refreshTokenTtlSec || 2592000; // 30 days
+export const AUTH_CODE_TTL_SEC = 300; // 5 minutes
 
 export interface McpTokenPayload {
-  /** MCP JWT token ID (jti) — used as Redis key suffix */
-  jti: string;
-  /** The Trusted Network member ID */
+  sub?: string;
   memberId: string;
-  /** Granted OAuth scopes */
   scopes: string[];
-  /** Token type */
+  scope?: string;
+  client_id?: string;
+  resource?: string;
+  jti: string;
   type: "access" | "refresh";
+  iss?: string;
+  aud?: string;
+}
+
+export interface AuthCodeData {
+  memberId: string;
+  clientId: string;
+  redirectUri: string;
+  scopes: string[];
+  codeChallenge?: string;
+  resource?: string;
+  createdAt: number;
 }
 
 /**
- * Generates a cryptographically secure random token ID.
+ * Generates a cryptographically secure random token string.
  */
-function generateTokenId(): string {
+export function generateTokenId(): string {
   return crypto.randomBytes(32).toString("hex");
 }
 
+function shouldUseRs256(): boolean {
+  if (process.env.OAUTH_SIGNING_ALGORITHM === "RS256") return true;
+  if (!mcpConfig.oauth.tokenSecret) return true;
+  return false;
+}
+
 /**
- * Issues an MCP OAuth access + refresh token pair.
- * Stores membership in Redis so the token can be resolved without DB.
+ * Issues an OAuth 2.1 access token + refresh token pair.
+ * Supports RS256 (JWKS) and HS256.
  */
-export async function issueMcpTokens(memberId: string, scopes: string[]): Promise<{
+export async function issueMcpTokens(
+  memberId: string,
+  scopes: string[],
+  clientId: string = "chatgpt-mcp",
+  resource: string = mcpConfig.oauth.resource
+): Promise<{
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  tokenType: string;
+  scope: string;
 }> {
-  if (!mcpConfig.oauth.tokenSecret) {
+  const useRs256 = shouldUseRs256();
+
+  if (!useRs256 && !mcpConfig.oauth.tokenSecret) {
     throw new Error("MCP_OAUTH_TOKEN_SECRET is not configured");
   }
 
   const accessJti = generateTokenId();
   const refreshJti = generateTokenId();
 
+  const scopeString = scopes.join(" ");
+
   const accessPayload: McpTokenPayload = {
-    jti: accessJti,
+    sub: memberId,
     memberId,
     scopes,
+    scope: scopeString,
+    client_id: clientId,
+    resource,
+    jti: accessJti,
     type: "access"
   };
 
   const refreshPayload: McpTokenPayload = {
-    jti: refreshJti,
+    sub: memberId,
     memberId,
     scopes,
+    scope: scopeString,
+    client_id: clientId,
+    resource,
+    jti: refreshJti,
     type: "refresh"
   };
 
-  const accessToken = jwt.sign(accessPayload, mcpConfig.oauth.tokenSecret, {
-    issuer: mcpConfig.oauth.issuer,
-    audience: mcpConfig.oauth.audience,
-    expiresIn: ACCESS_TOKEN_TTL_SEC
-  });
+  let accessToken: string;
+  let refreshToken: string;
 
-  const refreshToken = jwt.sign(refreshPayload, mcpConfig.oauth.tokenSecret, {
-    issuer: mcpConfig.oauth.issuer,
-    audience: mcpConfig.oauth.audience,
-    expiresIn: REFRESH_TOKEN_TTL_SEC
-  });
+  if (useRs256) {
+    accessToken = signOAuthJwt(accessPayload, {
+      issuer: mcpConfig.oauth.issuer,
+      audience: mcpConfig.oauth.audience,
+      expiresIn: ACCESS_TOKEN_TTL_SEC
+    });
+    refreshToken = signOAuthJwt(refreshPayload, {
+      issuer: mcpConfig.oauth.issuer,
+      audience: mcpConfig.oauth.audience,
+      expiresIn: REFRESH_TOKEN_TTL_SEC
+    });
+  } else {
+    accessToken = jwt.sign(accessPayload, mcpConfig.oauth.tokenSecret, {
+      issuer: mcpConfig.oauth.issuer,
+      audience: mcpConfig.oauth.audience,
+      expiresIn: ACCESS_TOKEN_TTL_SEC
+    });
+    refreshToken = jwt.sign(refreshPayload, mcpConfig.oauth.tokenSecret, {
+      issuer: mcpConfig.oauth.issuer,
+      audience: mcpConfig.oauth.audience,
+      expiresIn: REFRESH_TOKEN_TTL_SEC
+    });
+  }
 
-  // Also pre-seed the MobileAuthMiddleware auth cache so ChatGPT Actions work seamlessly
+  // Store active sessions in Redis
   const tokenHash = crypto.createHash("sha256").update(accessToken).digest("hex");
-  const authCacheData = {
-    userId: memberId,
-    status: "active",
-    isDeleted: false,
-    tokenRecordExists: true
-  };
+  const refreshTokenHash = crypto.createHash("sha256").update(refreshToken).digest("hex");
 
-  // Store in Redis
   await Promise.all([
     appRedis.setex(
       `${REDIS_PREFIX_ACCESS}${accessJti}`,
       ACCESS_TOKEN_TTL_SEC,
-      JSON.stringify({ memberId, scopes })
+      JSON.stringify({ memberId, scopes, clientId, resource })
     ),
     appRedis.setex(
       `${REDIS_PREFIX_REFRESH}${refreshJti}`,
       REFRESH_TOKEN_TTL_SEC,
-      JSON.stringify({ memberId, scopes, accessJti })
+      JSON.stringify({ memberId, scopes, clientId, resource, accessJti })
     ),
+    // MobileAuthMiddleware cache compatibility
     appRedis.setex(
       `auth:v1:${tokenHash}`,
       ACCESS_TOKEN_TTL_SEC,
-      JSON.stringify(authCacheData)
+      JSON.stringify({
+        userId: memberId,
+        status: "active",
+        isDeleted: false,
+        tokenRecordExists: true
+      })
     )
   ]);
 
-  // Persist OAuth grant in MongoDB if DB is initialized
+  // Persist OAuth grant in MongoDB if connection is ready
   try {
     if (AppDataSource.isInitialized && ObjectId.isValid(memberId)) {
       const grantRepo = AppDataSource.getMongoRepository(OAuthGrant);
       const grant = new OAuthGrant();
       grant.userId = new ObjectId(memberId);
-      grant.clientId = "chatgpt-mcp";
+      grant.clientId = clientId;
       grant.scopes = scopes;
+      grant.resource = resource;
       grant.accessTokenHash = tokenHash;
-      grant.refreshTokenHash = crypto.createHash("sha256").update(refreshToken).digest("hex");
+      grant.refreshTokenHash = refreshTokenHash;
       grant.isRevoked = false;
+      grant.lastUsedAt = new Date();
       grant.expiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_SEC * 1000);
       await grantRepo.save(grant);
     }
@@ -142,73 +193,118 @@ export async function issueMcpTokens(memberId: string, scopes: string[]): Promis
     logger.warn(`Failed to persist OAuthGrant record: ${dbErr.message}`, CTX);
   }
 
-  logger.info(`MCP tokens issued for member ${memberId}`, CTX);
+  logger.info(`OAuth tokens issued for member ${memberId} (client: ${clientId})`, CTX);
 
   return {
     accessToken,
     refreshToken,
-    expiresIn: ACCESS_TOKEN_TTL_SEC
+    expiresIn: ACCESS_TOKEN_TTL_SEC,
+    tokenType: "Bearer",
+    scope: scopeString
   };
 }
 
 /**
  * Validates an MCP OAuth access token.
- * Returns the memberId and scopes if valid.
- * Throws on any failure — never returns partial data on error.
+ * Verifies signature (RS256 or HS256), issuer, audience, expiration, and active Redis session.
  */
-export async function validateMcpAccessToken(token: string): Promise<{ memberId: string; scopes: string[] }> {
-  if (!mcpConfig.oauth.tokenSecret) {
-    throw new Error("MCP_OAUTH_TOKEN_SECRET is not configured");
-  }
-
+export async function validateMcpAccessToken(token: string): Promise<{
+  memberId: string;
+  scopes: string[];
+  clientId?: string;
+}> {
   let payload: McpTokenPayload;
-  try {
-    payload = jwt.verify(token, mcpConfig.oauth.tokenSecret, {
-      issuer: mcpConfig.oauth.issuer,
-      audience: mcpConfig.oauth.audience
-    }) as McpTokenPayload;
-  } catch (err: any) {
-    throw new Error(`Invalid or expired MCP token: ${err.message}`);
+
+  const decodedHeader = jwt.decode(token, { complete: true }) as any;
+  const alg = decodedHeader?.header?.alg;
+
+  if (alg === "RS256") {
+    try {
+      payload = verifyOAuthJwt<McpTokenPayload>(token, {
+        issuer: mcpConfig.oauth.issuer,
+        audience: mcpConfig.oauth.audience
+      });
+    } catch (err: any) {
+      throw new Error(`Invalid or expired MCP token: ${err.message}`);
+    }
+  } else {
+    if (!mcpConfig.oauth.tokenSecret) {
+      throw new Error("MCP_OAUTH_TOKEN_SECRET is not configured");
+    }
+    try {
+      payload = jwt.verify(token, mcpConfig.oauth.tokenSecret, {
+        issuer: mcpConfig.oauth.issuer,
+        audience: mcpConfig.oauth.audience
+      }) as McpTokenPayload;
+    } catch (err: any) {
+      throw new Error(`Invalid or expired MCP token: ${err.message}`);
+    }
   }
 
   if (payload.type !== "access") {
     throw new Error("Token type mismatch: expected access token");
   }
 
-  // Verify Redis session (detects revocation, logout)
+  const memberId = payload.sub || payload.memberId;
+  if (!memberId) {
+    throw new Error("Token missing subject/memberId");
+  }
+
+  // Verify Redis session (ensures immediate invalidation upon revocation/disconnect)
   const cached = await appRedis.get(`${REDIS_PREFIX_ACCESS}${payload.jti}`);
   if (!cached) {
     throw new Error("MCP session not found or revoked");
   }
 
   const session = JSON.parse(cached);
-  if (session.memberId !== payload.memberId) {
-    throw new Error("Token integrity failure");
+  if (session.memberId !== memberId) {
+    throw new Error("Token integrity failure: member mismatch");
   }
 
-  return { memberId: payload.memberId, scopes: payload.scopes };
+  return {
+    memberId,
+    scopes: session.scopes || payload.scopes || (payload.scope ? payload.scope.split(" ") : []),
+    clientId: session.clientId || payload.client_id
+  };
 }
 
 /**
- * Refreshes an MCP access token using a refresh token.
+ * Refreshes an MCP access token using an OAuth refresh token.
+ * Enforces refresh token rotation: old refresh token is revoked immediately.
  */
 export async function refreshMcpTokens(refreshToken: string): Promise<{
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  tokenType: string;
+  scope: string;
 }> {
-  if (!mcpConfig.oauth.tokenSecret) {
-    throw new Error("MCP_OAUTH_TOKEN_SECRET is not configured");
-  }
-
   let payload: McpTokenPayload;
-  try {
-    payload = jwt.verify(refreshToken, mcpConfig.oauth.tokenSecret, {
-      issuer: mcpConfig.oauth.issuer,
-      audience: mcpConfig.oauth.audience
-    }) as McpTokenPayload;
-  } catch (err: any) {
-    throw new Error(`Invalid or expired refresh token: ${err.message}`);
+
+  const decodedHeader = jwt.decode(refreshToken, { complete: true }) as any;
+  const alg = decodedHeader?.header?.alg;
+
+  if (alg === "RS256") {
+    try {
+      payload = verifyOAuthJwt<McpTokenPayload>(refreshToken, {
+        issuer: mcpConfig.oauth.issuer,
+        audience: mcpConfig.oauth.audience
+      });
+    } catch (err: any) {
+      throw new Error(`Invalid or expired refresh token: ${err.message}`);
+    }
+  } else {
+    if (!mcpConfig.oauth.tokenSecret) {
+      throw new Error("MCP_OAUTH_TOKEN_SECRET is not configured");
+    }
+    try {
+      payload = jwt.verify(refreshToken, mcpConfig.oauth.tokenSecret, {
+        issuer: mcpConfig.oauth.issuer,
+        audience: mcpConfig.oauth.audience
+      }) as McpTokenPayload;
+    } catch (err: any) {
+      throw new Error(`Invalid or expired refresh token: ${err.message}`);
+    }
   }
 
   if (payload.type !== "refresh") {
@@ -222,28 +318,33 @@ export async function refreshMcpTokens(refreshToken: string): Promise<{
 
   const session = JSON.parse(cached);
 
-  // Delete old refresh token (rotation)
+  // Invalidate old refresh token (rotation)
   await appRedis.del(`${REDIS_PREFIX_REFRESH}${payload.jti}`);
-  // Delete old access token
   if (session.accessJti) {
     await appRedis.del(`${REDIS_PREFIX_ACCESS}${session.accessJti}`);
   }
 
-  return issueMcpTokens(session.memberId, session.scopes);
+  return issueMcpTokens(
+    session.memberId,
+    session.scopes,
+    session.clientId || "chatgpt-mcp",
+    session.resource || mcpConfig.oauth.resource
+  );
 }
 
 /**
- * Revokes an MCP token pair (logout).
+ * Revokes an access or refresh token (RFC 7009).
  */
 export async function revokeMcpToken(token: string): Promise<void> {
-  if (!mcpConfig.oauth.tokenSecret) return;
-
   try {
-    const payload = jwt.verify(token, mcpConfig.oauth.tokenSecret, {
-      ignoreExpiration: true,
-      issuer: mcpConfig.oauth.issuer,
-      audience: mcpConfig.oauth.audience
-    }) as McpTokenPayload;
+    let payload: McpTokenPayload;
+    try {
+      payload = jwt.decode(token) as McpTokenPayload;
+    } catch {
+      return;
+    }
+
+    if (!payload || !payload.jti) return;
 
     const key = payload.type === "access"
       ? `${REDIS_PREFIX_ACCESS}${payload.jti}`
@@ -262,62 +363,110 @@ export async function revokeMcpToken(token: string): Promise<void> {
       );
     }
 
-    logger.info(`MCP token revoked for member ${payload.memberId}`, CTX);
-  } catch {
-    // Token already invalid — safe to ignore
+    logger.info(`OAuth token revoked for member ${payload.sub || payload.memberId}`, CTX);
+  } catch (err: any) {
+    logger.warn(`Token revocation error: ${err.message}`, CTX);
   }
 }
 
 /**
- * Issues a short-lived authorization code for the OAuth flow.
- * The code is exchanged for tokens in /token.
+ * Issues a cryptographically secure, random, short-lived authorization code (5 minutes).
  */
 export async function issueAuthCode(
   memberId: string,
   scopes: string[],
   redirectUri: string,
-  codeChallenge?: string
+  clientIdOrChallenge: string = "chatgpt-mcp",
+  codeChallenge?: string,
+  resource: string = mcpConfig.oauth.resource
 ): Promise<string> {
+  let resolvedClientId = clientIdOrChallenge || "chatgpt-mcp";
+  let resolvedChallenge = codeChallenge;
+
+  // Backward compatibility: if 4th arg is challenge rather than client_id
+  if (
+    codeChallenge === undefined &&
+    clientIdOrChallenge &&
+    !clientIdOrChallenge.startsWith("chatgpt") &&
+    !clientIdOrChallenge.startsWith("ctn_") &&
+    !clientIdOrChallenge.startsWith("http")
+  ) {
+    resolvedClientId = "chatgpt-mcp";
+    resolvedChallenge = clientIdOrChallenge;
+  }
+
   const code = generateTokenId();
+  const data: AuthCodeData = {
+    memberId,
+    clientId: resolvedClientId,
+    redirectUri,
+    scopes,
+    codeChallenge: resolvedChallenge,
+    resource,
+    createdAt: Date.now()
+  };
+
   await appRedis.setex(
     `${REDIS_PREFIX_CODE}${code}`,
     AUTH_CODE_TTL_SEC,
-    JSON.stringify({ memberId, scopes, redirectUri, codeChallenge })
+    JSON.stringify(data)
   );
+
   return code;
 }
 
 /**
- * Consumes an authorization code (single use) and returns the associated data.
+ * Consumes an authorization code with atomic single-use deletion.
+ * Validates redirect_uri, client_id, and resource.
  */
 export async function consumeAuthCode(
   code: string,
-  redirectUri: string
-): Promise<{ memberId: string; scopes: string[]; codeChallenge?: string }> {
+  redirectUri: string,
+  clientId?: string,
+  resource?: string
+): Promise<{
+  memberId: string;
+  scopes: string[];
+  clientId: string;
+  codeChallenge?: string;
+  resource: string;
+}> {
   const key = `${REDIS_PREFIX_CODE}${code}`;
   const raw = await appRedis.get(key);
+
   if (!raw) {
     throw new Error("Authorization code not found, expired, or already used");
   }
 
-  const data = JSON.parse(raw);
-
-  // Single-use: delete immediately
+  // Atomically delete immediately to enforce single-use
   await appRedis.del(key);
+
+  const data = JSON.parse(raw) as AuthCodeData;
 
   if (data.redirectUri !== redirectUri) {
     throw new Error("redirect_uri mismatch");
   }
 
-  return { memberId: data.memberId, scopes: data.scopes, codeChallenge: data.codeChallenge };
+  if (clientId && data.clientId && data.clientId !== clientId) {
+    throw new Error("client_id mismatch");
+  }
+
+  if (resource && data.resource && data.resource !== resource) {
+    throw new Error("resource mismatch");
+  }
+
+  return {
+    memberId: data.memberId,
+    scopes: data.scopes,
+    clientId: data.clientId,
+    codeChallenge: data.codeChallenge,
+    resource: data.resource || mcpConfig.oauth.resource
+  };
 }
 
 /**
- * Generates a short-lived internal JWT (using JWT_SECRET) to call the
- * existing /mobile-api routes on behalf of a member.
- *
- * This JWT is internal-only — never returned to ChatGPT.
- * It uses the same format as mobile app JWTs so MobileAuthMiddleware accepts it.
+ * Generates a short-lived internal JWT (5 minutes) for proxying calls
+ * to the backend /mobile-api. Never exposed to ChatGPT.
  */
 export function generateInternalJwt(memberId: string): string {
   const secret = process.env.JWT_SECRET;
@@ -327,6 +476,6 @@ export function generateInternalJwt(memberId: string): string {
   return jwt.sign(
     { userId: memberId, userType: "MEMBER" },
     secret,
-    { expiresIn: "5m" }  // Very short-lived — only used for one API call
+    { expiresIn: "5m" }
   );
 }

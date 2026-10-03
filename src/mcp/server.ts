@@ -15,6 +15,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerProfileTools } from "./tools/profile";
 import { registerMemberTools } from "./tools/members";
 import { registerPostTools } from "./tools/posts";
+import { registerPromotionTools } from "./tools/promotions";
 
 /**
  * Creates a new McpServer instance with all registered tools.
@@ -32,6 +33,7 @@ export function createMcpServer(getMemberId: () => string): McpServer {
   registerProfileTools(server, getMemberId);
   registerMemberTools(server, getMemberId);
   registerPostTools(server, getMemberId);
+  registerPromotionTools(server, getMemberId);
 
   return server;
 }

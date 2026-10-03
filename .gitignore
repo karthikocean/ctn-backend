@@ -11,4 +11,5 @@ dist/
 public/
 .packagehash
 google-firebase.json
-google-firebase.json
+.keys/
+docs/

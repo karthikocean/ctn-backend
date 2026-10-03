@@ -33,6 +33,8 @@ import logger from "../utils/logger";
 import { AppDataSource } from "../data-source";
 import { appRedis } from "../config/appRedis";
 
+import { getKeyPair } from "./auth/keys";
+
 const CTX = "MCPIndex";
 
 async function bootstrap() {
@@ -41,10 +43,8 @@ async function bootstrap() {
     process.exit(0);
   }
 
-  if (!mcpConfig.oauth.tokenSecret) {
-    logger.error("MCP_OAUTH_TOKEN_SECRET is not set. The MCP server cannot start securely.", undefined, CTX);
-    process.exit(1);
-  }
+  // Initialize RSA keypair for OAuth RS256 signing
+  getKeyPair();
 
   // Connect to MongoDB (needed for Redis auth cache validation)
   await AppDataSource.initialize();
@@ -168,8 +168,10 @@ async function bootstrap() {
   const port = mcpConfig.port;
   app.listen(port, () => {
     logger.info(`Trusted Network MCP server running on port ${port}`, CTX);
-    logger.info(`Public URL: ${mcpConfig.publicUrl}`, CTX);
-    logger.info(`OAuth metadata: ${mcpConfig.publicUrl}/.well-known/oauth-authorization-server`, CTX);
+    logger.info(`MCP Endpoint: ${mcpConfig.publicUrl}/mcp`, CTX);
+    logger.info(`Protected Resource Metadata: ${mcpConfig.publicUrl}/.well-known/oauth-protected-resource`, CTX);
+    logger.info(`OAuth Metadata: ${mcpConfig.oauth.issuer}/.well-known/oauth-authorization-server`, CTX);
+    logger.info(`JWKS: ${mcpConfig.oauth.issuer}/.well-known/jwks.json`, CTX);
   });
 
   // Graceful shutdown

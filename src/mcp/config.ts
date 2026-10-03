@@ -21,28 +21,32 @@ export const mcpConfig = {
   oauth: {
     /**
      * OAuth 2.1 issuer identifier.
+     * CTN Backend is the Authorization Server (api.trustednetwork.in).
      * Must match the `iss` claim in issued tokens.
      */
-    issuer: process.env.MCP_OAUTH_ISSUER || process.env.MCP_PUBLIC_URL || "http://localhost:4001",
+    issuer: process.env.OAUTH_ISSUER || process.env.MCP_OAUTH_ISSUER || "https://api.trustednetwork.in",
 
     /**
-     * Audience for issued tokens.
-     * ChatGPT must present tokens with this audience claim.
+     * Audience / Canonical Resource for issued tokens.
+     * MCP is the Resource Server (mcp.trustednetwork.in).
      */
-    audience: process.env.MCP_OAUTH_AUDIENCE || "trusted-network-mcp",
+    audience: process.env.OAUTH_RESOURCE || process.env.MCP_OAUTH_AUDIENCE || "https://mcp.trustednetwork.in",
+
+    /**
+     * Canonical protected resource URL.
+     */
+    resource: process.env.OAUTH_RESOURCE || "https://mcp.trustednetwork.in",
 
     /**
      * Signing secret for MCP OAuth tokens.
-     * MUST be different from JWT_SECRET (the mobile app secret).
-     * Generate with: openssl rand -hex 64
      */
     tokenSecret: process.env.MCP_OAUTH_TOKEN_SECRET || "",
 
-    /** Access token lifetime (e.g. "1h", "30m") */
-    tokenExpiresIn: process.env.MCP_OAUTH_TOKEN_EXPIRES_IN || "1h",
+    /** Access token lifetime in seconds */
+    accessTokenTtlSec: parseInt(process.env.MCP_OAUTH_ACCESS_TOKEN_TTL_SEC || "3600", 10),
 
-    /** Refresh token lifetime (e.g. "30d") */
-    refreshExpiresIn: process.env.MCP_OAUTH_REFRESH_EXPIRES_IN || "30d"
+    /** Refresh token lifetime in seconds (30 days) */
+    refreshTokenTtlSec: parseInt(process.env.MCP_OAUTH_REFRESH_TOKEN_TTL_SEC || "2592000", 10)
   },
 
   /**

@@ -20,13 +20,13 @@ export class MobileChatGptController {
    * @swagger
    * /mobile-api/chatgpt/connect:
    *   get:
-   *     summary: Generate connection URL for ChatGPT OAuth onboarding
+   *     summary: Get connection instructions and listing details for ChatGPT MCP onboarding
    *     tags: [Mobile ChatGPT]
    *     security:
    *       - bearerAuth: []
    *     responses:
    *       200:
-   *         description: Connection URL generated successfully
+   *         description: Connection guide retrieved successfully
    */
   @Get("/connect")
   @HttpCode(StatusCodes.OK)
@@ -34,18 +34,29 @@ export class MobileChatGptController {
     try {
       const memberId = req.user.userId || req.user.id;
       const redirectUri = (req.query?.redirect_uri as string) || undefined;
-      const gptId = (req.query?.gpt_id as string) || undefined;
       const clientId = (req.query?.client_id as string) || undefined;
 
-      const url = await chatgptOAuthService.generateConnectionUrl(memberId, {
-        clientId,
-        redirectUri: redirectUri || (gptId ? `https://chatgpt.com/aip/${gptId}/oauth/callback` : undefined)
-      });
+      const guide = await chatgptOAuthService.getConnectionGuide(memberId);
+
+      // If redirectUri was explicitly provided (e.g. In tests or direct connector)
+      let legacyUrl: string | undefined = undefined;
+      if (redirectUri || guide.appListingUrl) {
+        legacyUrl = await chatgptOAuthService.generateConnectionUrl(memberId, {
+          clientId,
+          redirectUri
+        });
+      }
 
       return res.status(StatusCodes.OK).json({
         success: true,
         data: {
-          url
+          title: guide.title,
+          description: guide.description,
+          setupInstructions: guide.setupInstructions,
+          mcpServerUrl: guide.mcpServerUrl,
+          provider: guide.provider,
+          appListingUrl: guide.appListingUrl,
+          url: legacyUrl || guide.appListingUrl || guide.mcpServerUrl
         }
       });
     } catch (error: any) {
@@ -76,7 +87,10 @@ export class MobileChatGptController {
         success: true,
         data: {
           connected: status.connected,
-          scopes: status.scopes
+          provider: "chatgpt",
+          scopes: status.scopes,
+          connectedAt: status.connectedAt,
+          lastUsedAt: status.lastUsedAt
         }
       });
     } catch (error: any) {

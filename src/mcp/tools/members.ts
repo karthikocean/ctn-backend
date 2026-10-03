@@ -30,6 +30,9 @@ export function registerMemberTools(server: McpServer, getMemberId: () => string
       page: z.number().int().min(0).max(100).optional().default(0).describe("Page number (0-indexed)"),
       limit: z.number().int().min(1).max(50).optional().default(10).describe("Results per page (max 50)")
     },
+    {
+      readOnlyHint: true
+    },
     async ({ search, city, state, category, region, page, limit }) => {
       const memberId = getMemberId();
       const timer = startTimer();
@@ -75,6 +78,9 @@ export function registerMemberTools(server: McpServer, getMemberId: () => string
       page: z.number().int().min(0).max(100).optional().default(0).describe("Page number (0-indexed)"),
       limit: z.number().int().min(1).max(100).optional().default(50).describe("Results per page (max 100)")
     },
+    {
+      readOnlyHint: true
+    },
     async ({ lat, lng, radius, page, limit }) => {
       const memberId = getMemberId();
       const timer = startTimer();
@@ -113,6 +119,9 @@ export function registerMemberTools(server: McpServer, getMemberId: () => string
     "Get the public profile of any active Trusted Network member by their member ID. Includes their business details, recent posts, follower/following counts, contribution summary, and your connection status with them.",
     {
       memberId: z.string().min(24).max(24).describe("The 24-character MongoDB ObjectId of the member to look up")
+    },
+    {
+      readOnlyHint: true
     },
     async ({ memberId: targetMemberId }) => {
       const memberId = getMemberId();

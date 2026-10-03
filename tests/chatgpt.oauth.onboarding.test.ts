@@ -77,6 +77,7 @@ import {
   consumeAuthCode,
   revokeMcpToken
 } from "../src/mcp/auth/token";
+import { verifyOAuthJwt } from "../src/mcp/auth/keys";
 
 describe("ChatGPT OAuth Onboarding & Security Invariants", () => {
   const MEMBER_A_ID = "6aa2a07690f1611f31181c4a";
@@ -107,8 +108,8 @@ describe("ChatGPT OAuth Onboarding & Security Invariants", () => {
     (oauthService as any).grantRepo = mockGrantRepo;
   });
 
-  // 1. Generate connection URL
-  it("1. generates a valid OAuth connection URL with PKCE and ticket", async () => {
+  // 1. Connection guide (clean mobile onboarding)
+  it("1. provides clean connection guidance without fake redirect_uri", async () => {
     mockMemberRepo.findOne.mockResolvedValue({
       _id: new ObjectId(MEMBER_A_ID),
       fullName: "Anbu",
@@ -117,23 +118,11 @@ describe("ChatGPT OAuth Onboarding & Security Invariants", () => {
       isDeleted: false,
     });
 
-    const urlString = await oauthService.generateConnectionUrl(MEMBER_A_ID);
-    const parsed = new URL(urlString);
-
-    expect(parsed.origin).toBe("https://api.trustednetwork.in");
-    expect(parsed.pathname).toBe("/oauth/authorize");
-    expect(parsed.searchParams.get("response_type")).toBe("code");
-    expect(parsed.searchParams.get("client_id")).toBe("chatgpt-mcp");
-    expect(parsed.searchParams.get("code_challenge_method")).toBe("S256");
-    expect(parsed.searchParams.get("code_challenge")).toBeDefined();
-    expect(parsed.searchParams.get("state")).toBeDefined();
-    expect(parsed.searchParams.get("ticket")).toBeDefined();
-
-    // Verify ticket and PKCE are stored in Redis
-    const ticket = parsed.searchParams.get("ticket")!;
-    const ticketVal = redisStore.get(`chatgpt:ticket:${ticket}`);
-    expect(ticketVal).toBeDefined();
-    expect(JSON.parse(ticketVal!).memberId).toBe(MEMBER_A_ID);
+    const guide = await oauthService.getConnectionGuide(MEMBER_A_ID);
+    expect(guide.title).toBe("Connect with ChatGPT");
+    expect(guide.provider).toBe("chatgpt");
+    expect(guide.mcpServerUrl).toContain("/mcp");
+    expect(guide.setupInstructions).toContain("ChatGPT");
   });
 
   // 2. Invalid connection request
@@ -209,8 +198,8 @@ describe("ChatGPT OAuth Onboarding & Security Invariants", () => {
     expect(refreshToken).toBeDefined();
     expect(expiresIn).toBe(3600);
 
-    // Verify accessToken signature
-    const decoded = jwt.verify(accessToken, process.env.MCP_OAUTH_TOKEN_SECRET!) as any;
+    // Verify accessToken RS256 signature
+    const decoded = verifyOAuthJwt(accessToken) as any;
     expect(decoded.memberId).toBe(MEMBER_A_ID);
     expect(decoded.scopes).toEqual(["profile:read", "posts:create"]);
     expect(decoded.type).toBe("access");
@@ -326,10 +315,10 @@ describe("ChatGPT OAuth Onboarding & Security Invariants", () => {
     mockGrantRepo.find.mockResolvedValue([]);
     await oauthService.disconnect(MEMBER_A_ID);
 
-    // Reconnect
-    const newUrl = await oauthService.generateConnectionUrl(MEMBER_A_ID);
-    expect(newUrl).toContain("ticket=");
-    expect(newUrl).toContain("state=");
+    // Reconnect guidance works cleanly
+    const guide = await oauthService.getConnectionGuide(MEMBER_A_ID);
+    expect(guide.mcpServerUrl).toContain("/mcp");
+    expect(guide.provider).toBe("chatgpt");
   });
 
   // 19. User identity isolation (User A cannot act as User B)

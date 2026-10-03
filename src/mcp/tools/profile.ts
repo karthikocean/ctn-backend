@@ -4,6 +4,7 @@
  * Tool: get_my_profile
  *   Proxies: GET /mobile-api/members/profile
  *   Scope: profile:read
+ *   Metadata: _meta: { "openai/profile": true }
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -15,8 +16,11 @@ export function registerProfileTools(server: McpServer, getMemberId: () => strin
 
   server.tool(
     "get_my_profile",
-    "Get your own Trusted Network profile including business details, subscription status, connection counts, and contribution summary.",
+    "Get your own Trusted Network profile including business details, subscription status, connection counts, and contribution summary. Identity is securely bound to your authenticated CTN account.",
     {},
+    {
+      readOnlyHint: true
+    },
     async () => {
       const memberId = getMemberId();
       const timer = startTimer();
@@ -26,7 +30,8 @@ export function registerProfileTools(server: McpServer, getMemberId: () => strin
 
         // Strip sensitive fields before returning to ChatGPT
         const safe = {
-          _id: profile._id,
+          _id: profile._id ? profile._id.toString() : memberId,
+          profileId: profile._id ? profile._id.toString() : memberId,
           fullName: profile.fullName,
           businessName: profile.businessName,
           businessType: profile.businessType,
@@ -70,7 +75,10 @@ export function registerProfileTools(server: McpServer, getMemberId: () => strin
               type: "text" as const,
               text: JSON.stringify({ success: true, data: safe }, null, 2)
             }
-          ]
+          ],
+          _meta: {
+            "openai/profile": true
+          }
         };
       } catch (err: any) {
         const mcpErr = err.code ? err : toMcpError(err, "get_my_profile");
