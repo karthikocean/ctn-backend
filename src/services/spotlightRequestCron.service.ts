@@ -5,9 +5,39 @@ import { Spotlight, SpotlightStatus } from "../entity/Spotlight";
 import { SpotlightHistory, SpotlightHistoryAction } from "../entity/SpotlightHistory";
 
 export class SpotlightRequestCronService {
-  private static requestRepo = AppDataSource.getMongoRepository(SpotlightRequest);
-  private static spotlightRepo = AppDataSource.getMongoRepository(Spotlight);
-  private static spotlightHistoryRepo = AppDataSource.getMongoRepository(SpotlightHistory);
+  private static get requestRepo() {
+    return AppDataSource.getMongoRepository(SpotlightRequest);
+  }
+  private static get spotlightRepo() {
+    return AppDataSource.getMongoRepository(Spotlight);
+  }
+  private static get spotlightHistoryRepo() {
+    return AppDataSource.getMongoRepository(SpotlightHistory);
+  }
+
+  /**
+   * Helper to get start of day (00:00:00.000) in Asia/Kolkata timezone converted to UTC Date
+   */
+  static getIstStartOfDay(date: Date = new Date()): Date {
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istTime = new Date(date.getTime() + istOffset);
+    const year = istTime.getUTCFullYear();
+    const month = istTime.getUTCMonth();
+    const day = istTime.getUTCDate();
+    return new Date(Date.UTC(year, month, day, 0, 0, 0, 0) - istOffset);
+  }
+
+  /**
+   * Helper to get end of day (23:59:59.999) in Asia/Kolkata timezone converted to UTC Date
+   */
+  static getIstEndOfDay(date: Date = new Date()): Date {
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istTime = new Date(date.getTime() + istOffset);
+    const year = istTime.getUTCFullYear();
+    const month = istTime.getUTCMonth();
+    const day = istTime.getUTCDate();
+    return new Date(Date.UTC(year, month, day, 23, 59, 59, 999) - istOffset);
+  }
 
   /**
    * Initializes the Spotlight Request related cron jobs
@@ -15,7 +45,12 @@ export class SpotlightRequestCronService {
   static init() {
     console.log("⏰ Initializing Spotlight Request Cron Jobs...");
 
-    // ✅ Daily 1:00 AM Cron - Auto Create Spotlight from Yesterday's First 50 Pending Requests
+    // Run startup check immediately
+    this.createSpotlightFromYesterdayRequests().catch((error: any) => {
+      console.error("❌ Startup Spotlight Auto-Creation Failed:", error.message);
+    });
+
+    // ✅ Daily 1:00 AM Cron - Auto Create Spotlight from Pending Requests
     cron.schedule("0 1 * * *", async () => {
       try {
         console.log("🕒 Running Daily Spotlight Creation Cron (1:00 AM)...");
@@ -41,50 +76,68 @@ export class SpotlightRequestCronService {
   }
 
   /**
-   * At 1:00 AM every day, find yesterday's first 50 members with PENDING status in SpotlightRequest
-   * and insert a new Spotlight for today.
+   * At 1:00 AM every day, find members with PENDING status in SpotlightRequest created up to yesterday
+   * and insert/update a Spotlight for today with status ACTIVE.
    */
   static async createSpotlightFromYesterdayRequests() {
-    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(Date.now() + istOffset);
+    const year = istNow.getUTCFullYear();
+    const month = istNow.getUTCMonth();
+    const date = istNow.getUTCDate();
 
-    // Calculate yesterday 00:00:00.000 to 23:59:59.999
-    const yesterdayStart = new Date(now);
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-    yesterdayStart.setHours(0, 0, 0, 0);
+    // Start & end of today in IST
+    const todayStart = new Date(Date.UTC(year, month, date, 0, 0, 0, 0) - istOffset);
+    const todayEnd = new Date(Date.UTC(year, month, date, 23, 59, 59, 999) - istOffset);
+    // End of yesterday in IST
+    const yesterdayEnd = new Date(Date.UTC(year, month, date - 1, 23, 59, 59, 999) - istOffset);
 
-    const yesterdayEnd = new Date(now);
-    yesterdayEnd.setDate(yesterdayEnd.getDate() - 1);
-    yesterdayEnd.setHours(23, 59, 59, 999);
-
-    // Find yesterday's first 50 pending requests
+    // Find pending requests created up to end of yesterday (FIFO, max 50)
     const pendingRequests = await this.requestRepo.find({
       where: {
         status: SpotlightRequestStatus.PENDING,
         isDeleted: false,
-        createdAt: { $gte: yesterdayStart, $lte: yesterdayEnd }
+        createdAt: { $lte: yesterdayEnd }
       } as any,
       order: { createdAt: "ASC" },
       take: 50
     });
 
     if (!pendingRequests || pendingRequests.length === 0) {
-      console.log("⏭️ Spotlight Auto-Creation: No pending requests found for yesterday.");
+      console.log("⏭️ Spotlight Auto-Creation: No pending requests found up to yesterday.");
       return;
     }
 
     const memberIds = pendingRequests.map(r => r.memberId);
-    const today = new Date(now);
-    today.setHours(0, 0, 0, 0);
 
-    // Insert into Spotlight entity
-    const spotlight = new Spotlight();
-    spotlight.members = memberIds;
-    spotlight.scheduleDate = today;
-    spotlight.status = SpotlightStatus.ACTIVE;
-    spotlight.isDeleted = false;
+    // Check if a spotlight already exists for today
+    let spotlight = await this.spotlightRepo.findOne({
+      where: {
+        scheduleDate: { $gte: todayStart, $lte: todayEnd } as any,
+        isDeleted: false
+      }
+    });
 
-    const savedSpotlight = await this.spotlightRepo.save(spotlight);
-    console.log(`✅ Spotlight Auto-Creation: Created new Spotlight (${savedSpotlight._id}) with ${memberIds.length} member(s).`);
+    let savedSpotlight: Spotlight;
+    if (spotlight) {
+      const existingMembers = new Set(spotlight.members.map(m => m.toString()));
+      for (const mId of memberIds) {
+        if (!existingMembers.has(mId.toString())) {
+          spotlight.members.push(mId);
+        }
+      }
+      spotlight.status = SpotlightStatus.ACTIVE;
+      savedSpotlight = await this.spotlightRepo.save(spotlight);
+    } else {
+      spotlight = new Spotlight();
+      spotlight.members = memberIds;
+      spotlight.scheduleDate = todayStart;
+      spotlight.status = SpotlightStatus.ACTIVE;
+      spotlight.isDeleted = false;
+      savedSpotlight = await this.spotlightRepo.save(spotlight);
+    }
+
+    console.log(`✅ Spotlight Auto-Creation: Updated/Created Spotlight (${savedSpotlight._id}) with ${savedSpotlight.members.length} member(s).`);
 
     // Update pending requests to APPROVED and set assignedDate
     const requestIds = pendingRequests.map(r => r._id);
@@ -93,47 +146,35 @@ export class SpotlightRequestCronService {
       {
         $set: {
           status: SpotlightRequestStatus.APPROVED,
-          assignedDate: today
+          assignedDate: todayStart
         }
       }
     );
 
-    // Create SpotlightHistory record & send Push Notification for each member
+    // Create SpotlightHistory record for each member
     for (const reqRecord of pendingRequests) {
       try {
         const history = new SpotlightHistory();
         history.memberId = reqRecord.memberId;
         history.action = SpotlightHistoryAction.ASSIGNED;
-        history.scheduleDate = today;
+        history.scheduleDate = todayStart;
         history.moduleId = savedSpotlight._id;
         history.msg = "Auto-assigned in daily spotlight from pending request.";
         await this.spotlightHistoryRepo.save(history);
-
-        // Push notification to member if fcmToken exists
-        // const member = await this.memberRepo.findOneBy({ _id: reqRecord.memberId, isDeleted: false });
-        // if (member?.fcmToken) {
-        //   await insertPushNotification({
-        //     token: member.fcmToken,
-        //     subject: "Spotlight Approved",
-        //     content: "Your spotlight request has been approved and is active today!",
-        //     moduleName: NotificationModule.SPOTLIGHT,
-        //     moduleId: savedSpotlight._id.toString(),
-        //     receiverId: reqRecord.memberId.toString()
-        //   });
-        // }
       } catch (err: any) {
-        console.error(`Failed history/notification for member ${reqRecord.memberId}:`, err.message);
+        console.error(`Failed history for member ${reqRecord.memberId}:`, err.message);
       }
     }
+
+    return savedSpotlight;
   }
 
   /**
    * Soft-deletes pending spotlight requests that were created
-   * more than 48 hours ago and are still active.
+   * more than 48 hours ago and are still pending.
    */
   static async softDeleteExpiredRequests() {
-    const fortyEightHoursAgo = new Date();
-    fortyEightHoursAgo.setHours(fortyEightHoursAgo.getHours() - 48);
+    const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
 
     const result = await this.requestRepo.updateMany(
       {
@@ -151,5 +192,6 @@ export class SpotlightRequestCronService {
     } else {
       console.log("⏭️  Spotlight Request Cleanup: No expired pending requests found.");
     }
+    return result;
   }
 }
