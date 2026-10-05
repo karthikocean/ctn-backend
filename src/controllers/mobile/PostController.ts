@@ -191,6 +191,9 @@ export class MobilePostController {
       post.memberId = memberObjectId;
       post.isDeleted = false;
       post.isActive = true;
+      post.status = "active";
+      post.responsedCount = 0;
+      post.sharedCount = 0;
 
       // Convert stateIds / regionIds string arrays/objects to ObjectId arrays
       if (Array.isArray(inputStateIds)) {

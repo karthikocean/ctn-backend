@@ -239,7 +239,23 @@ export class PostController {
       }
 
       if (status) {
-        where.status = status;
+        const normStatus = String(status).toLowerCase();
+        if (normStatus === "active") {
+          where.$or = [
+            { status: "active" },
+            { status: { $exists: false }, isActive: { $ne: false } },
+            { status: null, isActive: { $ne: false } }
+          ];
+          delete where.status;
+        } else if (normStatus === "inactive") {
+          where.$or = [
+            { status: "inactive" },
+            { isActive: false }
+          ];
+          delete where.status;
+        } else {
+          where.status = status;
+        }
       }
 
       if (search) {
@@ -279,6 +295,8 @@ export class PostController {
 
       const data = posts.map(p => ({
         ...p,
+        status: p.status || (p.isActive === false ? "inactive" : "active"),
+        responsedCount: p.responsedCount || 0,
         member: memberMap.get(p.memberId.toString()) || null
       }));
 
@@ -512,6 +530,7 @@ export class PostController {
       if (!post) throw new NotFoundError("Post not found");
 
       post.status = body.status;
+      post.isActive = body.status === "active";
       if (body.reason) {
         post.statusReason = body.reason;
       } else {
