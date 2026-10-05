@@ -30,6 +30,7 @@ import { canAccess } from "../../middlewares/PermissionMiddleware";
 import { franchiseFilter } from "../../middlewares/FranchiseFilterMiddleware";
 import { insertPushNotification } from "../../services/pushnotification.service";
 import { NotificationModule } from "../../entity/PushNotifications";
+import { SpotlightCronService } from "../../services/spotlightCron.service";
 
 @JsonController("/spotlights")
 @UseBefore(AuthMiddleware, franchiseFilter)
@@ -67,7 +68,7 @@ export class SpotlightController {
       const date = new Date(data.scheduleDate);
       date.setMinutes(date.getMinutes() + 330); // Adjust for 5.30 hours timezone difference
       spotlight.scheduleDate = date;
-      spotlight.status = data.status || spotlight.status;
+      spotlight.status = data.status || (date <= SpotlightCronService.getIstEndOfDay() ? SpotlightStatus.ACTIVE : spotlight.status);
       spotlight.isDeleted = false;
       spotlight.createdBy = new ObjectId(req.user.userId);
       spotlight.updatedBy = new ObjectId(req.user.userId);
@@ -551,7 +552,7 @@ export class SpotlightController {
           spotlight = new Spotlight();
           spotlight.members = [request.memberId];
           spotlight.scheduleDate = date;
-          spotlight.status = (body.status as SpotlightStatus) || SpotlightStatus.SCHEDULE;
+          spotlight.status = (body.status as SpotlightStatus) || (date <= SpotlightCronService.getIstEndOfDay() ? SpotlightStatus.ACTIVE : SpotlightStatus.SCHEDULE);
           spotlight.isDeleted = false;
           spotlight.createdBy = new ObjectId(req.user.userId);
           spotlight.updatedBy = new ObjectId(req.user.userId);
@@ -818,7 +819,11 @@ export class SpotlightController {
         date.setMinutes(date.getMinutes() + 330); // Adjust for 5.30 hours timezone difference
         spotlight.scheduleDate = date;
       }
-      if (data.status) spotlight.status = data.status;
+      if (data.status) {
+        spotlight.status = data.status;
+      } else if (data.scheduleDate && spotlight.status === SpotlightStatus.SCHEDULE && spotlight.scheduleDate <= SpotlightCronService.getIstEndOfDay()) {
+        spotlight.status = SpotlightStatus.ACTIVE;
+      }
       spotlight.updatedBy = new ObjectId(req.user.userId);
 
       const saved = await this.spotlightRepo.save(spotlight);
