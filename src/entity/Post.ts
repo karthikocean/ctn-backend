@@ -62,10 +62,10 @@ export class PostModel {
     memberId!: ObjectId;
 
   @Column({ default: 0 })
-    responsedCount!: number;
+    responsedCount: number = 0;
 
   @Column({ default: 0 })
-    sharedCount!: number;
+    sharedCount: number = 0;
 
   @Column({ nullable: true })
     stateIds?: ObjectId[];
@@ -86,7 +86,7 @@ export class PostModel {
     isActive!: boolean;
 
   @Column({ default: "active" })
-    status!: string;
+    status: string = "active";
 
   @Column({ nullable: true })
     statusReason?: string;
