@@ -17,5 +17,12 @@
   },
   "logo_url": "https://api.trustednetwork.in/assets/logo.png",
   "contact_email": "support@trustednetwork.in",
-  "legal_info_url": "https://trustednetwork.in/privacy"
+  "legal_info_url": "https://trustednetwork.in/privacy",
+  "extensions": {
+    "com.openai": {
+      "review": {
+        "demo_recording_url": "https://api.trustednetwork.in/review/trusted-network-walkthrough.mov"
+      }
+    }
+  }
 }
