@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "trusted",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Business networking with Trusted Network",
   "author": {
     "name": "Trusted Network",
@@ -18,16 +18,21 @@
     "com.openai": {
       "interface": {
         "displayName": "Trusted Network",
-        "shortDescription": "Connect with business professionals",
-        "longDescription": "Use Trusted Network through ChatGPT to discover business members, view professional network activity, and create and manage posts.",
+        "shortDescription": "Business Networking",
+        "longDescription": "Use Trusted Network to discover business members, explore professional network activity, and create and manage business posts.",
         "developerName": "Trusted Network",
         "category": "Productivity",
         "websiteURL": "https://trustednetwork.in",
-        "privacyPolicyURL": "https://trustednetwork.in/privacy",
+        "supportURL": "https://trustednetwork.in",
+        "privacyPolicyURL": "https://trustednetwork.in/privacy-policy/",
+        "termsOfServiceURL": "https://trustednetwork.in/terms-condition/",
         "defaultPrompt": [
-          "Use Trusted Network to help me discover relevant business professionals.",
-          "Help me create a professional post using Trusted Network."
-        ]
+          "Help me discover relevant business professionals on Trusted Network.",
+          "Help me draft a professional business post."
+        ],
+        "logo": "./assets/logo.png",
+        "logoDark": "./assets/logo-dark.png",
+        "composerIcon": "./assets/composer-icon.png"
       },
       "review": {
         "demo_recording_url": "https://api.trustednetwork.in/review/trusted-network-walkthrough.mov"
