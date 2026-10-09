@@ -80,20 +80,38 @@ const TARGET_MEMBER_ID = new ObjectId().toString();
 
 type ToolHandler = (args: any) => Promise<any>;
 
-// Override McpServer.tool to capture handlers
+// Override McpServer.tool to capture handlers and tool metadata
 jest.mock("@modelcontextprotocol/sdk/server/mcp.js", () => {
   return {
     McpServer: class MockMcpServer {
       tool(name: string, ...args: any[]) {
         const handler = args.find((a: any) => typeof a === "function");
+        const annotations = args.find(
+          (a: any) => typeof a === "object" && a !== null && ("readOnlyHint" in a || "destructiveHint" in a)
+        );
+        const description = typeof args[0] === "string" ? args[0] : undefined;
         if ((global as any).__mcpToolRegistry) {
           (global as any).__mcpToolRegistry.set(name, handler);
+        }
+        if ((global as any).__mcpToolAnnotations) {
+          (global as any).__mcpToolAnnotations.set(name, annotations);
+        }
+        if ((global as any).__mcpToolDescriptions) {
+          (global as any).__mcpToolDescriptions.set(name, description);
         }
       }
       connect = jest.fn();
     },
   };
 });
+
+function getToolAnnotations(name: string): any {
+  return (global as any).__mcpToolAnnotations?.get(name);
+}
+
+function getToolDescription(name: string): string | undefined {
+  return (global as any).__mcpToolDescriptions?.get(name);
+}
 
 async function callTool(name: string, args: any): Promise<any> {
   const registry: Map<string, ToolHandler> = (global as any).__mcpToolRegistry;
@@ -108,6 +126,8 @@ async function callTool(name: string, args: any): Promise<any> {
 // Build server and register all tools
 beforeAll(() => {
   (global as any).__mcpToolRegistry = new Map<string, ToolHandler>();
+  (global as any).__mcpToolAnnotations = new Map<string, any>();
+  (global as any).__mcpToolDescriptions = new Map<string, string>();
   createMcpServer(() => MEMBER_ID);
 });
 
@@ -484,6 +504,16 @@ describe("MCP Tools", () => {
 
   // ── edit_post ──────────────────────────────────────────────────────────────
   describe("edit_post", () => {
+    it("has corrected annotations (readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false)", () => {
+      const annotations = getToolAnnotations("edit_post");
+      expect(annotations).toEqual({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
+    });
+
     it("updates post title and description", async () => {
       const updatedPost = { _id: POST_ID, title: "Updated Title", description: "Updated desc" };
       mockApi.editPost.mockResolvedValue(updatedPost);
@@ -521,6 +551,68 @@ describe("MCP Tools", () => {
       mockApi.editPost.mockRejectedValue(new McpPermissionError("You do not have permission to perform this action."));
 
       const result = await callTool("edit_post", { postId: POST_ID, title: "Hack" });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(result.isError).toBe(true);
+      expect(parsed.error).toBe("PERMISSION_DENIED");
+    });
+  });
+
+  // ── edit_promotion ─────────────────────────────────────────────────────────
+  describe("edit_promotion", () => {
+    it("has corrected annotations (readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false)", () => {
+      const annotations = getToolAnnotations("edit_promotion");
+      expect(annotations).toEqual({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
+    });
+
+    it("updates promotion title and description", async () => {
+      const updatedPromo = { _id: POST_ID, title: "Special Deal", description: "Updated promo description" };
+      mockApi.editPost.mockResolvedValue(updatedPromo);
+
+      const result = await callTool("edit_promotion", {
+        promotionId: POST_ID,
+        title: "Special Deal",
+        description: "Updated promo description",
+      });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.message).toMatch(/promotion updated successfully/i);
+      expect(mockApi.editPost).toHaveBeenCalledWith(MEMBER_ID, POST_ID, {
+        title: "Special Deal",
+        description: "Updated promo description",
+        location: undefined,
+        period: undefined,
+      });
+    });
+
+    it("calls editPost with memberId from context — not from args", async () => {
+      mockApi.editPost.mockResolvedValue({ _id: POST_ID });
+
+      await callTool("edit_promotion", { promotionId: POST_ID, title: "New Title" });
+
+      expect(mockApi.editPost).toHaveBeenCalledWith(MEMBER_ID, POST_ID, expect.any(Object));
+    });
+
+    it("returns error when no update fields are provided", async () => {
+      const result = await callTool("edit_promotion", { promotionId: POST_ID });
+
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.error).toBe("VALIDATION_ERROR");
+      expect(mockApi.editPost).not.toHaveBeenCalled();
+    });
+
+    it("returns PERMISSION_DENIED when editing another member's promotion", async () => {
+      const { McpPermissionError } = await import("../src/mcp/utils/errors");
+      mockApi.editPost.mockRejectedValue(new McpPermissionError("You do not have permission to perform this action."));
+
+      const result = await callTool("edit_promotion", { promotionId: POST_ID, title: "Hack" });
       const parsed = JSON.parse(result.content[0].text);
 
       expect(result.isError).toBe(true);
@@ -609,6 +701,23 @@ describe("MCP Tools", () => {
         title: "Updated",
         memberId: attackerMemberId, // Should be ignored
       });
+
+      expect(mockApi.editPost).toHaveBeenCalledWith(
+        MEMBER_ID,
+        POST_ID,
+        expect.not.objectContaining({ memberId: attackerMemberId })
+      );
+    });
+
+    it("edit_promotion does not accept memberId in args", async () => {
+      mockApi.editPost.mockResolvedValue({ _id: POST_ID });
+      const attackerMemberId = new ObjectId().toString();
+
+      await callTool("edit_promotion", {
+        promotionId: POST_ID,
+        title: "Updated Promo",
+        memberId: attackerMemberId, // Should be ignored
+      } as any);
 
       expect(mockApi.editPost).toHaveBeenCalledWith(
         MEMBER_ID,
