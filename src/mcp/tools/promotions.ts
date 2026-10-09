@@ -200,7 +200,7 @@ export function registerPromotionTools(server: McpServer, getMemberId: () => str
   // 4. edit_promotion
   server.tool(
     "edit_promotion",
-    "Edit an existing promotion that you posted on Trusted Network. Ownership check is enforced by the backend.",
+    "Edit an existing promotion that you posted on Trusted Network. You can update the title, description, location, or validity period. This permanently updates the promotion content in place. Ownership check is enforced by the backend.",
     {
       promotionId: z.string().min(24).max(24).describe("The 24-character ObjectId of the promotion post"),
       title: z.string().min(1).max(500).optional().describe("Updated promotion title"),
@@ -210,8 +210,9 @@ export function registerPromotionTools(server: McpServer, getMemberId: () => str
     },
     {
       readOnlyHint: false,
-      openWorldHint: false,
-      destructiveHint: false
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false
     },
     async ({ promotionId, title, description, location, period }) => {
       const memberId = getMemberId();

@@ -234,7 +234,7 @@ Post types:
   // ── edit_post ──────────────────────────────────────────────────────────────
   server.tool(
     "edit_post",
-    "Edit an existing post you own on Trusted Network. You can update the title, description, location, period, or requirementVisibility. You can only edit your own posts — the ownership check is enforced by the backend.",
+    "Edit an existing post you own on Trusted Network. You can update the title, description, location, period, or requirementVisibility. This permanently updates the post content in place. You can only edit your own posts — the ownership check is enforced by the backend.",
     {
       postId: z.string().min(24).max(24).describe("The 24-character MongoDB ObjectId of the post to edit"),
       title: z.preprocess((val) => (!val || val === "" ? undefined : val), z.string().min(1).max(500).optional()).describe("New post title"),
@@ -248,8 +248,9 @@ Post types:
     },
     {
       readOnlyHint: false,
-      openWorldHint: false,
-      destructiveHint: false
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false
     },
     async ({ postId, title, description, location, period, requirementVisibility }) => {
       const memberId = getMemberId();
