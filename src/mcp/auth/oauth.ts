@@ -7,7 +7,8 @@
  *  - GET  /.well-known/jwks.json                   (Public JWKS - RFC 7517)
  *  - POST /oauth/register                          (Dynamic Client Registration - RFC 7591)
  *  - GET  /oauth/authorize                         (Login & Consent UI)
- *  - POST /oauth/login                             (Mobile + PIN Authentication)
+ *  - GET  /oauth/login                             (Dedicated OpenAI Reviewer Login UI)
+ *  - POST /oauth/login                             (Mobile + PIN Authentication & Reviewer Verification)
  *  - POST /oauth/consent                           (Consent Approval / Denial)
  *  - POST /oauth/token                             (Token Exchange with PKCE S256 verification)
  *  - POST /oauth/revoke                            (Token Revocation - RFC 7009)
@@ -294,20 +295,80 @@ export function createOAuthRouter(): Router {
   });
 
   /**
-   * 6. CTN Member Login (Step 8)
+   * Dedicated OpenAI Reviewer Login Page
+   * GET /oauth/login
+   *
+   * Renders the login UI in standalone verification mode.
+   * Reviewers can verify demo credentials without SMS OTP or MFA.
+   * This endpoint NEVER issues authorization codes, access tokens, or refresh tokens.
+   */
+  router.get("/oauth/login", (_req: Request, res: Response) => {
+    return res.send(renderAuthPage({
+      isStandalone: true
+    }));
+  });
+
+  /**
+   * 6. CTN Member Login (Step 8 & Standalone Reviewer Verification)
    * POST /oauth/login
    */
   router.post("/oauth/login", async (req: Request, res: Response) => {
     const { identifier, pin, state } = req.body as Record<string, string>;
 
-    if (!state || !identifier || !pin) {
+    if (!identifier || !pin) {
       return res.status(400).json({
         success: false,
         error: "invalid_request",
-        error_description: "Missing required fields"
+        error_description: "Missing required credentials (identifier and pin)"
       });
     }
 
+    // Standalone Reviewer Verification Mode (no OAuth transaction state)
+    // Validates credentials without issuing authorization codes or tokens
+    if (!state) {
+      try {
+        const response = await axios.post(
+          `${mcpConfig.apiUrl}/mobile-api/auth/login-pin`,
+          { identifier: identifier.trim(), pin }
+        );
+
+        const loginData = response.data;
+        const member = loginData?.data;
+        const memberId = member?._id || member?.member?._id;
+
+        if (!loginData?.success || !memberId) {
+          throw new Error(loginData?.message || "Invalid credentials");
+        }
+
+        const fullName = member.fullName || member.name || "Member";
+        const mobileNumber = member.mobileNumber || member.phone || "";
+
+        logger.info(JSON.stringify({
+          event: "STANDALONE_REVIEWER_LOGIN_VERIFIED",
+          userId: memberId.toString(),
+          timestamp: new Date().toISOString()
+        }), CTX);
+
+        // Security requirement: Standalone route never issues tokens or codes
+        return res.json({
+          success: true,
+          standalone: true,
+          member: {
+            fullName,
+            mobileNumber
+          }
+        });
+      } catch (err: any) {
+        const msg = err?.response?.data?.message || err?.message || "Invalid mobile number or PIN";
+        return res.status(401).json({
+          success: false,
+          error: "access_denied",
+          error_description: msg
+        });
+      }
+    }
+
+    // OAuth Authorization Flow (state provided)
     const txRaw = await appRedis.get(`${AUTH_TX_PREFIX}${state}`);
     if (!txRaw) {
       return res.status(400).json({
@@ -329,7 +390,7 @@ export function createOAuthRouter(): Router {
       const memberId = member?._id || member?.member?._id;
 
       if (!loginData?.success || !memberId) {
-        throw new Error("Invalid credentials");
+        throw new Error(loginData?.message || "Invalid credentials");
       }
 
       // Update auth transaction with authenticated CTN member info
@@ -644,17 +705,23 @@ function escapeHtml(str: string): string {
  * Renders the clean Trusted Network OAuth login and consent UI.
  */
 function renderAuthPage(data: {
-  state: string;
-  redirectUri: string;
-  scopes: string[];
-  clientId: string;
+  state?: string;
+  redirectUri?: string;
+  scopes?: string[];
+  clientId?: string;
+  isStandalone?: boolean;
 }): string {
+  const isStandalone = !!data.isStandalone;
+  const state = data.state || "";
+  const redirectUri = data.redirectUri || "";
+  const scopes = data.scopes || [];
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Trusted Network — Connect with ChatGPT</title>
+  <title>${isStandalone ? "Trusted Network — Reviewer Verification" : "Trusted Network — Connect with ChatGPT"}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -804,12 +871,12 @@ function renderAuthPage(data: {
 <body>
   <div class="card">
     <div style="text-align:center;">
-      <span class="badge">Trusted Network AI Integration</span>
+      <span class="badge">${isStandalone ? "Reviewer Verification Portal" : "Trusted Network AI Integration"}</span>
     </div>
 
     <div class="logo">
-      <h1>Connect with ChatGPT</h1>
-      <p id="subheading">Log in to your Trusted Network account to grant permissions to ChatGPT.</p>
+      <h1>${isStandalone ? "OpenAI Reviewer Login" : "Connect with ChatGPT"}</h1>
+      <p id="subheading">${isStandalone ? "Sign in with dedicated reviewer demo credentials to verify account access." : "Log in to your Trusted Network account to grant permissions to ChatGPT."}</p>
     </div>
 
     <div class="error" id="error"></div>
@@ -817,17 +884,33 @@ function renderAuthPage(data: {
     <!-- Screen 1: Mobile + PIN Login -->
     <div id="login-screen">
       <form id="login-form">
-        <label for="identifier">Mobile Number</label>
+        <label for="identifier">${isStandalone ? "Reviewer Mobile Number" : "Mobile Number"}</label>
         <input type="text" id="identifier" name="identifier" placeholder="e.g. 9876543210" autocomplete="tel" required>
 
         <label for="pin">PIN</label>
-        <input type="password" id="pin" name="pin" placeholder="Enter your 4-digit PIN" maxlength="8" autocomplete="current-password" required>
+        <input type="password" id="pin" name="pin" placeholder="Enter 4-digit PIN" maxlength="8" autocomplete="current-password" required>
 
-        <button type="submit" class="btn-primary" id="loginBtn">Continue</button>
+        <button type="submit" class="btn-primary" id="loginBtn">${isStandalone ? "Verify Credentials" : "Continue"}</button>
       </form>
     </div>
 
-    <!-- Screen 2: Consent Form -->
+    ${isStandalone ? `
+    <!-- Screen 2 (Standalone): Verified Confirmation -->
+    <div id="verified-screen" style="display: none;">
+      <div class="user-pill" style="border-color: #10b981; background: rgba(16, 185, 129, 0.1);">
+        <span style="color: #10b981; font-weight: 600; font-size: 13px; display: block; margin-bottom: 6px;">✓ Credentials Verified</span>
+        Connected as: <strong id="verifiedName">Member</strong>
+        <span id="verifiedMobile" style="display:block; font-size:12px; color:#94a3b8; margin-top:2px;"></span>
+      </div>
+      <div style="background: #090d16; border: 1px solid #334155; border-radius: 10px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #cbd5e1; line-height: 1.5;">
+        <p style="margin-bottom: 8px;"><strong>Reviewer Demo Account Active:</strong></p>
+        <p style="color: #94a3b8;">This dedicated account is configured with synthetic demo records for MCP testing.</p>
+        <p style="color: #94a3b8; margin-top: 8px;">To test MCP tools directly in ChatGPT, complete the connector authorization flow.</p>
+      </div>
+      <button type="button" class="btn-secondary" onclick="window.location.reload()">Sign In Again</button>
+    </div>
+    ` : `
+    <!-- Screen 2 (OAuth): Consent Form -->
     <div id="consent-screen" style="display: none;">
       <div class="user-pill" id="userPill">
         Connected as: <strong id="userName">Member</strong>
@@ -837,18 +920,20 @@ function renderAuthPage(data: {
       <div class="scope-list">
         <h3>Permissions requested</h3>
         <ul>
-          ${data.scopes.map((s) => `<li><span class="check">✓</span> ${escapeHtml(getScopeDescription(s))}</li>`).join("")}
+          ${scopes.map((s) => `<li><span class="check">✓</span> ${escapeHtml(getScopeDescription(s))}</li>`).join("")}
         </ul>
       </div>
 
       <button type="button" class="btn-primary" id="allowBtn">Allow Access</button>
       <button type="button" class="btn-secondary" id="denyBtn">Cancel</button>
     </div>
+    `}
   </div>
 
   <script>
-    const state = "${escapeHtml(data.state)}";
-    const redirectUri = "${escapeHtml(data.redirectUri)}";
+    const isStandalone = ${JSON.stringify(isStandalone)};
+    const state = "${escapeHtml(state)}";
+    const redirectUri = "${escapeHtml(redirectUri)}";
     const errEl = document.getElementById('error');
 
     function showError(msg) {
@@ -864,11 +949,9 @@ function renderAuthPage(data: {
       errEl.style.display = 'none';
 
       const fd = new FormData(e.target);
-      const payload = {
-        identifier: fd.get('identifier'),
-        pin: fd.get('pin'),
-        state: state
-      };
+      const payload = isStandalone
+        ? { identifier: fd.get('identifier'), pin: fd.get('pin') }
+        : { identifier: fd.get('identifier'), pin: fd.get('pin'), state: state };
 
       try {
         const res = await fetch('/oauth/login', {
@@ -878,71 +961,81 @@ function renderAuthPage(data: {
         });
         const resp = await res.json();
         if (resp.success) {
-          document.getElementById('userName').textContent = resp.member.fullName;
-          document.getElementById('userMobile').textContent = resp.member.mobileNumber ? ('+91 ' + resp.member.mobileNumber) : '';
-          document.getElementById('login-screen').style.display = 'none';
-          document.getElementById('consent-screen').style.display = 'block';
-          document.getElementById('subheading').textContent = 'ChatGPT is requesting access to your account.';
+          if (isStandalone) {
+            document.getElementById('verifiedName').textContent = resp.member.fullName;
+            document.getElementById('verifiedMobile').textContent = resp.member.mobileNumber ? ('+91 ' + resp.member.mobileNumber) : '';
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('verified-screen').style.display = 'block';
+            document.getElementById('subheading').textContent = 'Reviewer demo credentials verified successfully.';
+          } else {
+            document.getElementById('userName').textContent = resp.member.fullName;
+            document.getElementById('userMobile').textContent = resp.member.mobileNumber ? ('+91 ' + resp.member.mobileNumber) : '';
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('consent-screen').style.display = 'block';
+            document.getElementById('subheading').textContent = 'ChatGPT is requesting access to your account.';
+          }
         } else {
           showError(resp.error_description || 'Invalid mobile number or PIN.');
-          btn.textContent = 'Continue';
+          btn.textContent = isStandalone ? 'Verify Credentials' : 'Continue';
           btn.disabled = false;
         }
       } catch (err) {
         showError('Network error connecting to Trusted Network.');
-        btn.textContent = 'Continue';
+        btn.textContent = isStandalone ? 'Verify Credentials' : 'Continue';
         btn.disabled = false;
       }
     });
 
-    document.getElementById('allowBtn').addEventListener('click', async () => {
-      const btn = document.getElementById('allowBtn');
-      btn.textContent = 'Authorizing...';
-      btn.disabled = true;
-      errEl.style.display = 'none';
+    if (!isStandalone) {
+      document.getElementById('allowBtn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('allowBtn');
+        btn.textContent = 'Authorizing...';
+        btn.disabled = true;
+        errEl.style.display = 'none';
 
-      try {
-        const res = await fetch('/oauth/consent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state, action: 'allow' })
-        });
-        const resp = await res.json();
-        if (resp.redirect) {
-          window.location.href = resp.redirect;
-        } else {
-          showError(resp.error_description || 'Authorization failed.');
+        try {
+          const res = await fetch('/oauth/consent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state, action: 'allow' })
+          });
+          const resp = await res.json();
+          if (resp.redirect) {
+            window.location.href = resp.redirect;
+          } else {
+            showError(resp.error_description || 'Authorization failed.');
+            btn.textContent = 'Allow Access';
+            btn.disabled = false;
+          }
+        } catch (err) {
+          showError('Failed to complete authorization.');
           btn.textContent = 'Allow Access';
           btn.disabled = false;
         }
-      } catch (err) {
-        showError('Failed to complete authorization.');
-        btn.textContent = 'Allow Access';
-        btn.disabled = false;
-      }
-    });
+      });
 
-    document.getElementById('denyBtn').addEventListener('click', async () => {
-      const btn = document.getElementById('denyBtn');
-      btn.textContent = 'Cancelling...';
-      btn.disabled = true;
+      document.getElementById('denyBtn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('denyBtn');
+        btn.textContent = 'Cancelling...';
+        btn.disabled = true;
 
-      try {
-        const res = await fetch('/oauth/consent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state, action: 'deny' })
-        });
-        const resp = await res.json();
-        if (resp.redirect) {
-          window.location.href = resp.redirect;
-        } else {
+        try {
+          const res = await fetch('/oauth/consent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state, action: 'deny' })
+          });
+          const resp = await res.json();
+          if (resp.redirect) {
+            window.location.href = resp.redirect;
+          } else {
+            window.location.href = redirectUri + '?error=access_denied&error_description=User%20denied%20consent&state=' + encodeURIComponent(state);
+          }
+        } catch {
           window.location.href = redirectUri + '?error=access_denied&error_description=User%20denied%20consent&state=' + encodeURIComponent(state);
         }
-      } catch {
-        window.location.href = redirectUri + '?error=access_denied&error_description=User%20denied%20consent&state=' + encodeURIComponent(state);
-      }
-    });
+      });
+    }
   </script>
 </body>
 </html>`;

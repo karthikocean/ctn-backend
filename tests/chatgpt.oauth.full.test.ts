@@ -709,4 +709,75 @@ describe("Step 31: Comprehensive OAuth 2.1 & MCP Automated Tests (A through Z)",
     expect(res.body.client_name).toBe("ChatGPT Dynamic Connector");
     expect(res.body.redirect_uris).toEqual([CHATGPT_REDIRECT_URI]);
   });
+
+  // ── Standalone OpenAI Reviewer Login Route & Security Safeguards ─────────────
+  describe("Standalone OpenAI Reviewer Login Route & Security Safeguards", () => {
+    it("1. GET /oauth/login renders dedicated reviewer login UI with 200 OK", async () => {
+      const res = await request(app).get("/oauth/login");
+      expect(res.status).toBe(200);
+      expect(res.header["content-type"]).toContain("text/html");
+      expect(res.text).toContain("OpenAI Reviewer Login");
+      expect(res.text).toContain("Reviewer Verification Portal");
+      expect(res.text).toContain("Reviewer Mobile Number");
+      expect(res.text).toContain("Verify Credentials");
+      // Must not display OAuth consent screen on standalone reviewer page
+      expect(res.text).not.toContain('id="consent-screen"');
+    });
+
+    it("2. POST /oauth/login standalone with valid reviewer credentials succeeds and NEVER issues tokens or codes", async () => {
+      const res = await request(app)
+        .post("/oauth/login")
+        .send({
+          identifier: "9876543210",
+          pin: "1234"
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.standalone).toBe(true);
+      expect(res.body.member).toBeDefined();
+      expect(res.body.member.fullName).toBe("Test Member A");
+      expect(res.body.member.mobileNumber).toBe("9876543210");
+
+      // Critical OAuth Security Safeguard: Standalone login route must NEVER issue tokens or codes
+      expect(res.body.code).toBeUndefined();
+      expect(res.body.access_token).toBeUndefined();
+      expect(res.body.refresh_token).toBeUndefined();
+      expect(res.body.token_type).toBeUndefined();
+      expect(res.body.id_token).toBeUndefined();
+    });
+
+    it("3. POST /oauth/login standalone with invalid reviewer PIN is rejected with 401", async () => {
+      const res = await request(app)
+        .post("/oauth/login")
+        .send({
+          identifier: "9876543210",
+          pin: "9999"
+        });
+
+      expect(res.status).toBe(401);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toBe("access_denied");
+      expect(res.body.error_description).toContain("Invalid mobile number or PIN");
+      expect(res.body.access_token).toBeUndefined();
+    });
+
+    it("4. POST /oauth/login with missing identifier or pin returns 400 invalid_request", async () => {
+      const res = await request(app)
+        .post("/oauth/login")
+        .send({
+          identifier: "9876543210"
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toBe("invalid_request");
+    });
+
+    it("5. GET /oauth/authorize still strictly rejects unparameterized requests", async () => {
+      const res = await request(app).get("/oauth/authorize");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("unsupported_response_type");
+    });
+  });
 });
