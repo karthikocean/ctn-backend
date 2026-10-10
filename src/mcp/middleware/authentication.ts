@@ -28,8 +28,11 @@ declare global {
   }
 }
 
-export function getProtectedResourceMetadataUrl(): string {
+export function getProtectedResourceMetadataUrl(req?: Request): string {
   const base = mcpConfig.publicUrl.replace(/\/+$/, "");
+  if (req && (req.originalUrl?.includes("/openai/") || req.baseUrl?.includes("/openai/") || req.path?.includes("/openai/"))) {
+    return `${base}/openai/.well-known/oauth-protected-resource`;
+  }
   return `${base}/.well-known/oauth-protected-resource`;
 }
 
@@ -49,7 +52,7 @@ function safeSetHeader(res: Response, header: string, value: string): void {
 
 export async function mcpAuthMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
-  const resourceMetadataUrl = getProtectedResourceMetadataUrl();
+  const resourceMetadataUrl = getProtectedResourceMetadataUrl(req);
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     safeSetHeader(res, "WWW-Authenticate", `Bearer resource_metadata="${resourceMetadataUrl}"`);
