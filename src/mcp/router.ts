@@ -64,9 +64,17 @@ export function createMcpRouter(
       const mcpServer = createMcpServer(() => memberId);
 
       // Connect server to transport (fire and forget — transport handles lifecycle)
-      mcpServer.connect(transport).catch((err: Error) => {
+
+      try {
+        await mcpServer.connect(transport);
+      } catch (err) {
         logger.error("MCP server connect error", err, CTX);
-      });
+        res.status(500).json({
+          error: "MCP server connection failed"
+        });
+        return;
+      }
+
     }
 
     await transport.handleRequest(req, res, req.body);
