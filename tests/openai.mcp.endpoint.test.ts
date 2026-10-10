@@ -412,4 +412,136 @@ describe("OpenAI Plugin MCP Endpoint (/openai/mcp)", () => {
       expect(listRes.body.result.tools.length).toBeGreaterThan(0);
     });
   });
+
+  // ── 6. Dedicated /trusted-network/mcp Endpoint ────────────────────────────
+  describe("6. Dedicated /trusted-network/mcp Endpoint", () => {
+    let tnAccessToken: string;
+    let tnSessionId: string;
+
+    beforeAll(async () => {
+      const tnTokens = await issueMcpTokens(
+        MEMBER_ID,
+        TEST_SCOPES,
+        "chatgpt-mcp",
+        "https://mcp.trustednetwork.in/trusted-network/mcp"
+      );
+      tnAccessToken = tnTokens.accessToken;
+    });
+
+    it("GET /.well-known/oauth-protected-resource/trusted-network/mcp returns 200 with trusted-network/mcp resource", async () => {
+      const res = await request(app).get("/.well-known/oauth-protected-resource/trusted-network/mcp");
+      expect(res.status).toBe(200);
+      expect(res.body.resource).toBe("https://mcp.trustednetwork.in/trusted-network/mcp");
+      expect(res.body.authorization_servers).toEqual(["https://api.trustednetwork.in"]);
+      expect(res.body.scopes_supported).toEqual(expect.arrayContaining(["profile:read", "posts:read"]));
+    });
+
+    it("POST /trusted-network/mcp without token returns 401 with WWW-Authenticate challenge", async () => {
+      const res = await request(app)
+        .post("/trusted-network/mcp")
+        .send({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize"
+        });
+
+      expect(res.status).toBe(401);
+      expect(res.headers["www-authenticate"]).toContain('resource_metadata="https://mcp.trustednetwork.in/.well-known/oauth-protected-resource/trusted-network/mcp"');
+      expect(res.body.error).toBe("invalid_token");
+    });
+
+    it("GET /oauth/authorize accepts resource=https://mcp.trustednetwork.in/trusted-network/mcp", async () => {
+      const verifier = "test_code_verifier_long_enough_1234567890_abc";
+      const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+
+      const res = await request(app)
+        .get("/oauth/authorize")
+        .query({
+          response_type: "code",
+          client_id: "chatgpt-mcp",
+          redirect_uri: "https://chatgpt.com/connector_platform_oauth_redirect",
+          scope: "profile:read posts:read",
+          state: "state_tn_mcp_test",
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+          resource: "https://mcp.trustednetwork.in/trusted-network/mcp"
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("state_tn_mcp_test");
+    });
+
+    it("Initializes MCP session via POST /trusted-network/mcp", async () => {
+      const res = await request(app)
+        .post("/trusted-network/mcp")
+        .set("Authorization", `Bearer ${tnAccessToken}`)
+        .send({
+          jsonrpc: "2.0",
+          id: 20,
+          method: "initialize",
+          params: {
+            protocolVersion: "2024-11-05",
+            capabilities: {},
+            clientInfo: { name: "OpenAI-ChatGPT", version: "1.0.0" }
+          }
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.jsonrpc).toBe("2.0");
+      expect(res.body.result).toBeDefined();
+      expect(res.body.result.serverInfo.name).toBe("trusted-network-mcp");
+
+      tnSessionId = res.headers["mcp-session-id"];
+      expect(tnSessionId).toBeDefined();
+    });
+
+    it("Discovers tools (tools/list) via POST /trusted-network/mcp", async () => {
+      const res = await request(app)
+        .post("/trusted-network/mcp")
+        .set("Authorization", `Bearer ${tnAccessToken}`)
+        .set("Mcp-Session-Id", tnSessionId)
+        .send({
+          jsonrpc: "2.0",
+          id: 21,
+          method: "tools/list",
+          params: {}
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.result.tools).toBeDefined();
+      expect(res.body.result.tools.length).toBeGreaterThan(0);
+    });
+
+    it("Executes tool (get_my_profile) via POST /trusted-network/mcp", async () => {
+      const res = await request(app)
+        .post("/trusted-network/mcp")
+        .set("Authorization", `Bearer ${tnAccessToken}`)
+        .set("Mcp-Session-Id", tnSessionId)
+        .send({
+          jsonrpc: "2.0",
+          id: 22,
+          method: "tools/call",
+          params: {
+            name: "get_my_profile",
+            arguments: {}
+          }
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.result.content[0].type).toBe("text");
+      const profileData = JSON.parse(res.body.result.content[0].text);
+      expect(profileData.success).toBe(true);
+      expect(profileData.data.fullName).toBe("OpenAI Reviewer Demo");
+    });
+
+    it("Terminates session via DELETE /trusted-network/mcp", async () => {
+      const res = await request(app)
+        .delete("/trusted-network/mcp")
+        .set("Authorization", `Bearer ${tnAccessToken}`)
+        .set("Mcp-Session-Id", tnSessionId);
+
+      expect(res.status).toBe(200);
+    });
+  });
 });
+
