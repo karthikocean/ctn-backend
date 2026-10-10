@@ -22,8 +22,11 @@ export function createMcpRouter(
 ): Router {
   const router = Router();
   const transports = sharedTransports || new Map<string, StreamableHTTPServerTransport>();
-  const mcpPaths = ["/mcp", "/openai/mcp"];
-
+  const mcpPaths = [
+    "/mcp",
+    "/openai/mcp",
+    "/trusted-network/mcp",
+  ];
   router.post(mcpPaths, mcpAuthMiddleware, async (req: Request, res: Response) => {
     // Streamable HTTP transport specification requires both application/json and text/event-stream
     const accept = (req.headers["accept"] as string) || "";
