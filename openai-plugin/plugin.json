@@ -11,24 +11,25 @@
   "homepage": "https://trustednetwork.in",
   "keywords": [
     "business networking",
-    "professional network",
-    "business"
+    "professional networking",
+    "business professionals",
+    "business posts"
   ],
   "extensions": {
     "com.openai": {
       "interface": {
         "displayName": "Trusted Network",
         "shortDescription": "Business Networking",
-        "longDescription": "Use Trusted Network to discover business members, explore professional network activity, and create and manage business posts.",
+        "longDescription": "Trusted Network is a business networking platform that helps professionals discover business members, explore professional network activity, and create or manage business posts through ChatGPT.",
         "developerName": "Trusted Network",
-        "category": "Productivity",
+        "category": "Business & Operations",
         "websiteURL": "https://trustednetwork.in",
         "supportURL": "https://trustednetwork.in",
         "privacyPolicyURL": "https://trustednetwork.in/privacy-policy/",
         "termsOfServiceURL": "https://trustednetwork.in/terms-condition/",
         "defaultPrompt": [
           "Help me discover relevant business professionals on Trusted Network.",
-          "Help me draft a professional business post."
+          "Help me draft a professional business post for Trusted Network."
         ],
         "logo": "./assets/logo.png",
         "logoDark": "./assets/logo-dark.png",

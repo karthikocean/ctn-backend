@@ -48,30 +48,69 @@ function sanitizeString(val: any): string {
   return val.trim();
 }
 
+/**
+ * Validates whether the given resource identifier is a valid target on this server.
+ * Supports the canonical resource URL, /mcp, and the dedicated /openai/mcp endpoint.
+ */
+export function isValidOAuthResource(resource: string): boolean {
+  if (!resource) return false;
+  const canonical = mcpConfig.oauth.resource.replace(/\/+$/, "");
+  const normalized = resource.replace(/\/+$/, "");
+  return (
+    normalized === canonical ||
+    normalized === `${canonical}/mcp` ||
+    normalized === `${canonical}/openai/mcp`
+  );
+}
+
 export function createOAuthRouter(): Router {
   const router = Router();
 
   /**
-   * 1. Protected Resource Metadata (Step 3)
+   * 1. Protected Resource Metadata (RFC 9449 / MCP)
    * GET /.well-known/oauth-protected-resource
+   * GET /openai/.well-known/oauth-protected-resource
    */
-  router.get("/.well-known/oauth-protected-resource", (_req: Request, res: Response) => {
+  const handleProtectedResourceMetadata = (req: Request, res: Response) => {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Cache-Control", "public, max-age=3600");
+
+    const canonicalResource = mcpConfig.oauth.resource.replace(/\/+$/, "");
+    let resourceTarget = canonicalResource;
+
+    if (req.path.includes("openai") || req.originalUrl.includes("openai")) {
+      resourceTarget = `${canonicalResource}/openai/mcp`;
+    } else if (req.path.endsWith("/mcp") || req.originalUrl.endsWith("/mcp")) {
+      resourceTarget = `${canonicalResource}/mcp`;
+    } else if (typeof req.query.resource === "string") {
+      const qRes = req.query.resource.replace(/\/+$/, "");
+      if (isValidOAuthResource(qRes)) {
+        resourceTarget = qRes;
+      }
+    }
+
     return res.json({
-      resource: mcpConfig.oauth.resource,
+      resource: resourceTarget,
       authorization_servers: [
         mcpConfig.oauth.issuer
       ],
       scopes_supported: SUPPORTED_SCOPES
     });
-  });
+  };
+
+  // Protected Resource Metadata discovery routes (RFC 9449 / RFC 9728 / MCP specification)
+  router.get("/.well-known/oauth-protected-resource", handleProtectedResourceMetadata);
+  router.get("/.well-known/oauth-protected-resource/openai/mcp", handleProtectedResourceMetadata);
+  router.get("/.well-known/oauth-protected-resource/mcp", handleProtectedResourceMetadata);
+  router.get("/openai/.well-known/oauth-protected-resource", handleProtectedResourceMetadata);
+  router.get("/mcp/.well-known/oauth-protected-resource", handleProtectedResourceMetadata);
 
   /**
-   * 2. OAuth Authorization Server Metadata (Step 4)
+   * 2. OAuth Authorization Server Metadata & OpenID Configuration (RFC 8414 / OIDC Core)
    * GET /.well-known/oauth-authorization-server
+   * GET /.well-known/openid-configuration
    */
-  router.get("/.well-known/oauth-authorization-server", (_req: Request, res: Response) => {
+  const handleAuthServerMetadata = (_req: Request, res: Response) => {
     const issuer = mcpConfig.oauth.issuer;
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Cache-Control", "public, max-age=3600");
@@ -91,7 +130,12 @@ export function createOAuthRouter(): Router {
       token_endpoint_auth_methods_supported: ["none"],
       client_id_metadata_document_supported: true
     });
-  });
+  };
+
+  router.get("/.well-known/oauth-authorization-server", handleAuthServerMetadata);
+  router.get("/.well-known/openid-configuration", handleAuthServerMetadata);
+  router.get("/openai/.well-known/oauth-authorization-server", handleAuthServerMetadata);
+  router.get("/openai/.well-known/openid-configuration", handleAuthServerMetadata);
 
   /**
    * 3. Public JWKS (Step 30)
@@ -104,12 +148,13 @@ export function createOAuthRouter(): Router {
   });
 
   /**
-   * OpenAI Domain Verification Challenge Endpoint
+   * OpenAI Domain Verification Challenge Endpoints
    * GET /.well-known/openai-apps-challenge
+   * GET /.well-known/openai-apps
    * Returns ONLY the configured verification token as plain text.
    * No JSON, no HTML, no quotes, no extra whitespace.
    */
-  router.get("/.well-known/openai-apps-challenge", (_req: Request, res: Response) => {
+  const handleDomainVerification = (_req: Request, res: Response) => {
     const token = process.env.OPENAI_APPS_CHALLENGE_TOKEN;
     if (!token || !token.trim()) {
       logger.error("OPENAI_APPS_CHALLENGE_TOKEN environment variable is missing or empty. OpenAI domain verification cannot succeed.", CTX);
@@ -118,7 +163,11 @@ export function createOAuthRouter(): Router {
     }
     res.setHeader("Content-Type", "text/plain");
     return res.status(200).send(token.trim());
-  });
+  };
+
+  router.get("/.well-known/openai-apps-challenge", handleDomainVerification);
+  router.get("/.well-known/openai-apps", handleDomainVerification);
+  router.get("/openai/.well-known/openai-apps-challenge", handleDomainVerification);
 
   /**
    * 4. Dynamic Client Registration (Step 5)
@@ -237,14 +286,16 @@ export function createOAuthRouter(): Router {
 
     // 6. Validate resource parameter (Step 7)
     const canonicalResource = mcpConfig.oauth.resource.replace(/\/+$/, "");
+    let resolvedResource = canonicalResource;
     if (resource) {
       const normalizedResource = resource.replace(/\/+$/, "");
-      if (normalizedResource !== canonicalResource) {
+      if (!isValidOAuthResource(normalizedResource)) {
         return res.status(400).json({
           error: "invalid_target",
           error_description: `Unsupported resource: ${resource}. Expected ${canonicalResource}`
         });
       }
+      resolvedResource = normalizedResource;
     }
 
     // 7. Validate scopes
@@ -267,7 +318,7 @@ export function createOAuthRouter(): Router {
       state,
       codeChallenge: code_challenge,
       codeChallengeMethod: code_challenge_method,
-      resource: canonicalResource,
+      resource: resolvedResource,
       createdAt: Date.now()
     };
 

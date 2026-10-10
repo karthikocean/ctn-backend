@@ -25,7 +25,7 @@ import { registerPromotionTools } from "./tools/promotions";
  */
 export function createMcpServer(getMemberId: () => string): McpServer {
   const server = new McpServer({
-    name: "trusted-network",
+    name: "trusted-network-mcp",
     version: "1.0.0"
   });
 

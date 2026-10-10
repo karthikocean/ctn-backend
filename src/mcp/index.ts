@@ -27,8 +27,7 @@ import cors from "cors";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { mcpConfig } from "./config";
 import { createOAuthRouter } from "./auth/oauth";
-import { mcpAuthMiddleware } from "./middleware/authentication";
-import { createMcpServer } from "./server";
+import { createMcpRouter } from "./router";
 import logger from "../utils/logger";
 import { AppDataSource } from "../data-source";
 import { appRedis } from "../config/appRedis";
@@ -92,84 +91,21 @@ async function bootstrap() {
     });
   });
 
-  // ── MCP StreamableHTTP endpoint ────────────────────────────────────────────
+  // ── MCP StreamableHTTP endpoints (/mcp and /openai/mcp) ───────────────────
   // All MCP tool calls require a valid OAuth 2.1 Bearer token.
   // The memberId is extracted from the token and passed into each McpServer instance.
   // A new McpServer is created per-session to ensure complete isolation between users.
-
-  // In-memory session registry: sessionId -> McpServer transport
-  // In production this should be backed by Redis for multi-instance deployments.
-  // For now PM2 runs this in fork mode (single process) so in-memory is sufficient.
   const transports = new Map<string, StreamableHTTPServerTransport>();
-
-  app.post("/mcp", mcpAuthMiddleware, async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    const context = req.mcpContext!;
-
-    // Capture memberId at session creation time.
-    // This closure ensures the identity cannot change mid-session.
-    const memberId = context.memberId;
-
-    let transport = sessionId ? transports.get(sessionId) : undefined;
-
-    if (!transport) {
-      // Create a new session
-      transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => require("crypto").randomBytes(16).toString("hex"),
-        onsessioninitialized: (sid: string) => {
-          transports.set(sid, transport!);
-          logger.info(`MCP session created: ${sid} for member ${memberId}`, CTX);
-        }
-      });
-
-      // Create a per-session McpServer with the member's identity locked in
-      const mcpServer = createMcpServer(() => memberId);
-
-      // Connect server to transport (fire and forget — transport handles lifecycle)
-      mcpServer.connect(transport).catch((err: Error) => {
-        logger.error("MCP server connect error", err, CTX);
-      });
-    }
-
-    await transport.handleRequest(req, res, req.body);
-  });
-
-  app.get("/mcp", mcpAuthMiddleware, async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    if (!sessionId) {
-      res.status(400).json({ error: "Mcp-Session-Id header required for SSE stream" });
-      return;
-    }
-    const transport = transports.get(sessionId);
-    if (!transport) {
-      res.status(404).json({ error: "Session not found" });
-      return;
-    }
-    await transport.handleRequest(req, res);
-  });
-
-  app.delete("/mcp", mcpAuthMiddleware, async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    if (!sessionId) {
-      res.status(400).json({ error: "Mcp-Session-Id header required" });
-      return;
-    }
-    const transport = transports.get(sessionId);
-    if (transport) {
-      await transport.handleRequest(req, res, req.body);
-      transports.delete(sessionId);
-      logger.info(`MCP session destroyed: ${sessionId}`, CTX);
-    } else {
-      res.status(404).json({ error: "Session not found" });
-    }
-  });
+  app.use("/", createMcpRouter(transports));
 
   // ── Start listening ────────────────────────────────────────────────────────
   const port = mcpConfig.port;
   app.listen(port, () => {
     logger.info(`Trusted Network MCP server running on port ${port}`, CTX);
     logger.info(`MCP Endpoint: ${mcpConfig.publicUrl}/mcp`, CTX);
+    logger.info(`OpenAI MCP Endpoint: ${mcpConfig.publicUrl}/openai/mcp`, CTX);
     logger.info(`Protected Resource Metadata: ${mcpConfig.publicUrl}/.well-known/oauth-protected-resource`, CTX);
+    logger.info(`OpenAI Protected Resource Metadata: ${mcpConfig.publicUrl}/openai/.well-known/oauth-protected-resource`, CTX);
     logger.info(`OAuth Metadata: ${mcpConfig.oauth.issuer}/.well-known/oauth-authorization-server`, CTX);
     logger.info(`JWKS: ${mcpConfig.oauth.issuer}/.well-known/jwks.json`, CTX);
   });

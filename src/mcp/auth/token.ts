@@ -451,7 +451,7 @@ export async function consumeAuthCode(
     throw new Error("client_id mismatch");
   }
 
-  if (resource && data.resource && data.resource !== resource) {
+  if (resource && data.resource && data.resource.replace(/\/+$/, "") !== resource.replace(/\/+$/, "")) {
     throw new Error("resource mismatch");
   }
 
