@@ -208,10 +208,14 @@ export async function issueMcpTokens(
  * Validates an MCP OAuth access token.
  * Verifies signature (RS256 or HS256), issuer, audience, expiration, and active Redis session.
  */
-export async function validateMcpAccessToken(token: string): Promise<{
+export async function validateMcpAccessToken(
+  token: string,
+  expectedResource?: string
+): Promise<{
   memberId: string;
   scopes: string[];
   clientId?: string;
+  resource?: string;
 }> {
   let payload: McpTokenPayload;
 
@@ -245,6 +249,18 @@ export async function validateMcpAccessToken(token: string): Promise<{
     throw new Error("Token type mismatch: expected access token");
   }
 
+  const normalizeResource = (value?: string): string | undefined =>
+    value?.trim().replace(/\/+$/, "") || undefined;
+
+  if (expectedResource) {
+    const expected = normalizeResource(expectedResource);
+    const tokenResource = normalizeResource(payload.resource);
+
+    if (!expected || !tokenResource || tokenResource !== expected) {
+      throw new Error("Token resource mismatch");
+    }
+  }
+
   const memberId = payload.sub || payload.memberId;
   if (!memberId) {
     throw new Error("Token missing subject/memberId");
@@ -261,10 +277,19 @@ export async function validateMcpAccessToken(token: string): Promise<{
     throw new Error("Token integrity failure: member mismatch");
   }
 
+  if (
+    session.resource &&
+    payload.resource &&
+    normalizeResource(session.resource) !== normalizeResource(payload.resource)
+  ) {
+    throw new Error("Token resource/session mismatch");
+  }
+
   return {
     memberId,
     scopes: session.scopes || payload.scopes || (payload.scope ? payload.scope.split(" ") : []),
-    clientId: session.clientId || payload.client_id
+    clientId: session.clientId || payload.client_id,
+    resource: payload.resource
   };
 }
 

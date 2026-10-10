@@ -49,18 +49,25 @@ function sanitizeString(val: any): string {
 }
 
 /**
- * Validates whether the given resource identifier is a valid target on this server.
- * Supports the canonical resource URL, /mcp, and the dedicated /openai/mcp endpoint.
+ * Validates whether the given resource identifier is supported.
+ * Supports the canonical resource URL and all MCP endpoint paths.
  */
 export function isValidOAuthResource(resource: string): boolean {
-  if (!resource) return false;
+  if (!resource || typeof resource !== "string") {
+    return false;
+  }
+
   const canonical = mcpConfig.oauth.resource.replace(/\/+$/, "");
   const normalized = resource.replace(/\/+$/, "");
-  return (
-    normalized === canonical ||
-    normalized === `${canonical}/mcp` ||
-    normalized === `${canonical}/openai/mcp`
-  );
+
+  const supportedResources = [
+    canonical,
+    `${canonical}/mcp`,
+    `${canonical}/openai/mcp`,
+    `${canonical}/trusted-network/mcp`,
+  ];
+
+  return supportedResources.includes(normalized);
 }
 
 export function createOAuthRouter(): Router {
@@ -71,32 +78,86 @@ export function createOAuthRouter(): Router {
    * GET /.well-known/oauth-protected-resource
    * GET /openai/.well-known/oauth-protected-resource
    */
-  const handleProtectedResourceMetadata = (req: Request, res: Response) => {
+
+  /**
+   * Protected Resource Metadata (RFC 9728 / MCP)
+   */
+  const handleProtectedResourceMetadata = (
+    req: Request,
+    res: Response
+  ) => {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Cache-Control", "public, max-age=3600");
 
-    const canonicalResource = mcpConfig.oauth.resource.replace(/\/+$/, "");
+    const canonicalResource =
+      mcpConfig.oauth.resource.replace(/\/+$/, "");
+
+    const requestPath = req.path;
+    const originalUrl = req.originalUrl.split("?")[0];
+
     let resourceTarget = canonicalResource;
 
-    if (req.path.includes("openai") || req.originalUrl.includes("openai")) {
+    // Resolve the specific endpoint before the generic /mcp route.
+    if (
+      requestPath.includes("trusted-network/mcp") ||
+      originalUrl.includes("trusted-network/mcp")
+    ) {
+      resourceTarget = `${canonicalResource}/trusted-network/mcp`;
+    } else if (
+      requestPath.includes("openai") ||
+      originalUrl.includes("openai")
+    ) {
       resourceTarget = `${canonicalResource}/openai/mcp`;
-    } else if (req.path.endsWith("/mcp") || req.originalUrl.endsWith("/mcp")) {
+    } else if (
+      requestPath.endsWith("/mcp") ||
+      originalUrl.endsWith("/mcp")
+    ) {
       resourceTarget = `${canonicalResource}/mcp`;
     } else if (typeof req.query.resource === "string") {
-      const qRes = req.query.resource.replace(/\/+$/, "");
-      if (isValidOAuthResource(qRes)) {
-        resourceTarget = qRes;
+      const queryResource = req.query.resource.replace(/\/+$/, "");
+
+      if (isValidOAuthResource(queryResource)) {
+        resourceTarget = queryResource;
       }
     }
 
     return res.json({
       resource: resourceTarget,
-      authorization_servers: [
-        mcpConfig.oauth.issuer
-      ],
-      scopes_supported: SUPPORTED_SCOPES
+      authorization_servers: [mcpConfig.oauth.issuer],
+      scopes_supported: SUPPORTED_SCOPES,
     });
   };
+
+  // Protected Resource Metadata discovery routes.
+  router.get(
+    "/.well-known/oauth-protected-resource",
+    handleProtectedResourceMetadata
+  );
+
+  router.get(
+    "/.well-known/oauth-protected-resource/openai/mcp",
+    handleProtectedResourceMetadata
+  );
+
+  router.get(
+    "/.well-known/oauth-protected-resource/mcp",
+    handleProtectedResourceMetadata
+  );
+
+  router.get(
+    "/.well-known/oauth-protected-resource/trusted-network/mcp",
+    handleProtectedResourceMetadata
+  );
+
+  router.get(
+    "/openai/.well-known/oauth-protected-resource",
+    handleProtectedResourceMetadata
+  );
+
+  router.get(
+    "/mcp/.well-known/oauth-protected-resource",
+    handleProtectedResourceMetadata
+  );
 
   // Protected Resource Metadata discovery routes (RFC 9449 / RFC 9728 / MCP specification)
   router.get("/.well-known/oauth-protected-resource", handleProtectedResourceMetadata);
